@@ -28,6 +28,13 @@ pub enum KdlErrorKind {
     Other,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Error)]
+#[error("Failed to convert from KdlNodeValue::{variant} to {expected}.")]
+pub struct TryFromKdlNodeValueError {
+    pub(crate) expected: &'static str,
+    pub(crate) variant: &'static str,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct KdlParseError<I> {
     pub(crate) input: I,
