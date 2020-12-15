@@ -1,6 +1,6 @@
 # kdl - Kat's Document Language
 
-[kdl](https://github.com/kdoclang/kdl) is a document language, mostly based on [SDLang](https://sdlang.org), with
+[kdl](https://github.com/kdl-org/kdl) is a document language, mostly based on [SDLang](https://sdlang.org), with
 xml-like semantics that looks like you're invoking a bunch of CLI commands!
 
 It's meant to be used both as a serialization format and a configuration
