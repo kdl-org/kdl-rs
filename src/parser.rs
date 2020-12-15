@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use nom::branch::alt;
-use nom::bytes::complete::{is_not, tag, take_until, take_while_m_n};
-use nom::character::complete::{alpha1, alphanumeric1, char, none_of, one_of};
+use nom::bytes::complete::{tag, take_until, take_while_m_n};
+use nom::character::complete::{alpha1, alphanumeric1, anychar, char, none_of, one_of};
 use nom::combinator::{eof, map, map_opt, map_res, opt, recognize, value};
 use nom::multi::{fold_many0, many0, many1};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::IResult;
+use nom::{branch::alt, multi::many_till};
 
 use crate::error::KdlParseError;
 use crate::node::{KdlNode, KdlNodeValue};
@@ -268,8 +268,7 @@ fn node_space(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
 /// `single-line-comment := '//' ('\r' [^\n] | [^\r\n])* (newline | eof)`
 fn single_line_comment(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
     let (input, _) = tag("//")(input)?;
-    let (input, _) = alt((take_until("\r\n"), is_not("\n")))(input)?;
-    let (input, _) = alt((newline, value((), eof)))(input)?;
+    let (input, _) = many_till(value((), anychar), alt((newline, value((), eof))))(input)?;
     Ok((input, ()))
 }
 
@@ -433,6 +432,10 @@ mod tests {
         assert_eq!(single_line_comment("//hello\r\n"), Ok(("", ())));
         assert_eq!(single_line_comment("//hello\n\r"), Ok(("\r", ())));
         assert_eq!(single_line_comment("//hello\rworld"), Ok(("", ())));
+        assert_eq!(
+            single_line_comment("//hello\nworld\r\n"),
+            Ok(("world\r\n", ()))
+        );
     }
 
     #[test]
