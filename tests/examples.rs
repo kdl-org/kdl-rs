@@ -106,3 +106,23 @@ fn test_ci() {
     };
     assert_eq!(doc, Ok(nodes));
 }
+
+#[test]
+fn test_cargo() {
+    let doc = parse_document(include_str!("../examples/cargo.kdl"));
+    let nodes = nodes! {
+        package {
+            name "kdl";
+            version "0.0.0";
+            description "kat's document language";
+            authors "Kat Marchán <kzm@zkat.tech>";
+            "license-file" "LICENSE.md";
+            edition "2018";
+        }
+        dependencies {
+            nom "6.0.1";
+            thiserror "1.0.22";
+        }
+    };
+    assert_eq!(doc, Ok(nodes));
+}
