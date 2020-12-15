@@ -1,12 +1,15 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, iter::from_fn};
 
+use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until, take_while_m_n};
 use nom::character::complete::{alpha1, alphanumeric1, anychar, char, none_of, one_of};
-use nom::combinator::{eof, map, map_opt, map_res, opt, recognize, value};
-use nom::multi::{fold_many0, many0, many1};
+use nom::combinator::{
+    all_consuming, eof, iterator, map, map_opt, map_res, not, opt, recognize, value,
+};
+use nom::multi::{fold_many0, many0, many1, many_till};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
+use nom::Finish;
 use nom::IResult;
-use nom::{branch::alt, multi::many_till};
 
 use crate::error::KdlParseError;
 use crate::node::{KdlNode, KdlNodeValue};
@@ -14,6 +17,44 @@ use crate::node::{KdlNode, KdlNodeValue};
 /// `nodes := linespace* (node (newline document)?)?`
 pub(crate) fn nodes(input: &str) -> IResult<&str, Vec<KdlNode>, KdlParseError<&str>> {
     many0(delimited(many0(linespace), node, newline))(input)
+}
+
+// The following two functions exist for the purposes of translating offsets into line/column pairs
+// for error reporting. We're doing this here so we can make use of our `newline` definition, to
+// ensure line/column information is reported accurately based on our definition of newlines, even
+// if we update our definition of newlines later.
+
+/// Counts all lines in the input up to the final line.
+///
+/// This counts and skips past all lines terminated in `newline` with the exception of the final
+/// line, regardless of whether it's newline-terminated. If the input only contains a single line,
+/// the input will be returned unmodified with a count of `0`.
+pub(crate) fn count_leading_lines(input: &str) -> (&str, usize) {
+    let mut iter = iterator(
+        input,
+        terminated(many_till(value((), anychar), newline), not(eof)),
+    );
+    let count = (&mut iter).count();
+    match iter.finish().finish() {
+        Ok((input, _)) => (input, count),
+        // I don't believe this particular parser can error, but we need to handle it anyway
+        Err(e) => (e.input, count),
+    }
+}
+
+/// Strips a single trailing `newline`, if present, from the input.
+pub(crate) fn strip_trailing_newline(input: &str) -> &str {
+    // Nom doesn't support parsing in reverse, but we want to reuse our newline definition. The
+    // longest newline sequence is 2 characters, so we can just test the last char, and the
+    // second-to-last char, and validate that the parser consumes the full input.
+    let mut idx_iter = input.char_indices().map(|(idx, _)| idx);
+    let mut last = idx_iter.next_back();
+    let mut second_last = idx_iter.next_back();
+    // Start with the second-to-last, otherwise \r\n will be parsed as just the \n.
+    from_fn(|| second_last.take().or_else(|| last.take()))
+        .find(|&idx| all_consuming(newline)(&input[idx..]).is_ok())
+        .map(|idx| &input[..idx])
+        .unwrap_or(input)
 }
 
 #[derive(Clone)]
@@ -472,5 +513,47 @@ mod tests {
         assert_eq!(newline("\n\n"), Ok(("\n", ())));
         assert!(newline("\r").is_err());
         assert!(newline("blah").is_err());
+    }
+
+    #[test]
+    fn test_count_leading_lines() {
+        assert_eq!(count_leading_lines(""), ("", 0));
+        assert_eq!(count_leading_lines("foo"), ("foo", 0));
+        assert_eq!(count_leading_lines("foo\n"), ("foo\n", 0));
+        assert_eq!(count_leading_lines("foo\nbar"), ("bar", 1));
+        assert_eq!(count_leading_lines("foo\nbar\n"), ("bar\n", 1));
+        assert_eq!(count_leading_lines("\nfoo\n\nbar\n"), ("bar\n", 3));
+        assert_eq!(count_leading_lines("foo\r\nbar\r\n"), ("bar\r\n", 1));
+        assert_eq!(count_leading_lines("foo\nbar\rbaz"), ("bar\rbaz", 1));
+        assert_eq!(count_leading_lines("foo\nbar\n\n"), ("\n", 2));
+
+        assert_eq!(
+            count_leading_lines(
+                r#"// This example is a GitHub Action if it used KDL syntax.
+// See .github/workflows/ci.yml for the file this was based on.
+name "CI"
+
+on "push" "pull_request"
+
+env {
+  RUSTFLAGS "-Dwarnings"
+"#
+            ),
+            ("  RUSTFLAGS \"-Dwarnings\"\n", 7)
+        );
+    }
+
+    #[test]
+    fn test_strip_trailing_newline() {
+        assert_eq!(strip_trailing_newline(""), "");
+        assert_eq!(strip_trailing_newline("foo"), "foo");
+        assert_eq!(strip_trailing_newline("foo\n"), "foo");
+        assert_eq!(strip_trailing_newline("foo\n\n"), "foo\n");
+        assert_eq!(strip_trailing_newline("foo\nbar"), "foo\nbar");
+        assert_eq!(strip_trailing_newline("foo\nbar\n"), "foo\nbar");
+        assert_eq!(strip_trailing_newline("foo\r\n"), "foo");
+        assert_eq!(strip_trailing_newline("\n"), "");
+        assert_eq!(strip_trailing_newline("foo\r\n\r"), "foo\r\n\r");
+        assert_eq!(strip_trailing_newline("foo\nx"), "foo\nx");
     }
 }

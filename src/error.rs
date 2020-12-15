@@ -7,7 +7,12 @@ use thiserror::Error;
 #[error("Error parsing document. {kind}")]
 pub struct KdlError {
     pub input: String,
+    /// Offset in chars of the error.
     pub offset: usize,
+    /// 1-based line number of the error.
+    pub line: usize,
+    /// 1-based column number (in chars) of the error.
+    pub column: usize,
     pub kind: KdlErrorKind,
 }
 
