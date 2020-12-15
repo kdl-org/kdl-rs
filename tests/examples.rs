@@ -126,3 +126,11 @@ fn test_cargo() {
     };
     assert_eq!(doc, Ok(nodes));
 }
+
+#[test]
+fn test_nuget() {
+    let doc = parse_document(include_str!("../examples/nuget.kdl"));
+    // This file is particularly large. It would be nice to validate it, but for now
+    // I'm just going to settle for making sure it parses.
+    doc.expect("Parsing failed");
+}
