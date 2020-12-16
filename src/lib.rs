@@ -1,5 +1,5 @@
 use nom::combinator::all_consuming;
-use nom::Err;
+use nom::Finish;
 
 pub use crate::error::{KdlError, KdlErrorKind};
 pub use crate::node::KdlNode;
@@ -13,38 +13,26 @@ where
     I: AsRef<str>,
 {
     let input = &input.as_ref()[..];
-    match all_consuming(parser::nodes)(input) {
-        Ok((_, arg)) => Ok(arg),
-        Err(err) => Err(match err {
-            Err::Error(e) | Err::Failure(e) => {
-                let prefix = &input[..(input.len() - e.input.len())];
-                let (line, column) = calculate_line_column(prefix);
-                KdlError {
-                    input: input.into(),
-                    offset: prefix.chars().count(),
-                    line,
-                    column,
-                    kind: if let Some(kind) = e.kind {
-                        kind
-                    } else if let Some(ctx) = e.context {
-                        KdlErrorKind::Context(ctx)
-                    } else {
-                        KdlErrorKind::Other
-                    },
-                }
+    all_consuming(parser::nodes)(input)
+        .finish()
+        .map(|(_, arg)| arg)
+        .map_err(|e| {
+            let prefix = &input[..(input.len() - e.input.len())];
+            let (line, column) = calculate_line_column(prefix);
+            KdlError {
+                input: input.into(),
+                offset: prefix.chars().count(),
+                line,
+                column,
+                kind: if let Some(kind) = e.kind {
+                    kind
+                } else if let Some(ctx) = e.context {
+                    KdlErrorKind::Context(ctx)
+                } else {
+                    KdlErrorKind::Other
+                },
             }
-            Err::Incomplete(_) => {
-                let (line, column) = calculate_line_column(input);
-                KdlError {
-                    input: input.into(),
-                    offset: input.chars().count(),
-                    line,
-                    column,
-                    kind: KdlErrorKind::IncompleteInput,
-                }
-            }
-        }),
-    }
+        })
 }
 
 /// Calculates the line and column of the end of a `&str`.
