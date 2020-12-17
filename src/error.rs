@@ -4,10 +4,15 @@ use nom::error::{ContextError, ErrorKind, FromExternalError, ParseError};
 
 use thiserror::Error;
 #[derive(Debug, Clone, Eq, PartialEq, Error)]
-#[error("Error parsing document. {kind}")]
+#[error("Error parsing document at line {line} column {column}. {kind}")]
 pub struct KdlError {
     pub input: String,
+    /// Offset in chars of the error.
     pub offset: usize,
+    /// 1-based line number of the error.
+    pub line: usize,
+    /// 1-based column number (in chars) of the error.
+    pub column: usize,
     pub kind: KdlErrorKind,
 }
 
@@ -19,8 +24,6 @@ pub enum KdlErrorKind {
     ParseFloatError(ParseFloatError),
     #[error("Failed to parse {0} component of semver string.")]
     Context(&'static str),
-    #[error("Incomplete input to semver parser.")]
-    IncompleteInput,
     #[error("An unspecified error occurred.")]
     Other,
 }
