@@ -1,17 +1,23 @@
-# kdl - Kat's Document Language
+# KDL - The KDL Document Language
 
-[kdl](https://github.com/kdl-org/kdl) is a document language, mostly based on [SDLang](https://sdlang.org), with
-xml-like semantics that looks like you're invoking a bunch of CLI commands!
+[KDL](https://github.com/kdl-org/kdl) is a document language with xml-like
+semantics that looks like you're invoking a bunch of CLI commands!
 
 It's meant to be used both as a serialization format and a configuration
 language, and is relatively light on syntax compared to XML.
+
+There's a living
+[specification](https://github.com/kdl-org/kdl/blob/main/SPEC.md), as well as
+[various implementations](#implementations). The language is based on
+[SDLang](https://sdlang.org), with a number of modifications and
+clarifications on its syntax and behavior.
 
 This repository is the official/reference implementation in Rust, and
 corresponds to [the kdl crate](https://crates.io/crates/kdl)
 
 ## Design and Discussion
 
-kdl is still extremely new, and discussion about the format should happen over
+KDL is still extremely new, and discussion about the format should happen over
 on the [spec repo's discussions
 page](https://github.com/kdoclang/kdl/discussions). Feel free to jump in and
 give us your 2 cents!
