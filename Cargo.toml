@@ -1,9 +1,13 @@
 [package]
 name = "kdl"
 version = "0.0.0"
-description = "kat's document language"
-authors = ["Kat Marchán <kzm@zkat.tech>"]
+description = "KDL Document Language"
+authors = ["Kat Marchán <kzm@zkat.tech>", "KDL Community"]
 license-file = "LICENSE.md"
+readme = "README.md"
+homepage = "https://kdl.dev"
+repository = "https://github.com/kdl-org/kdl-rs"
+keywords = ["kdl", "document", "serialization", "config"]
 edition = "2018"
 
 [dependencies]
