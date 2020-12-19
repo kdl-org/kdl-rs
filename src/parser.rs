@@ -68,13 +68,13 @@ enum NodeArg {
     Property(String, KdlValue),
 }
 
-/// `node := ('/-' ws*)? identifier (node-space node-props-and-args)* node-space* (node-terminator | node-children)`
+/// `node := ('/-' ws*)? identifier (node-space node-props-and-args)* (node-space* node-children ws*)? node-terminator`
 pub(crate) fn node(input: &str) -> IResult<&str, Option<KdlNode>, KdlParseError<&str>> {
     let (input, comment) = opt(terminated(tag("/-"), many0(whitespace)))(input)?;
     let (input, tag) = identifier(input)?;
     let (input, args) = many0(preceded(node_space, node_prop_or_arg))(input)?;
-    let (input, _) = many0(node_space)(input)?;
-    let (input, children) = alt((value(Vec::new(), node_terminator), node_children))(input)?;
+    let (input, children) = opt(delimited(many0(node_space), node_children, many0(whitespace)))(input)?;
+    let (input, _) = node_terminator(input)?;
     if comment.is_some() {
         Ok((input, None))
     } else {
@@ -86,7 +86,7 @@ pub(crate) fn node(input: &str) -> IResult<&str, Option<KdlNode>, KdlParseError<
             input,
             Some(KdlNode {
                 name: tag,
-                children,
+                children: children.unwrap_or_else(Vec::new),
                 values: values
                     .into_iter()
                     .map(|arg| match arg {
