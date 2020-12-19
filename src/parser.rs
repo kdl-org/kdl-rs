@@ -370,22 +370,56 @@ fn linespace(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
     value((), alt((newline, whitespace, single_line_comment)))(input)
 }
 
-/// `ws := bom | ' ' | '\t' | multi-line-comment`
+/// `ws := bom | unicode-space | multi-line-comment`
 fn whitespace(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
     // TODO: bom?
     value(
         (),
         alt((
-            /*bom,*/ tag(" "),
-            tag("\t"),
+            tag("\u{FEFF}"),
+            unicode_space,
             recognize(multi_line_comment),
         )),
     )(input)
 }
 
-/// `newline := ('\r' '\n') | '\n'`
+fn unicode_space(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
+    alt((
+        tag(" "),
+        tag("\t"),
+        tag("\u{00A0}"),
+        tag("\u{1680}"),
+        tag("\u{2000}"),
+        tag("\u{2001}"),
+        tag("\u{2002}"),
+        tag("\u{2003}"),
+        tag("\u{2004}"),
+        tag("\u{2005}"),
+        tag("\u{2006}"),
+        tag("\u{2007}"),
+        tag("\u{2008}"),
+        tag("\u{2009}"),
+        tag("\u{200A}"),
+        tag("\u{202F}"),
+        tag("\u{205F}"),
+        tag("\u{3000}"),
+    ))(input)
+}
+
+/// `newline := All line-break unicode white_space
 fn newline(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
-    value((), alt((tag("\r\n"), tag("\n"))))(input)
+    value(
+        (),
+        alt((
+            tag("\r\n"),
+            tag("\r"),
+            tag("\n"),
+            tag("\u{0085}"),
+            tag("\u{000C}"),
+            tag("\u{2028}"),
+            tag("\u{2029}"),
+        )),
+    )(input)
 }
 
 #[cfg(test)]
@@ -850,7 +884,7 @@ mod tests {
         assert_eq!(single_line_comment("//hello\n"), Ok(("", ())));
         assert_eq!(single_line_comment("//hello\r\n"), Ok(("", ())));
         assert_eq!(single_line_comment("//hello\n\r"), Ok(("\r", ())));
-        assert_eq!(single_line_comment("//hello\rworld"), Ok(("", ())));
+        assert_eq!(single_line_comment("//hello\rworld"), Ok(("world", ())));
         assert_eq!(
             single_line_comment("//hello\nworld\r\n"),
             Ok(("world\r\n", ()))
@@ -887,9 +921,9 @@ mod tests {
     #[test]
     fn test_newline() {
         assert_eq!(newline("\n"), Ok(("", ())));
+        assert_eq!(newline("\r"), Ok(("", ())));
         assert_eq!(newline("\r\n"), Ok(("", ())));
         assert_eq!(newline("\n\n"), Ok(("\n", ())));
-        assert!(newline("\r").is_err());
         assert!(newline("blah").is_err());
     }
 
@@ -902,7 +936,7 @@ mod tests {
         assert_eq!(count_leading_lines("foo\nbar\n"), ("bar\n", 1));
         assert_eq!(count_leading_lines("\nfoo\n\nbar\n"), ("bar\n", 3));
         assert_eq!(count_leading_lines("foo\r\nbar\r\n"), ("bar\r\n", 1));
-        assert_eq!(count_leading_lines("foo\nbar\rbaz"), ("bar\rbaz", 1));
+        assert_eq!(count_leading_lines("foo\nbar\rbaz"), ("baz", 2));
         assert_eq!(count_leading_lines("foo\nbar\n\n"), ("\n", 2));
 
         assert_eq!(
@@ -931,7 +965,7 @@ env {
         assert_eq!(strip_trailing_newline("foo\nbar\n"), "foo\nbar");
         assert_eq!(strip_trailing_newline("foo\r\n"), "foo");
         assert_eq!(strip_trailing_newline("\n"), "");
-        assert_eq!(strip_trailing_newline("foo\r\n\r"), "foo\r\n\r");
+        assert_eq!(strip_trailing_newline("foo\r\n\r"), "foo\r\n");
         assert_eq!(strip_trailing_newline("foo\nx"), "foo\nx");
     }
 }
