@@ -6,7 +6,7 @@ use nom::character::complete::{alpha1, alphanumeric1, anychar, char, none_of, on
 use nom::combinator::{
     all_consuming, eof, iterator, map, map_opt, map_res, not, opt, recognize, value,
 };
-use nom::multi::{fold_many0, many0, many1, many_till, separated_list0};
+use nom::multi::{fold_many0, many0, many1, many_till};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::Finish;
 use nom::IResult;
@@ -17,7 +17,7 @@ use crate::node::{KdlNode, KdlValue};
 /// `nodes := linespace* (node nodes?)? linespace*`
 pub(crate) fn nodes(input: &str) -> IResult<&str, Vec<KdlNode>, KdlParseError<&str>> {
     let (input, _) = many0(linespace)(input)?;
-    let (input, nodes) = map(separated_list0(many0(linespace), node), |nodes| {
+    let (input, nodes) = map(many0(terminated(node, many0(linespace))), |nodes| {
         nodes.into_iter().filter_map(|node| node).collect()
     })(input)?;
     let (input, _) = many0(linespace)(input)?;
