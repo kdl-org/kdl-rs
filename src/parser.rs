@@ -6,7 +6,7 @@ use nom::character::complete::{alpha1, alphanumeric1, anychar, char, none_of, on
 use nom::combinator::{
     all_consuming, eof, iterator, map, map_opt, map_res, not, opt, recognize, value,
 };
-use nom::multi::{fold_many0, many0, many1, many_till};
+use nom::multi::{fold_many0, many0, many1, many_till, separated_list0};
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::Finish;
 use nom::IResult;
@@ -14,15 +14,14 @@ use nom::IResult;
 use crate::error::KdlParseError;
 use crate::node::{KdlNode, KdlValue};
 
-/// `nodes := linespace* node* linespace*`
+/// `nodes := linespace* (node nodes?)? linespace*`
 pub(crate) fn nodes(input: &str) -> IResult<&str, Vec<KdlNode>, KdlParseError<&str>> {
-    delimited(
-        many0(linespace),
-        map(many0(node), |nodes| {
-            nodes.into_iter().filter_map(|node| node).collect()
-        }),
-        many0(linespace),
-    )(input)
+    let (input, _) = many0(linespace)(input)?;
+    let (input, nodes) = map(separated_list0(many0(linespace), node), |nodes| {
+        nodes.into_iter().filter_map(|node| node).collect()
+    })(input)?;
+    let (input, _) = many0(linespace)(input)?;
+    Ok((input, nodes))
 }
 
 // The following two functions exist for the purposes of translating offsets into line/column pairs
