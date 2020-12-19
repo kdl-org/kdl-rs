@@ -128,10 +128,7 @@ mod tests {
             KdlValue::from("foo".to_owned()),
             KdlValue::String("foo".to_owned())
         );
-        assert_eq!(
-            KdlValue::from("bar"),
-            KdlValue::String("bar".to_owned())
-        );
+        assert_eq!(KdlValue::from("bar"), KdlValue::String("bar".to_owned()));
         assert_eq!(KdlValue::from(true), KdlValue::Boolean(true));
 
         assert_eq!(KdlValue::from(None::<i64>), KdlValue::Null);
