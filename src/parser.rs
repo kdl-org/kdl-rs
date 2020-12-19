@@ -12,7 +12,7 @@ use nom::Finish;
 use nom::IResult;
 
 use crate::error::KdlParseError;
-use crate::node::{KdlNode, KdlNodeValue};
+use crate::node::{KdlNode, KdlValue};
 
 /// `nodes := linespace* node* linespace*`
 pub(crate) fn nodes(input: &str) -> IResult<&str, Vec<KdlNode>, KdlParseError<&str>> {
@@ -65,8 +65,8 @@ pub(crate) fn strip_trailing_newline(input: &str) -> &str {
 
 #[derive(Clone)]
 enum NodeArg {
-    Value(KdlNodeValue),
-    Property(String, KdlNodeValue),
+    Value(KdlValue),
+    Property(String, KdlValue),
 }
 
 /// `node := ('/-' ws*)? identifier (node-space node-props-and-args)* node-space* (node-terminator | node-children)`
@@ -75,10 +75,7 @@ pub(crate) fn node(input: &str) -> IResult<&str, Option<KdlNode>, KdlParseError<
     let (input, tag) = identifier(input)?;
     let (input, args) = many0(preceded(node_space, node_prop_or_arg))(input)?;
     let (input, _) = many0(node_space)(input)?;
-    let (input, children) = alt((
-        value(Vec::new(), node_terminator),
-        node_children,
-    ))(input)?;
+    let (input, children) = alt((value(Vec::new(), node_terminator), node_children))(input)?;
     if comment.is_some() {
         Ok((input, None))
     } else {
@@ -141,7 +138,7 @@ fn node_prop_or_arg(input: &str) -> IResult<&str, Option<NodeArg>, KdlParseError
 }
 
 /// `prop := identifier '=' value`
-fn property(input: &str) -> IResult<&str, (String, KdlNodeValue), KdlParseError<&str>> {
+fn property(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> {
     let (input, key) = identifier(input)?;
     let (input, _) = tag("=")(input)?;
     let (input, val) = node_value(input)?;
@@ -149,19 +146,24 @@ fn property(input: &str) -> IResult<&str, (String, KdlNodeValue), KdlParseError<
 }
 
 /// `value := string | raw_string | number | boolean | 'null'`
-fn node_value(input: &str) -> IResult<&str, KdlNodeValue, KdlParseError<&str>> {
+fn node_value(input: &str) -> IResult<&str, KdlValue, KdlParseError<&str>> {
     alt((
-        map(string, KdlNodeValue::String),
-        map(raw_string, |s| KdlNodeValue::String(s.into())),
+        map(string, KdlValue::String),
+        map(raw_string, |s| KdlValue::String(s.into())),
         number,
         boolean,
-        value(KdlNodeValue::Null, tag("null")),
+        value(KdlValue::Null, tag("null")),
     ))(input)
 }
 
 /// node-terminator := single-line-comment | newline | ';' | eof
 fn node_terminator(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
-    alt((value((), eof), single_line_comment, newline, value((), char(';'))))(input)
+    alt((
+        value((), eof),
+        single_line_comment,
+        newline,
+        value((), char(';')),
+    ))(input)
 }
 
 /// `node-children := ('/-' ws*)? '{' nodes '}'`
@@ -231,13 +233,13 @@ fn raw_string(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
 }
 
 /// `number := decimal | hex | octal | binary`
-fn number(input: &str) -> IResult<&str, KdlNodeValue, KdlParseError<&str>> {
+fn number(input: &str) -> IResult<&str, KdlValue, KdlParseError<&str>> {
     alt((
-        map(integer, KdlNodeValue::Int),
-        map(hexadecimal, KdlNodeValue::Int),
-        map(octal, KdlNodeValue::Int),
-        map(binary, KdlNodeValue::Int),
-        map(float, KdlNodeValue::Float),
+        map(integer, KdlValue::Int),
+        map(hexadecimal, KdlValue::Int),
+        map(octal, KdlValue::Int),
+        map(binary, KdlValue::Int),
+        map(float, KdlValue::Float),
     ))(input)
 }
 
@@ -325,10 +327,10 @@ fn binary(input: &str) -> IResult<&str, i64, KdlParseError<&str>> {
 }
 
 /// `boolean := 'true' | 'false'`
-fn boolean(input: &str) -> IResult<&str, KdlNodeValue, KdlParseError<&str>> {
+fn boolean(input: &str) -> IResult<&str, KdlValue, KdlParseError<&str>> {
     alt((
-        value(KdlNodeValue::Boolean(true), tag("true")),
-        value(KdlNodeValue::Boolean(false), tag("false")),
+        value(KdlValue::Boolean(true), tag("true")),
+        value(KdlValue::Boolean(false), tag("false")),
     ))(input)
 }
 
@@ -388,6 +390,173 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_nodes() {
+        assert_eq!(
+            nodes("node"),
+            Ok((
+                "",
+                vec![KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                }]
+            ))
+        );
+        assert_eq!(
+            nodes("node\n"),
+            Ok((
+                "",
+                vec![KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                }]
+            ))
+        );
+        assert_eq!(
+            nodes("\nnode\n"),
+            Ok((
+                "",
+                vec![KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                }]
+            ))
+        );
+        assert_eq!(
+            nodes("node1\nnode2"),
+            Ok((
+                "",
+                vec![
+                    KdlNode {
+                        name: "node1".into(),
+                        values: Vec::new(),
+                        properties: HashMap::new(),
+                        children: Vec::new(),
+                    },
+                    KdlNode {
+                        name: "node2".into(),
+                        values: Vec::new(),
+                        properties: HashMap::new(),
+                        children: Vec::new(),
+                    }
+                ]
+            ))
+        );
+    }
+
+    #[test]
+    fn test_node() {
+        assert_eq!(
+            node("node"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+        assert_eq!(
+            node("node\n"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+        assert_eq!(
+            node("node;"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+        assert_eq!(
+            node("node 1"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: vec![KdlValue::Int(1)],
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+        assert_eq!(
+            node("node 1 2 \"3\" true false null"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: vec![
+                        KdlValue::Int(1),
+                        KdlValue::Int(2),
+                        KdlValue::String("3".into()),
+                        KdlValue::Boolean(true),
+                        KdlValue::Boolean(false),
+                        KdlValue::Null
+                    ],
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+
+        assert_eq!(
+            node("node {\n  node2\n}"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: vec![KdlNode {
+                        name: "node2".into(),
+                        values: Vec::new(),
+                        properties: HashMap::new(),
+                        children: Vec::new()
+                    }]
+                })
+            ))
+        );
+
+        assert_eq!(
+            node("node { node2; }"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: vec![KdlNode {
+                        name: "node2".into(),
+                        values: Vec::new(),
+                        properties: HashMap::new(),
+                        children: Vec::new()
+                    }]
+                })
+            ))
+        );
+    }
+
+    #[test]
     fn test_node_slashdash_comment() {
         assert_eq!(node("/-node"), Ok(("", None)));
         assert_eq!(node("/- node"), Ok(("", None)));
@@ -395,93 +564,168 @@ mod tests {
         assert_eq!(node("/-node 1 2 3"), Ok(("", None)));
         assert_eq!(node("/-node key=false"), Ok(("", None)));
         assert_eq!(node("/-node{\nnode\n}"), Ok(("", None)));
-        assert_eq!(node("/-node 1 2 3 key=\"value\" \\\n{\nnode\n}"), Ok(("", None)));
+        assert_eq!(
+            node("/-node 1 2 3 key=\"value\" \\\n{\nnode\n}"),
+            Ok(("", None))
+        );
     }
 
     #[test]
     fn test_arg_slashdash_comment() {
-        assert_eq!(node("node /-1"), Ok(("", Some(KdlNode {
-            name: "node".into(),
-            values: Vec::new(),
-            properties: HashMap::new(),
-            children: Vec::new(),
-        }))));
-        assert_eq!(node("node /-1 2"), Ok(("", Some(KdlNode {
-            name: "node".into(),
-            values: vec![KdlNodeValue::Int(2)],
-            properties: HashMap::new(),
-            children: Vec::new(),
-        }))));
-        assert_eq!(node("node 1 /- 2 3"), Ok(("", Some(KdlNode {
-            name: "node".into(),
-            values: vec![KdlNodeValue::Int(1), KdlNodeValue::Int(3)],
-            properties: HashMap::new(),
-            children: Vec::new(),
-        }))));
-        assert_eq!(node("node /--1"), Ok(("", Some(KdlNode {
-            name: "node".into(),
-            values: Vec::new(),
-            properties: HashMap::new(),
-            children: Vec::new(),
-        }))));
-        assert_eq!(node("node /- -1"), Ok(("", Some(KdlNode {
-            name: "node".into(),
-            values: Vec::new(),
-            properties: HashMap::new(),
-            children: Vec::new(),
-        }))));
-        assert_eq!(node("node \\\n/- -1"), Ok(("", Some(KdlNode {
-            name: "node".into(),
-            values: Vec::new(),
-            properties: HashMap::new(),
-            children: Vec::new(),
-        }))));
+        assert_eq!(
+            node("node /-1"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+        assert_eq!(
+            node("node /-1 2"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: vec![KdlValue::Int(2)],
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+        assert_eq!(
+            node("node 1 /- 2 3"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: vec![KdlValue::Int(1), KdlValue::Int(3)],
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+        assert_eq!(
+            node("node /--1"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+        assert_eq!(
+            node("node /- -1"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+        assert_eq!(
+            node("node \\\n/- -1"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
     }
 
     #[test]
     fn test_prop_slashdash_comment() {
         let mut properties = HashMap::new();
-        properties.insert("key".to_owned(), KdlNodeValue::Int(1));
-        assert_eq!(node("node /-key=1"), Ok(("", Some(KdlNode {
-            name: "node".into(),
-            values: Vec::new(),
-            properties: HashMap::new(),
-            children: Vec::new(),
-        }))));
-        assert_eq!(node("node /- key=1"), Ok(("", Some(KdlNode {
-            name: "node".into(),
-            values: Vec::new(),
-            properties: HashMap::new(),
-            children: Vec::new(),
-        }))));
-        assert_eq!(node("node key=1 /-key2=2"), Ok(("", Some(KdlNode {
-            name: "node".into(),
-            values: Vec::new(),
-            properties,
-            children: Vec::new(),
-        }))));
+        properties.insert("key".to_owned(), KdlValue::Int(1));
+        assert_eq!(
+            node("node /-key=1"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+        assert_eq!(
+            node("node /- key=1"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+        assert_eq!(
+            node("node key=1 /-key2=2"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties,
+                    children: Vec::new(),
+                })
+            ))
+        );
     }
 
     #[test]
     fn test_children_slashdash_comment() {
-        assert_eq!(node("node /-{}"), Ok(("", Some(KdlNode {
-            name: "node".into(),
-            values: Vec::new(),
-            properties: HashMap::new(),
-            children: Vec::new(),
-        }))));
-        assert_eq!(node("node /- {}"), Ok(("", Some(KdlNode {
-            name: "node".into(),
-            values: Vec::new(),
-            properties: HashMap::new(),
-            children: Vec::new(),
-        }))));
-        assert_eq!(node("node /-{\nnode2\n}"), Ok(("", Some(KdlNode {
-            name: "node".into(),
-            values: Vec::new(),
-            properties: HashMap::new(),
-            children: Vec::new(),
-        }))));
+        assert_eq!(
+            node("node /-{}"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+        assert_eq!(
+            node("node /- {}"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
+        assert_eq!(
+            node("node /-{\nnode2\n}"),
+            Ok((
+                "",
+                Some(KdlNode {
+                    name: "node".into(),
+                    values: Vec::new(),
+                    properties: HashMap::new(),
+                    children: Vec::new(),
+                })
+            ))
+        );
     }
 
     #[test]
@@ -583,8 +827,8 @@ mod tests {
 
     #[test]
     fn test_boolean() {
-        assert_eq!(boolean("true"), Ok(("", KdlNodeValue::Boolean(true))));
-        assert_eq!(boolean("false"), Ok(("", KdlNodeValue::Boolean(false))));
+        assert_eq!(boolean("true"), Ok(("", KdlValue::Boolean(true))));
+        assert_eq!(boolean("false"), Ok(("", KdlValue::Boolean(false))));
         assert!(boolean("blah").is_err());
     }
 

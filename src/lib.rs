@@ -2,7 +2,7 @@ use nom::combinator::all_consuming;
 use nom::Finish;
 
 pub use crate::error::{KdlError, KdlErrorKind, TryFromKdlNodeValueError};
-pub use crate::node::{KdlNode, KdlNodeValue};
+pub use crate::node::{KdlNode, KdlValue};
 
 mod error;
 mod node;
