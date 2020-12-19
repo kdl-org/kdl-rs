@@ -14,9 +14,15 @@ use nom::IResult;
 use crate::error::KdlParseError;
 use crate::node::{KdlNode, KdlNodeValue};
 
-/// `nodes := linespace* (node (newline document)?)?`
+/// `nodes := linespace* node* linespace*`
 pub(crate) fn nodes(input: &str) -> IResult<&str, Vec<KdlNode>, KdlParseError<&str>> {
-    many0(delimited(many0(linespace), node, newline))(input)
+    delimited(
+        many0(linespace),
+        map(many0(node), |nodes| {
+            nodes.into_iter().filter_map(|node| node).collect()
+        }),
+        many0(linespace),
+    )(input)
 }
 
 // The following two functions exist for the purposes of translating offsets into line/column pairs
@@ -63,37 +69,47 @@ enum NodeArg {
     Property(String, KdlNodeValue),
 }
 
-/// `node := identifier (node-space node-argument)* (node-space node-document)?`
-pub(crate) fn node(input: &str) -> IResult<&str, KdlNode, KdlParseError<&str>> {
+/// `node := ('/-' ws*)? identifier (node-space node-props-and-args)* node-space* (node-terminator | node-children)`
+pub(crate) fn node(input: &str) -> IResult<&str, Option<KdlNode>, KdlParseError<&str>> {
+    let (input, comment) = opt(terminated(tag("/-"), many0(whitespace)))(input)?;
     let (input, tag) = identifier(input)?;
-    let (input, args) = many0(preceded(node_space, node_arg))(input)?;
-    let (input, children) = opt(preceded(node_space, node_children))(input)?;
-    let (values, properties): (Vec<NodeArg>, Vec<NodeArg>) = args
-        .into_iter()
-        .partition(|arg| matches!(arg, NodeArg::Value(_)));
-    Ok((
-        input,
-        KdlNode {
-            name: tag,
-            children: children.unwrap_or_else(Vec::new),
-            values: values
-                .into_iter()
-                .map(|arg| match arg {
-                    NodeArg::Value(val) => val,
-                    _ => unreachable!(),
-                })
-                .collect(),
-            properties: properties.into_iter().fold(HashMap::new(), |mut acc, arg| {
-                match arg {
-                    NodeArg::Property(key, value) => {
-                        acc.insert(key, value);
+    let (input, args) = many0(preceded(node_space, node_prop_or_arg))(input)?;
+    let (input, _) = many0(node_space)(input)?;
+    let (input, children) = alt((
+        value(Vec::new(), node_terminator),
+        node_children,
+    ))(input)?;
+    if comment.is_some() {
+        Ok((input, None))
+    } else {
+        let (values, properties): (Vec<NodeArg>, Vec<NodeArg>) = args
+            .into_iter()
+            .filter_map(|n| n)
+            .partition(|arg| matches!(arg, NodeArg::Value(_)));
+        Ok((
+            input,
+            Some(KdlNode {
+                name: tag,
+                children,
+                values: values
+                    .into_iter()
+                    .map(|arg| match arg {
+                        NodeArg::Value(val) => val,
+                        _ => unreachable!(),
+                    })
+                    .collect(),
+                properties: properties.into_iter().fold(HashMap::new(), |mut acc, arg| {
+                    match arg {
+                        NodeArg::Property(key, value) => {
+                            acc.insert(key, value);
+                        }
+                        _ => unreachable!(),
                     }
-                    _ => unreachable!(),
-                }
-                acc
+                    acc
+                }),
             }),
-        },
-    ))
+        ))
+    }
 }
 
 /// `identifier := [a-zA-Z_] [a-zA-Z0-9!$%&'*+\-./:<>?@\^_|~]* | string`
@@ -110,11 +126,18 @@ fn identifier(input: &str) -> IResult<&str, String, KdlParseError<&str>> {
     ))(input)
 }
 
-fn node_arg(input: &str) -> IResult<&str, NodeArg, KdlParseError<&str>> {
-    alt((
+/// `node-props-and-args := ('/-' ws*)? (prop | value)`
+fn node_prop_or_arg(input: &str) -> IResult<&str, Option<NodeArg>, KdlParseError<&str>> {
+    let (input, comment) = opt(terminated(tag("/-"), many0(whitespace)))(input)?;
+    let (input, proparg) = alt((
         map(property, |(key, val)| NodeArg::Property(key, val)),
         map(node_value, NodeArg::Value),
-    ))(input)
+    ))(input)?;
+    if comment.is_some() {
+        Ok((input, None))
+    } else {
+        Ok((input, Some(proparg)))
+    }
 }
 
 /// `prop := identifier '=' value`
@@ -136,9 +159,20 @@ fn node_value(input: &str) -> IResult<&str, KdlNodeValue, KdlParseError<&str>> {
     ))(input)
 }
 
-/// `node-children := '{' nodes '}'`
+/// node-terminator := single-line-comment | newline | ';' | eof
+fn node_terminator(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
+    alt((value((), eof), single_line_comment, newline, value((), char(';'))))(input)
+}
+
+/// `node-children := ('/-' ws*)? '{' nodes '}'`
 fn node_children(input: &str) -> IResult<&str, Vec<KdlNode>, KdlParseError<&str>> {
-    delimited(tag("{"), nodes, tag("}"))(input)
+    let (input, comment) = opt(terminated(tag("/-"), many0(whitespace)))(input)?;
+    let (input, children) = delimited(tag("{"), nodes, tag("}"))(input)?;
+    if comment.is_some() {
+        Ok((input, Vec::new()))
+    } else {
+        Ok((input, children))
+    }
 }
 
 /// `string := '"' character* '"'`
@@ -352,6 +386,103 @@ fn newline(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_node_slashdash_comment() {
+        assert_eq!(node("/-node"), Ok(("", None)));
+        assert_eq!(node("/- node"), Ok(("", None)));
+        assert_eq!(node("/- node\n"), Ok(("", None)));
+        assert_eq!(node("/-node 1 2 3"), Ok(("", None)));
+        assert_eq!(node("/-node key=false"), Ok(("", None)));
+        assert_eq!(node("/-node{\nnode\n}"), Ok(("", None)));
+        assert_eq!(node("/-node 1 2 3 key=\"value\" \\\n{\nnode\n}"), Ok(("", None)));
+    }
+
+    #[test]
+    fn test_arg_slashdash_comment() {
+        assert_eq!(node("node /-1"), Ok(("", Some(KdlNode {
+            name: "node".into(),
+            values: Vec::new(),
+            properties: HashMap::new(),
+            children: Vec::new(),
+        }))));
+        assert_eq!(node("node /-1 2"), Ok(("", Some(KdlNode {
+            name: "node".into(),
+            values: vec![KdlNodeValue::Int(2)],
+            properties: HashMap::new(),
+            children: Vec::new(),
+        }))));
+        assert_eq!(node("node 1 /- 2 3"), Ok(("", Some(KdlNode {
+            name: "node".into(),
+            values: vec![KdlNodeValue::Int(1), KdlNodeValue::Int(3)],
+            properties: HashMap::new(),
+            children: Vec::new(),
+        }))));
+        assert_eq!(node("node /--1"), Ok(("", Some(KdlNode {
+            name: "node".into(),
+            values: Vec::new(),
+            properties: HashMap::new(),
+            children: Vec::new(),
+        }))));
+        assert_eq!(node("node /- -1"), Ok(("", Some(KdlNode {
+            name: "node".into(),
+            values: Vec::new(),
+            properties: HashMap::new(),
+            children: Vec::new(),
+        }))));
+        assert_eq!(node("node \\\n/- -1"), Ok(("", Some(KdlNode {
+            name: "node".into(),
+            values: Vec::new(),
+            properties: HashMap::new(),
+            children: Vec::new(),
+        }))));
+    }
+
+    #[test]
+    fn test_prop_slashdash_comment() {
+        let mut properties = HashMap::new();
+        properties.insert("key".to_owned(), KdlNodeValue::Int(1));
+        assert_eq!(node("node /-key=1"), Ok(("", Some(KdlNode {
+            name: "node".into(),
+            values: Vec::new(),
+            properties: HashMap::new(),
+            children: Vec::new(),
+        }))));
+        assert_eq!(node("node /- key=1"), Ok(("", Some(KdlNode {
+            name: "node".into(),
+            values: Vec::new(),
+            properties: HashMap::new(),
+            children: Vec::new(),
+        }))));
+        assert_eq!(node("node key=1 /-key2=2"), Ok(("", Some(KdlNode {
+            name: "node".into(),
+            values: Vec::new(),
+            properties,
+            children: Vec::new(),
+        }))));
+    }
+
+    #[test]
+    fn test_children_slashdash_comment() {
+        assert_eq!(node("node /-{}"), Ok(("", Some(KdlNode {
+            name: "node".into(),
+            values: Vec::new(),
+            properties: HashMap::new(),
+            children: Vec::new(),
+        }))));
+        assert_eq!(node("node /- {}"), Ok(("", Some(KdlNode {
+            name: "node".into(),
+            values: Vec::new(),
+            properties: HashMap::new(),
+            children: Vec::new(),
+        }))));
+        assert_eq!(node("node /-{\nnode2\n}"), Ok(("", Some(KdlNode {
+            name: "node".into(),
+            values: Vec::new(),
+            properties: HashMap::new(),
+            children: Vec::new(),
+        }))));
+    }
 
     #[test]
     fn test_string() {
