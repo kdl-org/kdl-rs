@@ -109,7 +109,7 @@ fn test_ci() {
 
 #[test]
 fn test_cargo() {
-    let doc = parse_document(include_str!("../examples/cargo.kdl"));
+    let doc = parse_document(include_str!("../examples/Cargo.kdl"));
     let nodes = nodes! {
         package {
             name "kdl";
