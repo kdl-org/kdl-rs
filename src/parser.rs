@@ -73,7 +73,11 @@ pub(crate) fn node(input: &str) -> IResult<&str, Option<KdlNode>, KdlParseError<
     let (input, comment) = opt(terminated(tag("/-"), many0(whitespace)))(input)?;
     let (input, tag) = identifier(input)?;
     let (input, args) = many0(preceded(node_space, node_prop_or_arg))(input)?;
-    let (input, children) = opt(delimited(many0(node_space), node_children, many0(whitespace)))(input)?;
+    let (input, children) = opt(delimited(
+        many0(node_space),
+        node_children,
+        many0(whitespace),
+    ))(input)?;
     let (input, _) = node_terminator(input)?;
     if comment.is_some() {
         Ok((input, None))
