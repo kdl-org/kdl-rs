@@ -12,7 +12,7 @@ pub fn parse_document<I>(input: I) -> Result<Vec<KdlNode>, KdlError>
 where
     I: AsRef<str>,
 {
-    let input = &input.as_ref()[..];
+    let input = input.as_ref();
     all_consuming(parser::nodes)(input)
         .finish()
         .map(|(_, arg)| arg)
