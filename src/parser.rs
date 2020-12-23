@@ -112,16 +112,18 @@ pub(crate) fn node(input: &str) -> IResult<&str, Option<KdlNode>, KdlParseError<
     }
 }
 
-/// `identifier := [a-zA-Z_] [a-zA-Z0-9!$%&'*+\-./:<>?@\^_|~]* | string`
+/// `bare_identifier := [a-zA-Z_] [a-zA-Z0-9!$%&'*+\-./:<>?@\^_|~]*`
+pub (crate) fn bare_identifier(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
+    recognize(pair(
+        alt((alpha1, tag("_"))),
+        many0(alt((alphanumeric1, recognize(one_of("~!@$%^&*-_+./:<>?"))))),
+    ))(input)
+}
+
+/// `identifier := bare_identifier | string`
 fn identifier(input: &str) -> IResult<&str, String, KdlParseError<&str>> {
     alt((
-        map(
-            recognize(pair(
-                alt((alpha1, tag("_"))),
-                many0(alt((alphanumeric1, recognize(one_of("~!@$%^&*-_+./:<>?"))))),
-            )),
-            String::from,
-        ),
+        map(bare_identifier, String::from),
         string,
     ))(input)
 }
