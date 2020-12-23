@@ -1,4 +1,4 @@
-use std::{fmt, collections::HashMap, convert::TryFrom};
+use std::{collections::HashMap, convert::TryFrom, fmt};
 
 use crate::TryFromKdlNodeValueError;
 
@@ -27,29 +27,28 @@ impl fmt::Display for KdlNode {
 
 impl KdlNode {
     fn write(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
-
-        write!(f, "{:indent$}", "", indent=indent)?;
+        write!(f, "{:indent$}", "", indent = indent)?;
 
         display_identifier(f, &self.name)?;
         for arg in &self.values {
             write!(f, " {}", arg)?;
         }
-        for (prop,value) in &self.properties {
+        for (prop, value) in &self.properties {
             write!(f, " ")?;
             display_identifier(f, prop)?;
             write!(f, "={}", value)?;
         }
 
-        if self.children.len() == 0 {
-            return Ok(())
+        if self.children.is_empty() {
+            return Ok(());
         }
 
         writeln!(f, " {{")?;
         for child in &self.children {
-            child.write(f, indent+2)?;
-            writeln!(f,"")?;
+            child.write(f, indent + 2)?;
+            writeln!(f)?;
         }
-        write!(f,"}}")?;
+        write!(f, "}}")?;
 
         Ok(())
     }
@@ -70,8 +69,7 @@ impl fmt::Display for KdlValue {
 fn display_identifier(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
     if let Ok(("", identifier)) = crate::parser::bare_identifier(s) {
         write!(f, "{}", identifier)
-    }
-    else {
+    } else {
         display_string(f, s)
     }
 }
@@ -95,7 +93,7 @@ fn display_string(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
     if current > longest {
         longest = current;
     }
-    
+
     write!(f, "r")?;
 
     for _ in 0..longest {
@@ -107,7 +105,7 @@ fn display_string(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
     for _ in 0..longest {
         write!(f, "#")?;
     }
-    
+
     Ok(())
 }
 
@@ -219,8 +217,14 @@ mod tests {
         assert_eq!("true", format!("{}", KdlValue::Boolean(true)));
         assert_eq!("false", format!("{}", KdlValue::Boolean(false)));
         assert_eq!("null", format!("{}", KdlValue::Null));
-        assert_eq!(r#"r"foo""#, format!("{}", KdlValue::String("foo".to_owned())));
-        assert_eq!(r##"r#"foo "bar" baz"#"##, format!("{}", KdlValue::String(r#"foo "bar" baz"#.to_owned())));
+        assert_eq!(
+            r#"r"foo""#,
+            format!("{}", KdlValue::String("foo".to_owned()))
+        );
+        assert_eq!(
+            r##"r#"foo "bar" baz"#"##,
+            format!("{}", KdlValue::String(r#"foo "bar" baz"#.to_owned()))
+        );
     }
 
     #[test]
@@ -241,25 +245,28 @@ mod tests {
     fn display_nested_node() {
         let value = KdlNode {
             name: "foo".into(),
-            values: vec![ 1.into(), "two".into() ],
+            values: vec![1.into(), "two".into()],
             properties: HashMap::new(),
             children: vec![
                 KdlNode {
                     name: "bar".into(),
-                    values: vec![ 1.into() ],
+                    values: vec![1.into()],
                     properties: HashMap::new(),
                     children: vec![],
                 },
                 KdlNode {
                     name: "baz".into(),
-                    values: vec![ 2.into() ],
+                    values: vec![2.into()],
                     properties: HashMap::new(),
                     children: vec![],
                 },
             ],
         };
 
-        assert_eq!("foo 1 r\"two\" {\n  bar 1\n  baz 2\n}", format!("{}", value));
+        assert_eq!(
+            "foo 1 r\"two\" {\n  bar 1\n  baz 2\n}",
+            format!("{}", value)
+        );
     }
 
     #[test]
