@@ -45,10 +45,10 @@ impl KdlNode {
 
         writeln!(f, " {{")?;
         for child in &self.children {
-            child.write(f, indent + 2)?;
+            child.write(f, indent + 4)?;
             writeln!(f)?;
         }
-        write!(f, "}}")?;
+        write!(f, "{:indent$}}}", "", indent = indent)?;
 
         Ok(())
     }
@@ -75,37 +75,14 @@ fn display_identifier(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
 }
 
 fn display_string(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
-    let mut longest = 0;
-    let mut current = 0;
-
+    write!(f, "\"")?;
     for c in s.chars() {
-        match c {
-            '"' => current = 1,
-            '#' if current > 0 => current += 1,
-            _ if current > longest => {
-                longest = current;
-                current = 0;
-            }
-            _ => current = 0,
+        match crate::parser::ESCAPE_CHARS.1.get(&c) {
+            None => write!(f, "{}", c)?,
+            Some(c) => write!(f, "\\{}", c)?,
         }
     }
-
-    if current > longest {
-        longest = current;
-    }
-
-    write!(f, "r")?;
-
-    for _ in 0..longest {
-        write!(f, "#")?;
-    }
-
-    write!(f, "\"{}\"", s)?;
-
-    for _ in 0..longest {
-        write!(f, "#")?;
-    }
-
+    write!(f, "\"")?;
     Ok(())
 }
 
@@ -218,11 +195,11 @@ mod tests {
         assert_eq!("false", format!("{}", KdlValue::Boolean(false)));
         assert_eq!("null", format!("{}", KdlValue::Null));
         assert_eq!(
-            r#"r"foo""#,
+            r#""foo""#,
             format!("{}", KdlValue::String("foo".to_owned()))
         );
         assert_eq!(
-            r##"r#"foo "bar" baz"#"##,
+            r#""foo \"bar\" baz""#,
             format!("{}", KdlValue::String(r#"foo "bar" baz"#.to_owned()))
         );
     }
@@ -238,34 +215,52 @@ mod tests {
 
         value.properties.insert("three".to_owned(), 3.into());
 
-        assert_eq!(r#"foo 1 r"two" three=3"#, format!("{}", value));
+        assert_eq!(r#"foo 1 "two" three=3"#, format!("{}", value));
     }
 
     #[test]
     fn display_nested_node() {
         let value = KdlNode {
-            name: "foo".into(),
-            values: vec![1.into(), "two".into()],
+            name: "a1".into(),
+            values: vec!["a".into(), 1.into()],
             properties: HashMap::new(),
             children: vec![
                 KdlNode {
-                    name: "bar".into(),
-                    values: vec![1.into()],
+                    name: "b1".into(),
+                    values: vec!["b".into(), 1.into()],
                     properties: HashMap::new(),
-                    children: vec![],
+                    children: vec![KdlNode {
+                        name: "c1".into(),
+                        values: vec!["c".into(), 1.into()],
+                        properties: HashMap::new(),
+                        children: vec![],
+                    }],
                 },
                 KdlNode {
-                    name: "baz".into(),
-                    values: vec![2.into()],
+                    name: "b2".into(),
+                    values: vec!["b".into(), 2.into()],
                     properties: HashMap::new(),
-                    children: vec![],
+                    children: vec![KdlNode {
+                        name: "c2".into(),
+                        values: vec!["c".into(), 2.into()],
+                        properties: HashMap::new(),
+                        children: vec![],
+                    }],
                 },
             ],
         };
 
         assert_eq!(
-            "foo 1 r\"two\" {\n  bar 1\n  baz 2\n}",
-            format!("{}", value)
+            r#"
+a1 "a" 1 {
+    b1 "b" 1 {
+        c1 "c" 1
+    }
+    b2 "b" 2 {
+        c2 "c" 2
+    }
+}"#,
+            format!("\n{}", value)
         );
     }
 

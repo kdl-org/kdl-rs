@@ -196,18 +196,30 @@ fn character(input: &str) -> IResult<&str, char, KdlParseError<&str>> {
     alt((preceded(char('\\'), escape), none_of("\\\"")))(input)
 }
 
+// creates a (map, inverse map) tuple
+macro_rules! bimap {
+    ($($x:expr => $y:expr),+) => {
+        (phf::phf_map!($($x => $y),+), phf::phf_map!($($y => $x),+))
+    }
+}
+
+/// a map and its inverse of escape-sequence<->char
+pub(crate) static ESCAPE_CHARS: (phf::Map<char, char>, phf::Map<char, char>) = bimap! {
+    '"' => '"',
+    '\\' => '\\',
+    '/' => '/',
+    'b' => '\u{08}',
+    'f' => '\u{0C}',
+    'n' => '\n',
+    'r' => '\r',
+    't' => '\t'
+};
+
 /// `escape := ["\\/bfnrt] | 'u{' hex-digit{1, 6} '}'`
 fn escape(input: &str) -> IResult<&str, char, KdlParseError<&str>> {
     alt((
         delimited(tag("u{"), unicode, char('}')),
-        value('"', char('"')),
-        value('\\', char('\\')),
-        value('/', char('/')),
-        value('\u{08}', char('b')),
-        value('\u{0C}', char('f')),
-        value('\n', char('n')),
-        value('\r', char('r')),
-        value('\t', char('t')),
+        map_opt(anychar, |c| ESCAPE_CHARS.0.get(&c).copied()),
     ))(input)
 }
 
