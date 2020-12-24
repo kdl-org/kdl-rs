@@ -1,4 +1,4 @@
-use std::{collections::HashMap, convert::TryFrom};
+use std::{collections::HashMap, convert::TryFrom, fmt};
 
 use crate::TryFromKdlNodeValueError;
 
@@ -17,6 +17,73 @@ pub enum KdlValue {
     String(String),
     Boolean(bool),
     Null,
+}
+
+impl fmt::Display for KdlNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.write(f, 0)
+    }
+}
+
+impl KdlNode {
+    fn write(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
+        write!(f, "{:indent$}", "", indent = indent)?;
+
+        display_identifier(f, &self.name)?;
+        for arg in &self.values {
+            write!(f, " {}", arg)?;
+        }
+        for (prop, value) in &self.properties {
+            write!(f, " ")?;
+            display_identifier(f, prop)?;
+            write!(f, "={}", value)?;
+        }
+
+        if self.children.is_empty() {
+            return Ok(());
+        }
+
+        writeln!(f, " {{")?;
+        for child in &self.children {
+            child.write(f, indent + 4)?;
+            writeln!(f)?;
+        }
+        write!(f, "{:indent$}}}", "", indent = indent)?;
+
+        Ok(())
+    }
+}
+impl fmt::Display for KdlValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use KdlValue::*;
+        match self {
+            Int(x) => write!(f, "{}", x),
+            Float(x) => write!(f, "{}", x),
+            String(x) => display_string(f, x),
+            Boolean(x) => write!(f, "{}", x),
+            Null => write!(f, "null"),
+        }
+    }
+}
+
+fn display_identifier(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
+    if let Ok(("", identifier)) = crate::parser::bare_identifier(s) {
+        write!(f, "{}", identifier)
+    } else {
+        display_string(f, s)
+    }
+}
+
+fn display_string(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
+    write!(f, "\"")?;
+    for c in s.chars() {
+        match crate::parser::ESCAPE_CHARS.1.get(&c) {
+            None => write!(f, "{}", c)?,
+            Some(c) => write!(f, "\\{}", c)?,
+        }
+    }
+    write!(f, "\"")?;
+    Ok(())
 }
 
 // Support conversions from base types into KdlNodeValue
@@ -119,6 +186,83 @@ impl_try_from!(&, bool, KdlValue::Boolean(v) => *v; Int, Float, String);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_value() {
+        assert_eq!("1", format!("{}", KdlValue::Int(1)));
+        assert_eq!("1.5", format!("{}", KdlValue::Float(1.5)));
+        assert_eq!("true", format!("{}", KdlValue::Boolean(true)));
+        assert_eq!("false", format!("{}", KdlValue::Boolean(false)));
+        assert_eq!("null", format!("{}", KdlValue::Null));
+        assert_eq!(
+            r#""foo""#,
+            format!("{}", KdlValue::String("foo".to_owned()))
+        );
+        assert_eq!(
+            r#""foo \"bar\" baz""#,
+            format!("{}", KdlValue::String(r#"foo "bar" baz"#.to_owned()))
+        );
+    }
+
+    #[test]
+    fn display_node() {
+        let mut value = KdlNode {
+            name: "foo".into(),
+            values: vec![1.into(), "two".into()],
+            properties: HashMap::new(),
+            children: vec![],
+        };
+
+        value.properties.insert("three".to_owned(), 3.into());
+
+        assert_eq!(r#"foo 1 "two" three=3"#, format!("{}", value));
+    }
+
+    #[test]
+    fn display_nested_node() {
+        let value = KdlNode {
+            name: "a1".into(),
+            values: vec!["a".into(), 1.into()],
+            properties: HashMap::new(),
+            children: vec![
+                KdlNode {
+                    name: "b1".into(),
+                    values: vec!["b".into(), 1.into()],
+                    properties: HashMap::new(),
+                    children: vec![KdlNode {
+                        name: "c1".into(),
+                        values: vec!["c".into(), 1.into()],
+                        properties: HashMap::new(),
+                        children: vec![],
+                    }],
+                },
+                KdlNode {
+                    name: "b2".into(),
+                    values: vec!["b".into(), 2.into()],
+                    properties: HashMap::new(),
+                    children: vec![KdlNode {
+                        name: "c2".into(),
+                        values: vec!["c".into(), 2.into()],
+                        properties: HashMap::new(),
+                        children: vec![],
+                    }],
+                },
+            ],
+        };
+
+        assert_eq!(
+            r#"
+a1 "a" 1 {
+    b1 "b" 1 {
+        c1 "c" 1
+    }
+    b2 "b" 2 {
+        c2 "c" 2
+    }
+}"#,
+            format!("\n{}", value)
+        );
+    }
 
     #[test]
     fn from() {
