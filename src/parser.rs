@@ -359,8 +359,8 @@ fn node_space(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
 /// `single-line-comment := '//' ('\r' [^\n] | [^\r\n])* (newline | eof)`
 fn single_line_comment(input: &str) -> IResult<&str, KdlComment, KdlParseError<&str>> {
     let (input, _) = tag("//")(input)?;
-    let (input, _) = many_till(value((), anychar), alt((newline, value((), eof))))(input)?;
-    Ok((input, KdlComment::Single))
+    let (input, (chars, _)) = many_till(anychar, alt((newline, value((), eof))))(input)?;
+    Ok((input, KdlComment::Single(chars.iter().cloned().collect())))
 }
 
 /// `multi-line-comment := '/*' ('*' [^\/] | [^*])* '*/'`
@@ -898,30 +898,33 @@ mod tests {
 
     #[test]
     fn test_single_line_comment() {
-        assert_eq!(single_line_comment("//hello"), Ok(("", KdlComment::Single)));
+        assert_eq!(
+            single_line_comment("//hello"),
+            Ok(("", KdlComment::Single("hello".into())))
+        );
         assert_eq!(
             single_line_comment("// \thello"),
-            Ok(("", KdlComment::Single))
+            Ok(("", KdlComment::Single(" \thello".into())))
         );
         assert_eq!(
             single_line_comment("//hello\n"),
-            Ok(("", KdlComment::Single))
+            Ok(("", KdlComment::Single("hello".into())))
         );
         assert_eq!(
             single_line_comment("//hello\r\n"),
-            Ok(("", KdlComment::Single))
+            Ok(("", KdlComment::Single("hello".into())))
         );
         assert_eq!(
             single_line_comment("//hello\n\r"),
-            Ok(("\r", KdlComment::Single))
+            Ok(("\r", KdlComment::Single("hello".into())))
         );
         assert_eq!(
             single_line_comment("//hello\rworld"),
-            Ok(("world", KdlComment::Single))
+            Ok(("world", KdlComment::Single("hello".into())))
         );
         assert_eq!(
             single_line_comment("//hello\nworld\r\n"),
-            Ok(("world\r\n", KdlComment::Single))
+            Ok(("world\r\n", KdlComment::Single("hello".into())))
         );
     }
 
