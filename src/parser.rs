@@ -12,7 +12,7 @@ use nom::Finish;
 use nom::IResult;
 
 use crate::error::KdlParseError;
-use crate::node::{KdlNode, KdlValue};
+use crate::node::{KdlComment, KdlNode, KdlValue};
 
 /// `nodes := linespace* (node nodes?)? linespace*`
 pub(crate) fn nodes(input: &str) -> IResult<&str, Vec<KdlNode>, KdlParseError<&str>> {
@@ -159,12 +159,12 @@ fn node_value(input: &str) -> IResult<&str, KdlValue, KdlParseError<&str>> {
 }
 
 /// node-terminator := single-line-comment | newline | ';' | eof
-fn node_terminator(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
+fn node_terminator(input: &str) -> IResult<&str, Option<KdlComment>, KdlParseError<&str>> {
     alt((
-        value((), eof),
-        single_line_comment,
-        newline,
-        value((), char(';')),
+        value(None, eof),
+        map(single_line_comment, Option::Some),
+        value(None, newline),
+        value(None, char(';')),
     ))(input)
 }
 
@@ -357,28 +357,36 @@ fn node_space(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
 }
 
 /// `single-line-comment := '//' ('\r' [^\n] | [^\r\n])* (newline | eof)`
-fn single_line_comment(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
+fn single_line_comment(input: &str) -> IResult<&str, KdlComment, KdlParseError<&str>> {
     let (input, _) = tag("//")(input)?;
     let (input, _) = many_till(value((), anychar), alt((newline, value((), eof))))(input)?;
-    Ok((input, ()))
+    Ok((input, KdlComment::Single))
 }
 
 /// `multi-line-comment := '/*' ('*' [^\/] | [^*])* '*/'`
-fn multi_line_comment(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
-    delimited(tag("/*"), value((), take_until("*/")), tag("*/"))(input)
+fn multi_line_comment(input: &str) -> IResult<&str, KdlComment, KdlParseError<&str>> {
+    delimited(
+        tag("/*"),
+        value(KdlComment::Multiline, take_until("*/")),
+        tag("*/"),
+    )(input)
 }
 
 /// `escline := '\\' ws* (single-line-comment | newline)`
 fn escline(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
     let (input, _) = tag("\\")(input)?;
     let (input, _) = many0(whitespace)(input)?;
-    let (input, _) = alt((single_line_comment, newline))(input)?;
+    let (input, _) = alt((map(single_line_comment, Option::Some), value(None, newline)))(input)?;
     Ok((input, ()))
 }
 
 /// `linespace := newline | ws | single-line-comment`
-fn linespace(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
-    value((), alt((newline, whitespace, single_line_comment)))(input)
+fn linespace(input: &str) -> IResult<&str, Option<KdlComment>, KdlParseError<&str>> {
+    alt((
+        value(None, newline),
+        value(None, whitespace),
+        map(single_line_comment, Option::Some),
+    ))(input)
 }
 
 /// `ws := bom | unicode-space | multi-line-comment`
@@ -890,26 +898,59 @@ mod tests {
 
     #[test]
     fn test_single_line_comment() {
-        assert_eq!(single_line_comment("//hello"), Ok(("", ())));
-        assert_eq!(single_line_comment("// \thello"), Ok(("", ())));
-        assert_eq!(single_line_comment("//hello\n"), Ok(("", ())));
-        assert_eq!(single_line_comment("//hello\r\n"), Ok(("", ())));
-        assert_eq!(single_line_comment("//hello\n\r"), Ok(("\r", ())));
-        assert_eq!(single_line_comment("//hello\rworld"), Ok(("world", ())));
+        assert_eq!(single_line_comment("//hello"), Ok(("", KdlComment::Single)));
+        assert_eq!(
+            single_line_comment("// \thello"),
+            Ok(("", KdlComment::Single))
+        );
+        assert_eq!(
+            single_line_comment("//hello\n"),
+            Ok(("", KdlComment::Single))
+        );
+        assert_eq!(
+            single_line_comment("//hello\r\n"),
+            Ok(("", KdlComment::Single))
+        );
+        assert_eq!(
+            single_line_comment("//hello\n\r"),
+            Ok(("\r", KdlComment::Single))
+        );
+        assert_eq!(
+            single_line_comment("//hello\rworld"),
+            Ok(("world", KdlComment::Single))
+        );
         assert_eq!(
             single_line_comment("//hello\nworld\r\n"),
-            Ok(("world\r\n", ()))
+            Ok(("world\r\n", KdlComment::Single))
         );
     }
 
     #[test]
     fn test_multi_line_comment() {
-        assert_eq!(multi_line_comment("/*hello*/"), Ok(("", ())));
-        assert_eq!(multi_line_comment("/*hello*/\n"), Ok(("\n", ())));
-        assert_eq!(multi_line_comment("/*\nhello\r\n*/"), Ok(("", ())));
-        assert_eq!(multi_line_comment("/*\nhello** /\n*/"), Ok(("", ())));
-        assert_eq!(multi_line_comment("/**\nhello** /\n*/"), Ok(("", ())));
-        assert_eq!(multi_line_comment("/*hello*/world"), Ok(("world", ())));
+        assert_eq!(
+            multi_line_comment("/*hello*/"),
+            Ok(("", KdlComment::Multiline))
+        );
+        assert_eq!(
+            multi_line_comment("/*hello*/\n"),
+            Ok(("\n", KdlComment::Multiline))
+        );
+        assert_eq!(
+            multi_line_comment("/*\nhello\r\n*/"),
+            Ok(("", KdlComment::Multiline))
+        );
+        assert_eq!(
+            multi_line_comment("/*\nhello** /\n*/"),
+            Ok(("", KdlComment::Multiline))
+        );
+        assert_eq!(
+            multi_line_comment("/**\nhello** /\n*/"),
+            Ok(("", KdlComment::Multiline))
+        );
+        assert_eq!(
+            multi_line_comment("/*hello*/world"),
+            Ok(("world", KdlComment::Multiline))
+        );
     }
 
     #[test]

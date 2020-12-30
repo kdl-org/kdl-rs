@@ -19,6 +19,13 @@ pub enum KdlValue {
     Null,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum KdlComment {
+    Single,
+    Multiline,
+    SlashDash,
+}
+
 impl fmt::Display for KdlNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.write(f, 0)
