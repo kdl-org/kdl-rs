@@ -359,17 +359,29 @@ fn node_space(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
 /// `single-line-comment := '//' ('\r' [^\n] | [^\r\n])* (newline | eof)`
 fn single_line_comment(input: &str) -> IResult<&str, KdlComment, KdlParseError<&str>> {
     let (input, _) = tag("//")(input)?;
-    let (input, (chars, _)) = many_till(anychar, alt((newline, value((), eof))))(input)?;
-    Ok((input, KdlComment::Single(chars.iter().cloned().collect())))
+    let (input, line) = line(input)?;
+    Ok((input, KdlComment::Single(line)))
+}
+
+/// `line := .* (newline | eof)
+fn line(input: &str) -> IResult<&str, String, KdlParseError<&str>> {
+    let (rest, (chars, _)) = many_till(anychar, alt((newline, value((), eof))))(input)?;
+    if rest == input {
+        return Err(nom::Err::Error(KdlParseError {
+            input,
+            context: None,
+            kind: None,
+        }));
+    }
+    Ok((rest, chars.iter().cloned().collect()))
 }
 
 /// `multi-line-comment := '/*' ('*' [^\/] | [^*])* '*/'`
 fn multi_line_comment(input: &str) -> IResult<&str, KdlComment, KdlParseError<&str>> {
-    delimited(
-        tag("/*"),
-        value(KdlComment::Multiline, take_until("*/")),
-        tag("*/"),
-    )(input)
+    let (input, comment) = delimited(tag("/*"), recognize(take_until("*/")), tag("*/"))(input)?;
+    let (_, lines) = many0(line)(comment)?;
+
+    Ok((input, KdlComment::Multiline(lines)))
 }
 
 /// `escline := '\\' ws* (single-line-comment | newline)`
@@ -931,28 +943,38 @@ mod tests {
     #[test]
     fn test_multi_line_comment() {
         assert_eq!(
+            multi_line_comment("/**/"),
+            Ok(("", KdlComment::Multiline(vec![])))
+        );
+        assert_eq!(
             multi_line_comment("/*hello*/"),
-            Ok(("", KdlComment::Multiline))
+            Ok(("", KdlComment::Multiline(vec!["hello".into()])))
         );
         assert_eq!(
             multi_line_comment("/*hello*/\n"),
-            Ok(("\n", KdlComment::Multiline))
+            Ok(("\n", KdlComment::Multiline(vec!["hello".into()])))
         );
         assert_eq!(
             multi_line_comment("/*\nhello\r\n*/"),
-            Ok(("", KdlComment::Multiline))
+            Ok(("", KdlComment::Multiline(vec!["".into(), "hello".into()])))
         );
         assert_eq!(
             multi_line_comment("/*\nhello** /\n*/"),
-            Ok(("", KdlComment::Multiline))
+            Ok((
+                "",
+                KdlComment::Multiline(vec!["".into(), "hello** /".into()])
+            ))
         );
         assert_eq!(
             multi_line_comment("/**\nhello** /\n*/"),
-            Ok(("", KdlComment::Multiline))
+            Ok((
+                "",
+                KdlComment::Multiline(vec!["*".into(), "hello** /".into()])
+            ))
         );
         assert_eq!(
             multi_line_comment("/*hello*/world"),
-            Ok(("world", KdlComment::Multiline))
+            Ok(("world", KdlComment::Multiline(vec!["hello".into()])))
         );
     }
 

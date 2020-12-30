@@ -22,7 +22,7 @@ pub enum KdlValue {
 #[derive(Debug, Clone, PartialEq)]
 pub enum KdlComment {
     Single(String),
-    Multiline,
+    Multiline(Vec<String>),
     SlashDash,
 }
 
