@@ -2,7 +2,7 @@ use std::{collections::HashMap, iter::from_fn};
 
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until, take_while_m_n};
-use nom::character::complete::{alpha1, alphanumeric1, anychar, char, none_of, one_of};
+use nom::character::complete::{anychar, char, none_of, one_of};
 use nom::combinator::{
     all_consuming, eof, iterator, map, map_opt, map_res, not, opt, recognize, value,
 };
@@ -112,17 +112,26 @@ pub(crate) fn node(input: &str) -> IResult<&str, Option<KdlNode>, KdlParseError<
     }
 }
 
+/// `identifier_char := unicode - linespace - [\{}<>;[]=,]`
+fn identifier_char(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
+    not(linespace)(input)?;
+    recognize(none_of(r#"\{}<>;[]=,""#))(input)
+}
+
+/// `identifier_start := identifier_char - digit`
+fn identifier_start(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
+    not(one_of("0123456789"))(input)?;
+    identifier_char(input)
+}
+
 /// `bare_identifier := [a-zA-Z_] [a-zA-Z0-9!$%&'*+\-./:<>?@\^_|~]*`
 pub(crate) fn bare_identifier(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
-    recognize(pair(
-        alt((alpha1, tag("_"))),
-        many0(alt((alphanumeric1, recognize(one_of("~!@$%^&*-_+./:<>?"))))),
-    ))(input)
+    recognize(pair(identifier_start, many0(identifier_char)))(input)
 }
 
 /// `identifier := bare_identifier | string`
 fn identifier(input: &str) -> IResult<&str, String, KdlParseError<&str>> {
-    alt((map(bare_identifier, String::from), string))(input)
+    alt((string, (map(bare_identifier, String::from))))(input)
 }
 
 /// `node-props-and-args := ('/-' ws*)? (prop | value)`
