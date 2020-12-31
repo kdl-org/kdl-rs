@@ -402,16 +402,13 @@ fn linespace(input: &str) -> IResult<&str, Option<KdlComment>, KdlParseError<&st
 }
 
 /// `ws := bom | unicode-space | multi-line-comment`
-fn whitespace(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
+fn whitespace(input: &str) -> IResult<&str, Option<KdlComment>, KdlParseError<&str>> {
     // TODO: bom?
-    value(
-        (),
-        alt((
-            tag("\u{FEFF}"),
-            unicode_space,
-            recognize(multi_line_comment),
-        )),
-    )(input)
+    alt((
+        value(None, tag("\u{FEFF}")),
+        value(None, unicode_space),
+        map(multi_line_comment, Option::Some),
+    ))(input)
 }
 
 fn unicode_space(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
@@ -989,9 +986,19 @@ mod tests {
 
     #[test]
     fn test_whitespace() {
-        assert_eq!(whitespace(" "), Ok(("", ())));
-        assert_eq!(whitespace("\t"), Ok(("", ())));
-        assert_eq!(whitespace("/* \nfoo\r\n */ etc"), Ok((" etc", ())));
+        assert_eq!(whitespace(" "), Ok(("", None)));
+        assert_eq!(whitespace("\t"), Ok(("", None)));
+        assert_eq!(
+            whitespace("/* \nfoo\r\n */ etc"),
+            Ok((
+                " etc",
+                Some(KdlComment::Multiline(vec![
+                    " ".into(),
+                    "foo".into(),
+                    " ".into()
+                ]))
+            ))
+        );
         assert!(whitespace("hi").is_err())
     }
 
