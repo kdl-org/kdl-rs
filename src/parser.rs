@@ -258,11 +258,11 @@ fn raw_string(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
 /// `number := decimal | hex | octal | binary`
 fn number(input: &str) -> IResult<&str, KdlValue, KdlParseError<&str>> {
     alt((
-        map(integer, KdlValue::Int),
         map(hexadecimal, KdlValue::Int),
         map(octal, KdlValue::Int),
         map(binary, KdlValue::Int),
         map(float, KdlValue::Float),
+        map(integer, KdlValue::Int),
     ))(input)
 }
 
