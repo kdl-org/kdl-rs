@@ -6,7 +6,8 @@ use nom::character::complete::{anychar, char, none_of, one_of};
 use nom::combinator::{
     all_consuming, eof, iterator, map, map_opt, map_res, not, opt, recognize, value,
 };
-use nom::multi::{fold_many0, many0, many1, many_till};
+use crate::nom_compat::{many0, many1, many_till};
+use nom::multi::fold_many0;
 use nom::sequence::{delimited, pair, preceded, terminated, tuple};
 use nom::Finish;
 use nom::IResult;

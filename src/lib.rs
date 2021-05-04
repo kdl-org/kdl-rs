@@ -7,6 +7,7 @@ pub use crate::node::{KdlNode, KdlValue};
 mod error;
 mod node;
 mod parser;
+mod nom_compat;
 
 pub fn parse_document<I>(input: I) -> Result<Vec<KdlNode>, KdlError>
 where
