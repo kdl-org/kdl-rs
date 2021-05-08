@@ -71,7 +71,7 @@ fn test_numbers() {
     let doc = parse_document(NUMBERS);
     assert_eq!(
         doc,
-        Ok(nodes!{
+        Ok(nodes! {
             hex 0x32;
             float 0.5;
             binary 0b0110;
