@@ -18,7 +18,7 @@ use crate::node::{KdlNode, KdlValue};
 pub(crate) fn nodes(input: &str) -> IResult<&str, Vec<KdlNode>, KdlParseError<&str>> {
     let (input, _) = many0(linespace)(input)?;
     let (input, nodes) = map(many0(terminated(node, many0(linespace))), |nodes| {
-        nodes.into_iter().filter_map(|node| node).collect()
+        nodes.into_iter().flatten().collect()
     })(input)?;
     let (input, _) = many0(linespace)(input)?;
     Ok((input, nodes))
@@ -84,7 +84,7 @@ pub(crate) fn node(input: &str) -> IResult<&str, Option<KdlNode>, KdlParseError<
     } else {
         let (values, properties): (Vec<NodeArg>, Vec<NodeArg>) = args
             .into_iter()
-            .filter_map(|n| n)
+            .flatten()
             .partition(|arg| matches!(arg, NodeArg::Value(_)));
         Ok((
             input,
@@ -308,7 +308,7 @@ fn integer(input: &str) -> IResult<&str, i64, KdlParseError<&str>> {
     map_res(
         recognize(many1(terminated(one_of("0123456789"), many0(char('_'))))),
         move |out: &str| {
-            i64::from_str_radix(&str::replace(&out, "_", ""), 10).map(move |x| x * mult)
+            str::replace(&out, "_", "").parse::<i64>().map(move |x| x * mult)
         },
     )(input)
 }

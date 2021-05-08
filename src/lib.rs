@@ -5,7 +5,7 @@
 //!
 //! There's a [living specification], as well as [various implementations]. You can also check out the
 //! [language FAQ] to answer all your burning questions!
-//! 
+//!
 //! This crate is the official/reference implementation of the KDL document language.
 //!
 //! [living specification]: https://github.com/kdl-org/kdl/blob/main/SPEC.md
