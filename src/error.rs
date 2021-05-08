@@ -3,6 +3,14 @@ use std::num::{ParseFloatError, ParseIntError};
 use nom::error::{ContextError, ErrorKind, FromExternalError, ParseError};
 
 use thiserror::Error;
+
+#[cfg(doc)]
+use {
+    crate::KdlNode,
+    std::convert::{TryFrom, TryInto},
+};
+
+/// An error that occurs when parsing a KDL document.
 #[derive(Debug, Clone, Eq, PartialEq, Error)]
 #[error("Error parsing document at line {line} column {column}. {kind}")]
 pub struct KdlError {
@@ -16,6 +24,7 @@ pub struct KdlError {
     pub kind: KdlErrorKind,
 }
 
+/// A type reprenting additional information specific to the type of error being returned.
 #[derive(Debug, Clone, Eq, PartialEq, Error)]
 pub enum KdlErrorKind {
     #[error(transparent)]
@@ -28,6 +37,7 @@ pub enum KdlErrorKind {
     Other,
 }
 
+/// Coversion errors for converting [`KdlNode`] to another type via [`TryFrom`] or [`TryInto`].
 #[derive(Debug, Clone, Eq, PartialEq, Error)]
 #[error("Failed to convert from KdlNodeValue::{variant} to {expected}.")]
 pub struct TryFromKdlNodeValueError {

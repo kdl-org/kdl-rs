@@ -2,7 +2,52 @@ use std::{collections::HashMap, convert::TryFrom, fmt};
 
 use crate::TryFromKdlNodeValueError;
 
-#[derive(Debug, Clone, PartialEq)]
+/// A node representing the smallest unit of a KDL document.
+///
+/// The anatomy of a node:
+/// ```text
+/// name "value" property_key="property value" {
+///     child
+/// }
+/// ```
+///
+/// ## Example
+///
+/// ```
+/// use kdl::{KdlNode, KdlValue};
+/// use std::collections::HashMap;
+///
+/// const DOCUMENT: &str = r#"
+/// name "value" property_key="property value" {
+///     child
+/// }
+/// "#;
+///
+/// assert_eq!(
+///     kdl::parse_document(DOCUMENT).unwrap(),
+///     vec![
+///         KdlNode {
+///             name: String::from("name"),
+///             values: vec![KdlValue::String("value".into())],
+///             properties: {
+///                 let mut temp = HashMap::new();
+///                 temp.insert(
+///                     String::from("property_key"),
+///                     KdlValue::String("property value".into())
+///                 );
+///                 temp
+///             },
+///             children: vec![
+///                 KdlNode {
+///                     name: String::from("child"),
+///                     ..Default::default()
+///                 }
+///             ],
+///         }
+///     ]
+/// )
+/// ```
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct KdlNode {
     pub name: String,
     pub values: Vec<KdlValue>,
@@ -10,6 +55,7 @@ pub struct KdlNode {
     pub children: Vec<KdlNode>,
 }
 
+/// A value present in either a node's values or in a node's properties.
 #[derive(Debug, Clone, PartialEq)]
 pub enum KdlValue {
     Int(i64),
