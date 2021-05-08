@@ -57,6 +57,31 @@ macro_rules! nodes {
     () => { vec![] }
 }
 
+const NUMBERS: &str = r#"
+hex 0x32;
+float 0.5;
+binary 0b0110;
+octal 0o755;
+bignum 1_000_000;
+scientific 1.234e-10;
+"#;
+
+#[test]
+fn test_numbers() {
+    let doc = parse_document(NUMBERS);
+    assert_eq!(
+        doc,
+        Ok(nodes! {
+            hex 0x32;
+            float 0.5;
+            binary 0b0110;
+            octal 0o755;
+            bignum 1_000_000;
+            scientific 1.234e-10;
+        })
+    );
+}
+
 #[test]
 fn test_ci() {
     let doc = parse_document(include_str!("../examples/ci.kdl"));
