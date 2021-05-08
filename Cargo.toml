@@ -11,6 +11,6 @@ keywords = ["kdl", "document", "serialization", "config"]
 edition = "2018"
 
 [dependencies]
-nom = "6.0.1"
+nom = { version = "6.0.1", default-features = false }
 phf = { version = "0.8.0", features = ["macros"] }
 thiserror = "1.0.22"

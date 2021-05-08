@@ -66,6 +66,7 @@ pub use crate::node::{KdlNode, KdlValue};
 
 mod error;
 mod node;
+mod nom_compat;
 mod parser;
 
 /// Parse a KDL document from a string into a list of [`KdlNode`]s.
