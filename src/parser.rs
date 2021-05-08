@@ -308,7 +308,9 @@ fn integer(input: &str) -> IResult<&str, i64, KdlParseError<&str>> {
     map_res(
         recognize(many1(terminated(one_of("0123456789"), many0(char('_'))))),
         move |out: &str| {
-            str::replace(&out, "_", "").parse::<i64>().map(move |x| x * mult)
+            str::replace(&out, "_", "")
+                .parse::<i64>()
+                .map(move |x| x * mult)
         },
     )(input)
 }
