@@ -2,13 +2,13 @@ use std::{collections::HashMap, iter::from_fn};
 
 use crate::nom_compat::{many0, many1, many_till};
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_until, take_while_m_n};
+use nom::bytes::complete::{tag, take_until, take_until1, take_while_m_n};
 use nom::character::complete::{anychar, char, none_of, one_of};
 use nom::combinator::{
     all_consuming, eof, iterator, map, map_opt, map_res, not, opt, recognize, value,
 };
 use nom::multi::fold_many0;
-use nom::sequence::{delimited, pair, preceded, terminated, tuple};
+use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::Finish;
 use nom::IResult;
 
@@ -63,22 +63,24 @@ pub(crate) fn strip_trailing_newline(input: &str) -> &str {
         .unwrap_or(input)
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum NodeArg {
     Value(KdlValue),
     Property(String, KdlValue),
 }
 
-/// `node := ('/-' ws*)? identifier (node-space node-props-and-args)* (node-space* node-children ws*)? node-terminator`
+/// `node := ('/-' ws*)? type_annotation? identifier (node-space node-space* node-props-and-args)* (node-space* node-children ws*)? node-space* node-terminator`
 pub(crate) fn node(input: &str) -> IResult<&str, Option<KdlNode>, KdlParseError<&str>> {
     let (input, comment) = opt(terminated(tag("/-"), many0(whitespace)))(input)?;
+    let (input, _ty) = opt(type_annotation)(input)?;
     let (input, tag) = identifier(input)?;
-    let (input, args) = many0(preceded(node_space, node_prop_or_arg))(input)?;
+    let (input, args) = many0(preceded(many1(node_space), node_prop_or_arg))(input)?;
     let (input, children) = opt(delimited(
         many0(node_space),
         node_children,
         many0(whitespace),
     ))(input)?;
+    let (input, _) = many0(node_space)(input)?;
     let (input, _) = node_terminator(input)?;
     if comment.is_some() {
         Ok((input, None))
@@ -113,21 +115,34 @@ pub(crate) fn node(input: &str) -> IResult<&str, Option<KdlNode>, KdlParseError<
     }
 }
 
-/// `identifier_char := unicode - linespace - [\{}<>;[]=,]`
+/// `identifier_char := unicode - linespace - [\/(){}<>;[]=,"]
 fn identifier_char(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
     not(linespace)(input)?;
-    recognize(none_of(r#"\{}<>;[]=,""#))(input)
+    recognize(none_of(r#"\/(){}<>;[]=,""#))(input)
 }
 
-/// `identifier_start := identifier_char - digit`
-fn identifier_start(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
-    not(one_of("0123456789"))(input)?;
-    identifier_char(input)
-}
-
-/// `bare_identifier := [a-zA-Z_] [a-zA-Z0-9!$%&'*+\-./:<>?@\^_|~]*`
+/// `bare_identifier := ((identifier-char - digit - sign) identifier-char* | sign ((identifier-char - digit) identifier-char*)?) - keyword`
 pub(crate) fn bare_identifier(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
-    recognize(pair(identifier_start, many0(identifier_char)))(input)
+    fn left(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
+        not(keyword)(input)?;
+        not(one_of("0123456789"))(input)?;
+        not(one_of("+-"))(input)?;
+        let (input, _) = identifier_char(input)?;
+        let (input, _) = many0(identifier_char)(input)?;
+        Ok((input, ()))
+    }
+    fn right(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
+        let (input, _) = one_of("+-")(input)?;
+        not(keyword)(input)?;
+        not(one_of("0123456789"))(input)?;
+        let (input, _) = opt(many1(identifier_char))(input)?;
+        Ok((input, ()))
+    }
+    recognize(alt((left, right)))(input)
+}
+
+fn keyword(input: &str) -> IResult<&str, String, KdlParseError<&str>> {
+    map(alt((tag("true"), tag("false"), tag("null"))), String::from)(input)
 }
 
 /// `identifier := bare_identifier | string`
@@ -135,9 +150,9 @@ fn identifier(input: &str) -> IResult<&str, String, KdlParseError<&str>> {
     alt((string, (map(bare_identifier, String::from))))(input)
 }
 
-/// `node-props-and-args := ('/-' ws*)? (prop | value)`
+/// `node-props-and-args := ('/-' node-space*)? (prop | value)`
 fn node_prop_or_arg(input: &str) -> IResult<&str, Option<NodeArg>, KdlParseError<&str>> {
-    let (input, comment) = opt(terminated(tag("/-"), many0(whitespace)))(input)?;
+    let (input, comment) = opt(terminated(tag("/-"), many0(node_space)))(input)?;
     let (input, proparg) = alt((
         map(property, |(key, val)| NodeArg::Property(key, val)),
         map(node_value, NodeArg::Value),
@@ -149,6 +164,11 @@ fn node_prop_or_arg(input: &str) -> IResult<&str, Option<NodeArg>, KdlParseError
     }
 }
 
+/// `type-annotation := '(' identifier ')'
+fn type_annotation(input: &str) -> IResult<&str, String, KdlParseError<&str>> {
+    delimited(tag("("), identifier, tag(")"))(input)
+}
+
 /// `prop := identifier '=' value`
 fn property(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> {
     let (input, key) = identifier(input)?;
@@ -157,8 +177,9 @@ fn property(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str
     Ok((input, (key, val)))
 }
 
-/// `value := string | raw_string | number | boolean | 'null'`
+/// `value := type-annotation? (string | raw_string | number | boolean | 'null'`)
 fn node_value(input: &str) -> IResult<&str, KdlValue, KdlParseError<&str>> {
+    let (input, _ty) = opt(type_annotation)(input)?;
     alt((
         map(string, KdlValue::String),
         map(raw_string, |s| KdlValue::String(s.into())),
@@ -178,9 +199,9 @@ fn node_terminator(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
     ))(input)
 }
 
-/// `node-children := ('/-' ws*)? '{' nodes '}'`
+/// `node-children := ('/-' node-space*)? '{' nodes '}'`
 fn node_children(input: &str) -> IResult<&str, Vec<KdlNode>, KdlParseError<&str>> {
-    let (input, comment) = opt(terminated(tag("/-"), many0(whitespace)))(input)?;
+    let (input, comment) = opt(terminated(tag("/-"), many0(node_space)))(input)?;
     let (input, children) = delimited(tag("{"), nodes, tag("}"))(input)?;
     if comment.is_some() {
         Ok((input, Vec::new()))
@@ -193,7 +214,7 @@ fn node_children(input: &str) -> IResult<&str, Vec<KdlNode>, KdlParseError<&str>
 fn string(input: &str) -> IResult<&str, String, KdlParseError<&str>> {
     delimited(
         char('"'),
-        fold_many0(character, String::new(), |mut acc, ch| {
+        fold_many0(character, String::new, |mut acc, ch| {
             acc.push(ch);
             acc
         }),
@@ -296,6 +317,18 @@ fn float(input: &str) -> IResult<&str, f64, KdlParseError<&str>> {
 /// sign := '+' | '-'
 /// ```
 fn integer(input: &str) -> IResult<&str, i64, KdlParseError<&str>> {
+    let (input, sign) = sign(input)?;
+    map_res(
+        recognize(many1(terminated(one_of("0123456789"), many0(char('_'))))),
+        move |out: &str| {
+            str::replace(out, "_", "")
+                .parse::<i64>()
+                .map(move |x| x * sign)
+        },
+    )(input)
+}
+
+fn sign(input: &str) -> IResult<&str, i64, KdlParseError<&str>> {
     let (input, sign) = opt(alt((char('+'), char('-'))))(input)?;
     let mult = if let Some(sign) = sign {
         if sign == '+' {
@@ -306,18 +339,12 @@ fn integer(input: &str) -> IResult<&str, i64, KdlParseError<&str>> {
     } else {
         1
     };
-    map_res(
-        recognize(many1(terminated(one_of("0123456789"), many0(char('_'))))),
-        move |out: &str| {
-            str::replace(&out, "_", "")
-                .parse::<i64>()
-                .map(move |x| x * mult)
-        },
-    )(input)
+    Ok((input, mult))
 }
 
-/// `hex := '0x' [0-9a-fA-F] [0-9a-fA-F_]*`
+/// `hex := sign? '0x' [0-9a-fA-F] [0-9a-fA-F_]*`
 fn hexadecimal(input: &str) -> IResult<&str, i64, KdlParseError<&str>> {
+    let (input, sign) = sign(input)?;
     map_res(
         preceded(
             alt((tag("0x"), tag("0X"))),
@@ -326,29 +353,31 @@ fn hexadecimal(input: &str) -> IResult<&str, i64, KdlParseError<&str>> {
                 many0(char('_')),
             ))),
         ),
-        move |out: &str| i64::from_str_radix(&str::replace(&out, "_", ""), 16),
+        move |out: &str| i64::from_str_radix(&str::replace(out, "_", ""), 16).map(|x| x * sign),
     )(input)
 }
 
-/// `octal := '0o' [0-7] [0-7_]*`
+/// `octal := sign? '0o' [0-7] [0-7_]*`
 fn octal(input: &str) -> IResult<&str, i64, KdlParseError<&str>> {
+    let (input, sign) = sign(input)?;
     map_res(
         preceded(
             alt((tag("0o"), tag("0O"))),
             recognize(many1(terminated(one_of("01234567"), many0(char('_'))))),
         ),
-        move |out: &str| i64::from_str_radix(&str::replace(&out, "_", ""), 8),
+        move |out: &str| i64::from_str_radix(&str::replace(out, "_", ""), 8).map(|x| x * sign),
     )(input)
 }
 
-/// `binary := '0b' ('0' | '1') ('0' | '1' | '_')*`
+/// `binary := sign? '0b' ('0' | '1') ('0' | '1' | '_')*`
 fn binary(input: &str) -> IResult<&str, i64, KdlParseError<&str>> {
+    let (input, sign) = sign(input)?;
     map_res(
         preceded(
             alt((tag("0b"), tag("0B"))),
             recognize(many1(terminated(one_of("01"), many0(char('_'))))),
         ),
-        move |out: &str| i64::from_str_radix(&str::replace(&out, "_", ""), 2),
+        move |out: &str| i64::from_str_radix(&str::replace(out, "_", ""), 2).map(|x| x * sign),
     )(input)
 }
 
@@ -375,9 +404,21 @@ fn single_line_comment(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
     Ok((input, ()))
 }
 
-/// `multi-line-comment := '/*' ('*' [^\/] | [^*])* '*/'`
-fn multi_line_comment(input: &str) -> IResult<&str, (), KdlParseError<&str>> {
-    delimited(tag("/*"), value((), take_until("*/")), tag("*/"))(input)
+/// `multi-line-comment := '/*' commented-block
+fn multi_line_comment(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
+    let (input, _) = tag("/*")(input)?;
+    commented_block(input)
+}
+
+/// `commented-block := '*/' | (multi-line-comment | '*' | '/' | [^*/]+) commented-block`
+fn commented_block(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
+    alt((
+        tag("*/"),
+        terminated(
+            alt((multi_line_comment, take_until1("*/"), tag("*"), tag("/"))),
+            commented_block,
+        ),
+    ))(input)
 }
 
 /// `escline := '\\' ws* (single-line-comment | newline)`
@@ -916,12 +957,21 @@ mod tests {
 
     #[test]
     fn test_multi_line_comment() {
-        assert_eq!(multi_line_comment("/*hello*/"), Ok(("", ())));
-        assert_eq!(multi_line_comment("/*hello*/\n"), Ok(("\n", ())));
-        assert_eq!(multi_line_comment("/*\nhello\r\n*/"), Ok(("", ())));
-        assert_eq!(multi_line_comment("/*\nhello** /\n*/"), Ok(("", ())));
-        assert_eq!(multi_line_comment("/**\nhello** /\n*/"), Ok(("", ())));
-        assert_eq!(multi_line_comment("/*hello*/world"), Ok(("world", ())));
+        assert_eq!(multi_line_comment("/*hello*/"), Ok(("", "hello")));
+        assert_eq!(multi_line_comment("/*hello*/\n"), Ok(("\n", "hello")));
+        assert_eq!(
+            multi_line_comment("/*\nhello\r\n*/"),
+            Ok(("", "\nhello\r\n"))
+        );
+        assert_eq!(
+            multi_line_comment("/*\nhello** /\n*/"),
+            Ok(("", "\nhello** /\n"))
+        );
+        assert_eq!(
+            multi_line_comment("/**\nhello** /\n*/"),
+            Ok(("", "*\nhello** /\n"))
+        );
+        assert_eq!(multi_line_comment("/*hello*/world"), Ok(("world", "hello")));
     }
 
     #[test]
