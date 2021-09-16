@@ -1,5 +1,13 @@
 # `kdl` Release Changelog
 
+<a name="3.0.0"></a>
+## 3.0.0 (2021-09-16)
+
+### Features
+
+* **spec:** update parser to handle KDL 1.0.0 ([f811c5c8](https://github.com/kdl-org/kdl-rs/commit/f811c5c89c18cb02cc3e7bdd8c872ea42308ae3e))
+    * **BREAKING CHANGE**: Various things have changed in the process of moving to KDL 1.0.0. Please test your stuff
+
 <a name="2.0.0"></a>
 ## 2.0.0 (2021-09-16)
 
