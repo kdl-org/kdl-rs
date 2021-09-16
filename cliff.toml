@@ -3,7 +3,7 @@
 [changelog]
 # changelog header
 header = """
-# `miette` Release Changelog
+# `kdl` Release Changelog
 
 """
 
@@ -20,7 +20,7 @@ body = """
 ### {{ group | upper_first }}
 {% for commit in commits %}
 {% if commit.scope %}\
-* **{{ commit.scope }}:** {{ commit.message }} ([{{ commit.id | truncate(length=8, end="") }}](https://github.com/zkat/miette/commit/{{ commit.id }}))
+* **{{ commit.scope }}:** {{ commit.message }} ([{{ commit.id | truncate(length=8, end="") }}](https://github.com/kdl-org/kdl-rs/commit/{{ commit.id }}))
 {%- if commit.breaking %}
     * **BREAKING CHANGE**: {{ commit.breaking_description }}
 {%- endif %}\
