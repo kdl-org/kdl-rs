@@ -1,5 +1,0 @@
-[clog]
-repository = "https://github.com/kdl/kdl-rs"
-subtitle = ""
-changelog = "CHANGELOG.md"
-from-latest-tag = true
