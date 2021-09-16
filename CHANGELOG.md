@@ -1,3 +1,13 @@
+# `kdl` Release Changelog
+
+<a name="2.0.0"></a>
+## 2.0.0 (2021-09-16)
+
+### Features
+
+* **license:** change license to Apache-2.0 ([0dbf75c7](https://github.com/kdl-org/kdl-rs/commit/0dbf75c78eb918b6966aae27fb1d7591791f15de))
+    * **BREAKING CHANGE**: This is a significant licensing change. Please review.
+
 <a name="1.1.0"></a>
 ## 1.1.0 (2021-05-08)
 
