@@ -22,9 +22,45 @@ on the [spec repo's discussions
 page](https://github.com/kdoclang/kdl/discussions). Feel free to jump in and
 give us your 2 cents!
 
+## Example KDL File
+
+```text
+author "Alex Monad" email="alex@example.com" active=true
+
+contents {
+  section "First section" {
+    paragraph "This is the first paragraph"
+    paragraph "This is the second paragraph"
+  }
+}
+
+// unicode! comments!
+π 3.14159
+```
+
+## Basic Library Example
+
+```
+use kdl::{KdlNode, KdlValue};
+use std::collections::HashMap;
+
+assert_eq!(
+    kdl::parse_document("node 1 key=true").unwrap(),
+    vec![
+        KdlNode {
+            name: String::from("node"),
+            values: vec![KdlValue::Int(1)],
+            properties: {
+                let mut temp = HashMap::new();
+                temp.insert(String::from("key"), KdlValue::Boolean(true));
+                temp
+            },
+            children: vec![],
+        }
+    ]
+)
+```
+
 ## License
 
-The code in this repository is covered by [the Parity License](LICENSE.md), a
-strong copyleft license. That means that you can only use this project if
-you're working on an open source-licensed product (MIT/Apache projects are
-ok!)
+The code in this repository is covered by [the Apache-2.0 License](LICENSE.md).
