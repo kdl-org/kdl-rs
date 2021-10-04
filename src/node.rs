@@ -1,365 +1,479 @@
-use std::{collections::HashMap, convert::TryFrom, fmt};
+use std::{
+    fmt::Display,
+    ops::{Index, IndexMut},
+    str::FromStr,
+};
 
-use crate::TryFromKdlNodeValueError;
+use nom::{combinator::all_consuming, Finish};
 
-/// A node representing the smallest unit of a KDL document.
-///
-/// The anatomy of a node:
-/// ```text
-/// name "value" property_key="property value" {
-///     child
-/// }
-/// ```
-///
-/// ## Example
-///
-/// ```
-/// use kdl::{KdlNode, KdlValue};
-/// use std::collections::HashMap;
-///
-/// const DOCUMENT: &str = r#"
-/// name "value" property_key="property value" {
-///     child
-/// }
-/// "#;
-///
-/// assert_eq!(
-///     kdl::parse_document(DOCUMENT).unwrap(),
-///     vec![
-///         KdlNode {
-///             name: String::from("name"),
-///             values: vec![KdlValue::String("value".into())],
-///             properties: {
-///                 let mut temp = HashMap::new();
-///                 temp.insert(
-///                     String::from("property_key"),
-///                     KdlValue::String("property value".into())
-///                 );
-///                 temp
-///             },
-///             children: vec![
-///                 KdlNode {
-///                     name: String::from("child"),
-///                     ..Default::default()
-///                 }
-///             ],
-///         }
-///     ]
-/// )
-/// ```
-#[derive(Default, Debug, Clone, PartialEq)]
-pub struct KdlNode {
-    pub name: String,
-    pub values: Vec<KdlValue>,
-    pub properties: HashMap<String, KdlValue>,
-    pub children: Vec<KdlNode>,
-}
+use crate::{KdlDocument, KdlEntry, KdlError, KdlErrorKind, KdlIdentifier, KdlValue};
 
-/// A value present in either a node's values or in a node's properties.
+/// Represents an individual KDL
+/// [`Node`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#node) inside a
+/// KDL Document.
 #[derive(Debug, Clone, PartialEq)]
-pub enum KdlValue {
-    Int(i64),
-    Float(f64),
-    String(String),
-    Boolean(bool),
-    Null,
+pub struct KdlNode {
+    pub(crate) leading: Option<String>,
+    pub(crate) ty: Option<String>,
+    pub(crate) name: KdlIdentifier,
+    // TODO: consider using `hashlink` for this instead, later.
+    pub(crate) entries: Vec<KdlEntry>,
+    pub(crate) before_children: Option<String>,
+    pub(crate) children: Option<KdlDocument>,
+    pub(crate) trailing: Option<String>,
 }
 
-impl fmt::Display for KdlNode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.write(f, 0)
+impl KdlNode {
+    /// Creates a new KdlNode with a given name.
+    pub fn new(name: impl Into<KdlIdentifier>) -> Self {
+        Self {
+            name: name.into(),
+            leading: None,
+            ty: None,
+            entries: Vec::new(),
+            before_children: None,
+            children: None,
+            trailing: None,
+        }
+    }
+
+    /// Gets this node's name.
+    pub fn name(&self) -> &KdlIdentifier {
+        &self.name
+    }
+
+    /// Gets a mutable reference to this node's name.
+    pub fn name_mut(&mut self) -> &mut KdlIdentifier {
+        &mut self.name
+    }
+
+    /// Sets this node's name.
+    pub fn set_name(&mut self, name: impl Into<KdlIdentifier>) {
+        self.name = name.into();
+    }
+
+    /// Returns a reference to this node's entries (arguments and properties).
+    pub fn entries(&self) -> &[KdlEntry] {
+        &self.entries
+    }
+
+    /// Returns a mutable reference to this node's entries (arguments and
+    /// properties).
+    pub fn entries_mut(&mut self) -> &mut Vec<KdlEntry> {
+        &mut self.entries
+    }
+
+    /// Gets leading text (whitespace, comments) for this node.
+    pub fn leading(&self) -> Option<&str> {
+        self.leading.as_deref()
+    }
+
+    /// Sets leading text (whitespace, comments) for this node.
+    pub fn set_leading(&mut self, leading: impl Into<String>) {
+        self.leading = Some(leading.into());
+    }
+
+    /// Gets text (whitespace, comments) right before the children block's starting `{`.
+    pub fn before_children(&self) -> Option<&str> {
+        self.before_children.as_deref()
+    }
+
+    /// Gets text (whitespace, comments) right before the children block's starting `{`.
+    pub fn set_before_children(&mut self, before: impl Into<String>) {
+        self.before_children = Some(before.into());
+    }
+
+    /// Gets trailing text (whitespace, comments) for this node.
+    pub fn trailing(&self) -> Option<&str> {
+        self.trailing.as_deref()
+    }
+
+    /// Sets trailing text (whitespace, comments) for this node.
+    pub fn set_trailing(&mut self, trailing: impl Into<String>) {
+        self.trailing = Some(trailing.into());
+    }
+
+    /// Fetches an entry by key. Number keys will look up arguments, strings
+    /// will look up properties.
+    pub fn get(&self, key: impl Into<NodeKey>) -> Option<&KdlEntry> {
+        self.get_impl(key.into())
+    }
+
+    fn get_impl(&self, key: NodeKey) -> Option<&KdlEntry> {
+        match key {
+            NodeKey::Key(key) => {
+                for entry in &self.entries {
+                    if entry.name.is_some()
+                        && entry.name.as_ref().map(|i| i.value()) == Some(key.value())
+                    {
+                        return Some(entry);
+                    }
+                }
+                None
+            }
+            NodeKey::Index(idx) => {
+                let mut current_idx = 0;
+                for entry in &self.entries {
+                    if entry.name.is_none() {
+                        if current_idx == idx {
+                            return Some(entry);
+                        }
+                        current_idx += 1;
+                        if current_idx > idx + 1 {
+                            return None;
+                        }
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    /// Fetches a mutable referene to an entry by key. Number keys will look
+    /// up arguments, strings will look up properties.
+    pub fn get_mut(&mut self, key: impl Into<NodeKey>) -> Option<&mut KdlEntry> {
+        self.get_mut_impl(key.into())
+    }
+
+    fn get_mut_impl(&mut self, key: NodeKey) -> Option<&mut KdlEntry> {
+        match key {
+            NodeKey::Key(key) => {
+                for entry in &mut self.entries {
+                    if entry.name.is_some()
+                        && entry.name.as_ref().map(|i| i.value()) == Some(key.value())
+                    {
+                        return Some(entry);
+                    }
+                }
+                None
+            }
+            NodeKey::Index(idx) => {
+                let mut current_idx = 0;
+                for entry in &mut self.entries {
+                    if entry.name.is_none() {
+                        if current_idx >= idx {
+                            return Some(entry);
+                        }
+                        current_idx += 1;
+                        if current_idx >= idx {
+                            return None;
+                        }
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    /// Inserts an entry into this node. If an entry already exists with the
+    /// same key, it will be replaced and the previous entry will be returned.
+    ///
+    /// Numerical keys will insert arguments, string keys will insert
+    /// properties.
+    pub fn insert(
+        &mut self,
+        key: impl Into<NodeKey>,
+        entry: impl Into<KdlEntry>,
+    ) -> Option<KdlEntry> {
+        self.insert_impl(key.into(), entry.into())
+    }
+
+    fn insert_impl(&mut self, key: NodeKey, mut entry: KdlEntry) -> Option<KdlEntry> {
+        match key {
+            NodeKey::Key(ref key_val) => {
+                if entry.name.is_none() {
+                    entry.name = Some(key_val.clone());
+                }
+                if entry.name.as_ref().map(|i| i.value()) != Some(key_val.value()) {
+                    panic!("Property name mismatch");
+                }
+                if let Some(existing) = self.get_mut(key) {
+                    std::mem::swap(existing, &mut entry);
+                    Some(entry)
+                } else {
+                    self.entries.push(entry);
+                    None
+                }
+            }
+            NodeKey::Index(idx) => {
+                if entry.name.is_some() {
+                    panic!("Cannot insert property with name under a numerical key");
+                }
+                if let Some(existing) = self.get_mut(key) {
+                    std::mem::swap(existing, &mut entry);
+                    Some(entry)
+                } else {
+                    let mut current_idx = 0;
+                    for existing in &mut self.entries {
+                        if existing.name.is_none() {
+                            if current_idx == idx {
+                                std::mem::swap(existing, &mut entry);
+                                return Some(entry);
+                            }
+                            current_idx += 1;
+                            if current_idx >= idx {
+                                break;
+                            }
+                        }
+                    }
+                    if idx > current_idx {
+                        panic!(
+                            "Insertion index (is {}) should be <= len (is {})",
+                            idx, current_idx
+                        );
+                    } else {
+                        self.entries.push(entry);
+                        None
+                    }
+                }
+            }
+        }
+    }
+
+    /// Removes an entry from this node. If an entry already exists with the
+    /// same key, it will be returned.
+    ///
+    /// Numerical keys will remove arguments, string keys will remove
+    /// properties.
+    pub fn remove(&mut self, key: impl Into<NodeKey>) -> Option<KdlEntry> {
+        self.remove_impl(key.into())
+    }
+
+    fn remove_impl(&mut self, key: NodeKey) -> Option<KdlEntry> {
+        match key {
+            NodeKey::Key(key) => {
+                for (idx, entry) in self.entries.iter_mut().enumerate() {
+                    if entry.name.is_some() && entry.name.as_ref() == Some(&key) {
+                        return Some(self.entries.remove(idx));
+                    }
+                }
+                None
+            }
+            NodeKey::Index(idx) => {
+                let mut current_idx = 0;
+                for entry in &mut self.entries {
+                    if entry.name.is_none() {
+                        if current_idx == idx {
+                            return Some(self.entries.remove(idx));
+                        }
+                        current_idx += 1;
+                        if current_idx >= idx {
+                            return None;
+                        }
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    /// Shorthand for `self.entries_mut().push(entry)`.
+    pub fn push(&mut self, entry: impl Into<KdlEntry>) {
+        self.entries.push(entry.into());
+    }
+
+    /// Shorthand for `self.entries_mut().clear()`
+    pub fn clear_entries(&mut self) {
+        self.entries.clear();
+    }
+
+    /// Returns a reference to this node's children, if any.
+    pub fn children(&self) -> Option<&KdlDocument> {
+        self.children.as_ref()
+    }
+
+    /// Returns a mutable reference to this node's children, if any.
+    pub fn children_mut(&mut self) -> &mut Option<KdlDocument> {
+        &mut self.children
+    }
+
+    /// Sets the KdlDocument representing this node's children.
+    pub fn set_children(&mut self, children: KdlDocument) {
+        self.children = Some(children);
+    }
+
+    /// Removes this node's children completely.
+    pub fn clear_children(&mut self) {
+        self.children = None;
+    }
+
+    /// Returns a mutable reference to this node's children [`KdlDocument`],
+    /// creating one first if one does not already exist.
+    pub fn ensure_children(&mut self) -> &mut KdlDocument {
+        if self.children.is_none() {
+            self.children = Some(KdlDocument::new());
+        }
+        self.children_mut().as_mut().unwrap()
+    }
+
+    /// Auto-formats this node and its contents.
+    pub fn fmt(&mut self) {
+        self.leading = None;
+        self.trailing = None;
+        for entry in &mut self.entries {
+            entry.fmt();
+        }
+        if let Some(children) = &mut self.children {
+            children.fmt();
+        }
+    }
+}
+
+/// Represents a [`KdlNode`]'s entry key.
+#[derive(Debug, Clone, PartialEq)]
+pub enum NodeKey {
+    Key(KdlIdentifier),
+    Index(usize),
+}
+
+impl From<&str> for NodeKey {
+    fn from(key: &str) -> Self {
+        NodeKey::Key(key.into())
+    }
+}
+
+impl From<String> for NodeKey {
+    fn from(key: String) -> Self {
+        NodeKey::Key(key.into())
+    }
+}
+
+impl From<usize> for NodeKey {
+    fn from(key: usize) -> Self {
+        NodeKey::Index(key)
+    }
+}
+
+impl Index<usize> for KdlNode {
+    type Output = KdlValue;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        self.get(index).expect("Argument out of range.").value()
+    }
+}
+
+impl IndexMut<usize> for KdlNode {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.get_mut(index)
+            .expect("Argument out of range.")
+            .value_mut()
+    }
+}
+
+impl Index<&str> for KdlNode {
+    type Output = KdlValue;
+
+    fn index(&self, key: &str) -> &Self::Output {
+        self.get(key).expect("No such property.").value()
+    }
+}
+
+impl IndexMut<&str> for KdlNode {
+    fn index_mut(&mut self, key: &str) -> &mut Self::Output {
+        if self.get(key).is_none() {
+            self.push((key, KdlValue::Null));
+        }
+        self.get_mut(key)
+            .expect("Something went wrong.")
+            .value_mut()
     }
 }
 
 impl KdlNode {
-    fn write(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
-        write!(f, "{:indent$}", "", indent = indent)?;
+    /// Parse a KDL document from a string into a [`KdlDocument`] object model.
+    fn parse(input: &str) -> Result<KdlNode, KdlError> {
+        all_consuming(crate::parser::node)(input)
+            .finish()
+            .map(|(_, arg)| arg)
+            .map_err(|e| {
+                let prefix = &input[..(input.len() - e.input.len())];
+                KdlError {
+                    input: input.into(),
+                    offset: prefix.chars().count(),
+                    kind: if let Some(kind) = e.kind {
+                        kind
+                    } else if let Some(ctx) = e.context {
+                        KdlErrorKind::Context(ctx)
+                    } else {
+                        KdlErrorKind::Other
+                    },
+                }
+            })
+    }
+}
 
-        display_identifier(f, &self.name)?;
-        for arg in &self.values {
-            write!(f, " {}", arg)?;
-        }
-        for (prop, value) in &self.properties {
-            write!(f, " ")?;
-            display_identifier(f, prop)?;
-            write!(f, "={}", value)?;
-        }
+impl FromStr for KdlNode {
+    type Err = KdlError;
 
-        if self.children.is_empty() {
-            return Ok(());
-        }
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        KdlNode::parse(input)
+    }
+}
 
-        writeln!(f, " {{")?;
-        for child in &self.children {
-            child.write(f, indent + 4)?;
-            writeln!(f)?;
-        }
-        write!(f, "{:indent$}}}", "", indent = indent)?;
+impl Display for KdlNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.stringify(f, 0)
+    }
+}
 
+impl KdlNode {
+    pub(crate) fn stringify(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        indent: usize,
+    ) -> std::fmt::Result {
+        if let Some(leading) = &self.leading {
+            write!(f, "{}", leading)?;
+        } else {
+            write!(f, "{:indent$}", "", indent = indent)?;
+        }
+        if let Some(ty) = &self.ty {
+            write!(f, "({})", ty)?;
+        }
+        write!(f, "{}", self.name)?;
+        let mut space_before_children = true;
+        for entry in &self.entries {
+            if entry.leading.is_none() {
+                write!(f, " ")?;
+            }
+            write!(f, "{}", entry)?;
+            space_before_children = entry.trailing.is_none();
+        }
+        if let Some(children) = &self.children {
+            if space_before_children {
+                write!(f, " ")?;
+            }
+            write!(f, "{{")?;
+            if children.leading.is_none() {
+                writeln!(f)?;
+            }
+            children.stringify(f, indent + 4)?;
+            write!(f, "}}")?;
+        }
+        if let Some(trailing) = &self.trailing {
+            write!(f, "{}", trailing)?;
+        }
         Ok(())
     }
 }
-impl fmt::Display for KdlValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use KdlValue::*;
-        match self {
-            Int(x) => write!(f, "{}", x),
-            Float(x) => write!(f, "{}", x),
-            String(x) => display_string(f, x),
-            Boolean(x) => write!(f, "{}", x),
-            Null => write!(f, "null"),
-        }
-    }
-}
-
-fn display_identifier(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
-    if let Ok(("", identifier)) = crate::parser::bare_identifier(s) {
-        write!(f, "{}", identifier)
-    } else {
-        display_string(f, s)
-    }
-}
-
-fn display_string(f: &mut fmt::Formatter<'_>, s: &str) -> fmt::Result {
-    write!(f, "\"")?;
-    for c in s.chars() {
-        match crate::parser::ESCAPE_CHARS.1.get(&c) {
-            None => write!(f, "{}", c)?,
-            Some(c) => write!(f, "\\{}", c)?,
-        }
-    }
-    write!(f, "\"")?;
-    Ok(())
-}
-
-// Support conversions from base types into KdlNodeValue
-
-impl From<i64> for KdlValue {
-    fn from(v: i64) -> Self {
-        Self::Int(v)
-    }
-}
-
-impl From<f64> for KdlValue {
-    fn from(v: f64) -> Self {
-        Self::Float(v)
-    }
-}
-
-impl From<String> for KdlValue {
-    fn from(v: String) -> Self {
-        Self::String(v)
-    }
-}
-
-impl From<&str> for KdlValue {
-    fn from(v: &str) -> Self {
-        Self::String(v.to_owned())
-    }
-}
-
-impl From<bool> for KdlValue {
-    fn from(v: bool) -> Self {
-        Self::Boolean(v)
-    }
-}
-
-impl<T> From<Option<T>> for KdlValue
-where
-    T: Into<KdlValue>,
-{
-    fn from(v: Option<T>) -> Self {
-        v.map_or(KdlValue::Null, |v| v.into())
-    }
-}
-
-// Support reverse conversions using TryFrom
-
-// Synthesizes a TryFrom impl for both the base type and an Option variant.
-//
-// We need the Option variant because we can't write a blanket impl due to the existing
-//   impl<T, U> TryFrom<U> for T where U: Into<T>
-// even though KdlNodeValue does not implement Into<Option<_>>.
-macro_rules! impl_try_from {
-    (<$($lt:lifetime)?> $source:ty => $typ:ty, $($good:pat => $value:expr),+; $($bad:ident),+) => {
-        impl<$($lt)?> TryFrom<$source> for $typ {
-            type Error = TryFromKdlNodeValueError;
-            fn try_from(value: $source) -> Result<Self, Self::Error> {
-                match value {
-                    $( $good => Ok($value), )+
-                    $( KdlValue::$bad(_) => Err(TryFromKdlNodeValueError {
-                        expected: stringify!($typ),
-                        variant: stringify!($bad)
-                    }), )+
-                    KdlValue::Null => Err(TryFromKdlNodeValueError {
-                        expected: stringify!($typ),
-                        variant: "Null"
-                    }),
-                }
-            }
-        }
-        impl<$($lt)?> TryFrom<$source> for Option<$typ> {
-            type Error = TryFromKdlNodeValueError;
-            fn try_from(value: $source) -> Result<Self, Self::Error> {
-                match value {
-                    $( $good => Ok(Some($value)), )+
-                    $( KdlValue::$bad(_) => Err(TryFromKdlNodeValueError {
-                        expected: concat!("Option::<", stringify!($typ), ">"),
-                        variant: stringify!($bad)
-                    }), )+
-                    KdlValue::Null => Ok(None),
-                }
-            }
-        }
-    };
-    (& $($lt:lifetime)?, $typ:ty, $($tt:tt)*) => {
-        impl_try_from!(<$($lt)?> & $($lt)? KdlValue => $typ, $($tt)*);
-    };
-    ($typ:ty, $($tt:tt)*) => {
-        impl_try_from!(<> KdlValue => $typ, $($tt)*);
-    };
-}
-
-impl_try_from!(i64, KdlValue::Int(v) => v; Float, String, Boolean);
-impl_try_from!(&, i64, KdlValue::Int(v) => *v; Float, String, Boolean);
-impl_try_from!(f64, KdlValue::Float(v) => v; Int, String, Boolean);
-impl_try_from!(&, f64, KdlValue::Float(v) => *v; Int, String, Boolean);
-impl_try_from!(String, KdlValue::String(v) => v; Int, Float, Boolean);
-impl_try_from!(&'a, &'a str, KdlValue::String(v) => &v[..]; Int, Float, Boolean);
-impl_try_from!(bool, KdlValue::Boolean(v) => v; Int, Float, String);
-impl_try_from!(&, bool, KdlValue::Boolean(v) => *v; Int, Float, String);
 
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
 
     #[test]
-    fn display_value() {
-        assert_eq!("1", format!("{}", KdlValue::Int(1)));
-        assert_eq!("1.5", format!("{}", KdlValue::Float(1.5)));
-        assert_eq!("true", format!("{}", KdlValue::Boolean(true)));
-        assert_eq!("false", format!("{}", KdlValue::Boolean(false)));
-        assert_eq!("null", format!("{}", KdlValue::Null));
-        assert_eq!(
-            r#""foo""#,
-            format!("{}", KdlValue::String("foo".to_owned()))
-        );
-        assert_eq!(
-            r#""foo \"bar\" baz""#,
-            format!("{}", KdlValue::String(r#"foo "bar" baz"#.to_owned()))
-        );
-    }
+    fn indexing() {
+        let mut node = KdlNode::new("foo");
+        node.push("bar");
+        node["foo"] = 1.into();
 
-    #[test]
-    fn display_node() {
-        let mut value = KdlNode {
-            name: "foo".into(),
-            values: vec![1.into(), "two".into()],
-            properties: HashMap::new(),
-            children: vec![],
-        };
+        assert_eq!(node[0], "bar".into());
+        assert_eq!(node["foo"], 1.into());
 
-        value.properties.insert("three".to_owned(), 3.into());
+        node[0] = false.into();
+        node["foo"] = KdlValue::Null;
 
-        assert_eq!(r#"foo 1 "two" three=3"#, format!("{}", value));
-    }
-
-    #[test]
-    fn display_nested_node() {
-        let value = KdlNode {
-            name: "a1".into(),
-            values: vec!["a".into(), 1.into()],
-            properties: HashMap::new(),
-            children: vec![
-                KdlNode {
-                    name: "b1".into(),
-                    values: vec!["b".into(), 1.into()],
-                    properties: HashMap::new(),
-                    children: vec![KdlNode {
-                        name: "c1".into(),
-                        values: vec!["c".into(), 1.into()],
-                        properties: HashMap::new(),
-                        children: vec![],
-                    }],
-                },
-                KdlNode {
-                    name: "b2".into(),
-                    values: vec!["b".into(), 2.into()],
-                    properties: HashMap::new(),
-                    children: vec![KdlNode {
-                        name: "c2".into(),
-                        values: vec!["c".into(), 2.into()],
-                        properties: HashMap::new(),
-                        children: vec![],
-                    }],
-                },
-            ],
-        };
-
-        assert_eq!(
-            r#"
-a1 "a" 1 {
-    b1 "b" 1 {
-        c1 "c" 1
-    }
-    b2 "b" 2 {
-        c2 "c" 2
-    }
-}"#,
-            format!("\n{}", value)
-        );
-    }
-
-    #[test]
-    fn from() {
-        assert_eq!(KdlValue::from(1), KdlValue::Int(1));
-        assert_eq!(KdlValue::from(1.5), KdlValue::Float(1.5));
-        assert_eq!(
-            KdlValue::from("foo".to_owned()),
-            KdlValue::String("foo".to_owned())
-        );
-        assert_eq!(KdlValue::from("bar"), KdlValue::String("bar".to_owned()));
-        assert_eq!(KdlValue::from(true), KdlValue::Boolean(true));
-
-        assert_eq!(KdlValue::from(None::<i64>), KdlValue::Null);
-        assert_eq!(KdlValue::from(Some(1)), KdlValue::Int(1));
-    }
-
-    #[test]
-    fn try_from_success() {
-        assert_eq!(i64::try_from(KdlValue::Int(1)), Ok(1));
-        assert_eq!(i64::try_from(&KdlValue::Int(1)), Ok(1));
-        assert_eq!(f64::try_from(KdlValue::Float(1.5)), Ok(1.5));
-        assert_eq!(f64::try_from(&KdlValue::Float(1.5)), Ok(1.5));
-        assert_eq!(
-            String::try_from(KdlValue::String("foo".to_owned())),
-            Ok("foo".to_owned())
-        );
-        assert_eq!(
-            <&str as TryFrom<_>>::try_from(&KdlValue::String("foo".to_owned())),
-            Ok("foo")
-        );
-        assert_eq!(bool::try_from(KdlValue::Boolean(true)), Ok(true));
-        assert_eq!(bool::try_from(&KdlValue::Boolean(true)), Ok(true));
-
-        assert_eq!(Option::<i64>::try_from(KdlValue::Int(1)), Ok(Some(1)));
-        assert_eq!(Option::<i64>::try_from(KdlValue::Null), Ok(None));
-    }
-
-    #[test]
-    fn try_from_failure() {
-        // We don't expose the internal format of the error type, so let's just test the message
-        // for a couple of cases.
-        assert_eq!(
-            format!("{}", i64::try_from(KdlValue::Float(1.5)).unwrap_err()),
-            "Failed to convert from KdlNodeValue::Float to i64."
-        );
-        assert_eq!(
-            format!(
-                "{}",
-                Option::<i64>::try_from(KdlValue::Float(1.5)).unwrap_err()
-            ),
-            "Failed to convert from KdlNodeValue::Float to Option::<i64>."
-        );
+        assert_eq!(node[0], false.into());
+        assert_eq!(node["foo"], KdlValue::Null);
     }
 }

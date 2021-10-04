@@ -1,0 +1,219 @@
+use std::{fmt::Display, str::FromStr};
+
+use nom::{combinator::all_consuming, Finish};
+
+use crate::{KdlError, KdlErrorKind, KdlIdentifier, KdlValue};
+
+/// KDL Entries are the "arguments" to KDL nodes: either a (positional)
+/// [`Argument`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#argument) or
+/// a (key/value)
+/// [`Property`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#property)
+#[derive(Debug, Clone, PartialEq)]
+pub struct KdlEntry {
+    pub(crate) leading: Option<String>,
+    pub(crate) ty: Option<String>,
+    pub(crate) value: KdlValue,
+    pub(crate) value_repr: Option<String>,
+    pub(crate) name: Option<KdlIdentifier>,
+    pub(crate) trailing: Option<String>,
+}
+
+impl KdlEntry {
+    /// Creates a new Argument (positional) KdlEntry.
+    pub fn new(value: impl Into<KdlValue>) -> Self {
+        KdlEntry {
+            leading: None,
+            ty: None,
+            value: value.into(),
+            value_repr: None,
+            name: None,
+            trailing: None,
+        }
+    }
+
+    pub fn name(&self) -> Option<&KdlIdentifier> {
+        self.name.as_ref()
+    }
+
+    /// Gets the entry's value.
+    pub fn value(&self) -> &KdlValue {
+        &self.value
+    }
+
+    /// Gets a mutable reference to this entry's value.
+    pub fn value_mut(&mut self) -> &mut KdlValue {
+        &mut self.value
+    }
+
+    /// Sets the entry's value.
+    pub fn set_value(&mut self, value: impl Into<KdlValue>) {
+        self.value = value.into();
+    }
+
+    /// Creates a new Property (key/value) KdlEntry.
+    pub fn new_prop(key: impl Into<KdlIdentifier>, value: impl Into<KdlValue>) -> Self {
+        KdlEntry {
+            leading: None,
+            ty: None,
+            value: value.into(),
+            value_repr: None,
+            name: Some(key.into()),
+            trailing: None,
+        }
+    }
+
+    /// Gets leading text (whitespace, comments) for this KdlEntry.
+    pub fn leading(&self) -> Option<&str> {
+        self.leading.as_deref()
+    }
+
+    /// Sets leading text (whitespace, comments) for this KdlEntry.
+    pub fn set_leading(&mut self, leading: impl Into<String>) {
+        self.leading = Some(leading.into());
+    }
+
+    /// Gets trailing text (whitespace, comments) for this KdlEntry.
+    pub fn trailing(&self) -> Option<&str> {
+        self.trailing.as_deref()
+    }
+
+    /// Sets trailing text (whitespace, comments) for this KdlEntry.
+    pub fn set_trailing(&mut self, trailing: impl Into<String>) {
+        self.trailing = Some(trailing.into());
+    }
+
+    /// Gets the custom string representation for this KdlEntry's [`KdlValue`].
+    pub fn value_repr(&self) -> Option<&str> {
+        self.value_repr.as_deref()
+    }
+
+    /// Sets a custom string representation for this KdlEntry's [`KdlValue`].
+    pub fn set_value_repr(&mut self, repr: impl Into<String>) {
+        self.value_repr = Some(repr.into());
+    }
+
+    /// Auto-formats this entry.
+    pub fn fmt(&mut self) {
+        self.leading = None;
+        self.trailing = None;
+        self.value_repr = None;
+        if let Some(name) = &mut self.name {
+            name.fmt();
+        }
+    }
+}
+
+impl Display for KdlEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(leading) = &self.leading {
+            write!(f, "{}", leading)?;
+        }
+        if let Some(ty) = &self.ty {
+            write!(f, "{}", ty)?;
+        }
+        if let Some(name) = &self.name {
+            write!(f, "{}=", name)?;
+        }
+        if let Some(repr) = &self.value_repr {
+            write!(f, "{}", repr)?;
+        } else {
+            write!(f, "{}", self.value)?;
+        }
+        if let Some(trailing) = &self.trailing {
+            write!(f, "{}", trailing)?;
+        }
+        Ok(())
+    }
+}
+
+impl<T> From<T> for KdlEntry
+where
+    T: Into<KdlValue>,
+{
+    fn from(value: T) -> Self {
+        KdlEntry::new(value)
+    }
+}
+
+impl<K, V> From<(K, V)> for KdlEntry
+where
+    K: Into<KdlIdentifier>,
+    V: Into<KdlValue>,
+{
+    fn from((key, value): (K, V)) -> Self {
+        KdlEntry::new_prop(key, value)
+    }
+}
+
+impl FromStr for KdlEntry {
+    type Err = KdlError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        KdlEntry::parse(s)
+    }
+}
+
+impl KdlEntry {
+    /// Parse a KDL document from a string into a [`KdlDocument`] object model.
+    fn parse(input: &str) -> Result<KdlEntry, KdlError> {
+        all_consuming(crate::parser::entry)(input)
+            .finish()
+            .map(|(_, arg)| arg)
+            .map_err(|e| {
+                let prefix = &input[..(input.len() - e.input.len())];
+                KdlError {
+                    input: input.into(),
+                    offset: prefix.chars().count(),
+                    kind: if let Some(kind) = e.kind {
+                        kind
+                    } else if let Some(ctx) = e.context {
+                        KdlErrorKind::Context(ctx)
+                    } else {
+                        KdlErrorKind::Other
+                    },
+                }
+            })
+    }
+}
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn new() {
+        let entry = KdlEntry::new(42);
+        assert_eq!(
+            entry,
+            KdlEntry {
+                leading: None,
+                ty: None,
+                value: KdlValue::Base10(42),
+                value_repr: None,
+                name: None,
+                trailing: None,
+            }
+        );
+
+        let entry = KdlEntry::new_prop("name", 42);
+        assert_eq!(
+            entry,
+            KdlEntry {
+                leading: None,
+                ty: None,
+                value: KdlValue::Base10(42),
+                value_repr: None,
+                name: Some("name".into()),
+                trailing: None,
+            }
+        );
+    }
+
+    #[test]
+    fn display() {
+        let entry = KdlEntry::new(KdlValue::Base10(42));
+        assert_eq!(format!("{}", entry), "42");
+
+        let entry = KdlEntry::new_prop("name", KdlValue::Base10(42));
+        assert_eq!(format!("{}", entry), "name=42");
+    }
+}

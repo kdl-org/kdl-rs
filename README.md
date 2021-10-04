@@ -1,64 +1,26 @@
-# KDL - The KDL Document Language
+`kdl` is a "document-oriented" parser and API. That means that, unlike
+serde-based implementations, it's meant to preserve formatting when editing,
+as well as inserting values with custom formatting. This is useful when
+working with human-maintained KDL files.
 
-[KDL](https://github.com/kdl-org/kdl) is a document language with xml-like
-semantics that looks like you're invoking a bunch of CLI commands!
+You can think of this crate as
+[`toml_edit`](https://crates.io/crates/toml_edit), but for KDL.
 
-It's meant to be used both as a serialization format and a configuration
-language, and is relatively light on syntax compared to XML.
+### Example
 
-There's a living
-[specification](https://github.com/kdl-org/kdl/blob/main/SPEC.md), as well as
-[various implementations](https://github.com/kdl-org/kdl#implementations). The language is based on
-[SDLang](https://sdlang.org), with a number of modifications and
-clarifications on its syntax and behavior.
+```rust
+use kdl::KdlDocument;
 
-This repository is the official/reference implementation in Rust, and
-corresponds to [the kdl crate](https://crates.io/crates/kdl)
-
-## Design and Discussion
-
-KDL is still extremely new, and discussion about the format should happen over
-on the [spec repo's discussions
-page](https://github.com/kdoclang/kdl/discussions). Feel free to jump in and
-give us your 2 cents!
-
-## Example KDL File
-
-```text
-author "Alex Monad" email="alex@example.com" active=true
-
-contents {
-  section "First section" {
-    paragraph "This is the first paragraph"
-    paragraph "This is the second paragraph"
-  }
+let doc: KdlDocument = r#"
+hello 1 2 3
+world prop="value" {
+    child 1
+    child 2
 }
+"#.parse().expect("failed to parse KDL");
 
-// unicode! comments!
-π 3.14159
-```
-
-## Basic Library Example
-
-```
-use kdl::{KdlNode, KdlValue};
-use std::collections::HashMap;
-
-assert_eq!(
-    kdl::parse_document("node 1 key=true").unwrap(),
-    vec![
-        KdlNode {
-            name: String::from("node"),
-            values: vec![KdlValue::Int(1)],
-            properties: {
-                let mut temp = HashMap::new();
-                temp.insert(String::from("key"), KdlValue::Boolean(true));
-                temp
-            },
-            children: vec![],
-        }
-    ]
-)
+assert_eq!(doc.get_args("hello"), vec![&1.into(), &2.into(), &3.into()]);
+assert_eq!(doc.get("world").map(|node| &node["prop"]), Some(&"value".into()));
 ```
 
 ## License

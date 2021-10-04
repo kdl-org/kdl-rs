@@ -1,16 +1,17 @@
 [package]
 name = "kdl"
 version = "3.0.1-alpha.0"
-description = "Official Rust KDL parser"
+description = "Document-oriented KDL parser and API. Allows formatting/whitespace/comment-preserving parsing and modification of KDL text."
 authors = ["Kat Marchán <kzm@zkat.tech>", "KDL Community"]
 license = "Apache-2.0"
 readme = "README.md"
 homepage = "https://kdl.dev"
 repository = "https://github.com/kdl-org/kdl-rs"
 keywords = ["kdl", "document", "serialization", "config"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-nom = { version = "7.0.0", default-features = false }
+miette = "4.5.0"
+nom = { version = "7.1.1", default-features = false }
 phf = { version = "0.8.0", features = ["macros"] }
 thiserror = "1.0.22"
