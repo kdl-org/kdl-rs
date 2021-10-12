@@ -8,7 +8,7 @@ language, and is relatively light on syntax compared to XML.
 
 There's a living
 [specification](https://github.com/kdl-org/kdl/blob/main/SPEC.md), as well as
-[various implementations](#implementations). The language is based on
+[various implementations](https://github.com/kdl-org/kdl#implementations). The language is based on
 [SDLang](https://sdlang.org), with a number of modifications and
 clarifications on its syntax and behavior.
 
