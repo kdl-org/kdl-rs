@@ -159,3 +159,10 @@ fn test_nuget() {
     // I'm just going to settle for making sure it parses.
     doc.expect("Parsing failed");
 }
+
+#[test]
+fn test_schema() {
+    let doc = parse_document(include_str!("../examples/kdl-schema.kdl"));
+    // This file is even larger.
+    doc.expect("Parsing failed");
+}
