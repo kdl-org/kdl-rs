@@ -4,8 +4,8 @@ use crate::nom_compat::{many0, many1, many_till};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until, take_until1, take_while, take_while_m_n};
 use nom::character::complete::{anychar, char, none_of, one_of};
-use nom::combinator::{eof, map, map_opt, map_res, opt, recognize};
-use nom::error::ParseError;
+use nom::combinator::{cut, eof, map, map_opt, map_res, opt, recognize};
+use nom::error::{context, ParseError};
 use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::{IResult, Offset, Parser, Slice};
 
@@ -23,14 +23,20 @@ pub(crate) fn document(input: &str) -> IResult<&str, KdlDocument, KdlParseError<
 
 pub(crate) fn node(input: &str) -> IResult<&str, KdlNode, KdlParseError<&str>> {
     let (input, leading) = all_whitespace(input)?;
-    let (input, ty) = opt(annotation)(input)?;
-    let (input, name) = identifier(input)?;
-    let (input, entries) = many0(entry)(input)?;
-    let (input, children) = opt(children)(input)?;
-    let (input, trailing) = recognize(preceded(
-        many0(node_space),
-        terminated(recognize(opt(tag(";"))), opt(alt((linespace, eof)))),
-    ))(input)?;
+    let (input, ty) = opt(context("valid node type annotation", annotation))(input)?;
+    let (input, name) = context("valid node name", identifier)(input)?;
+    let (input, entries) = many0(context("valid node entry", entry))(input)?;
+    let (input, children) = opt(context("valid node children block", children))(input)?;
+    let (input, trailing) = context(
+        "trailing whitespace after node",
+        cut(recognize(preceded(
+            many0(node_space),
+            alt((
+                terminated(recognize(opt(tag(";"))), alt((linespace, eof))),
+                alt((newline, single_line_comment, eof)),
+            )),
+        ))),
+    )(input)?;
     let mut node = KdlNode::new(name);
     node.set_leading(leading);
     node.set_trailing(trailing);
@@ -52,7 +58,7 @@ fn identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> 
 fn plain_identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
     let (input, name) = recognize(preceded(
         take_while_m_n(1, 1, KdlIdentifier::is_initial_char),
-        take_while(KdlIdentifier::is_identifier_char),
+        cut(take_while(KdlIdentifier::is_identifier_char)),
     ))(input)?;
     let mut ident = KdlIdentifier::from(name);
     ident.set_repr(name);
@@ -74,8 +80,8 @@ fn property(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
     let (input, leading) = recognize(many0(node_space))(input)?;
     let (input, ty) = opt(annotation)(input)?;
     let (input, name) = identifier(input)?;
-    let (input, _) = tag("=")(input)?;
-    let (input, (raw, value)) = value(input)?;
+    let (input, _) = context("'=' after property name", tag("="))(input)?;
+    let (input, (raw, value)) = context("property value", cut(value))(input)?;
     let mut entry = KdlEntry::new_prop(name, value);
     entry.ty = ty;
     entry.set_leading(if leading.is_empty() { " " } else { leading });
@@ -86,7 +92,11 @@ fn property(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
 fn argument(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
     let (input, leading) = recognize(many0(node_space))(input)?;
     let (input, ty) = opt(annotation)(input)?;
-    let (input, (raw, value)) = value(input)?;
+    let (input, (raw, value)) = if ty.is_some() {
+        context("valid value", cut(value))(input)
+    } else {
+        context("valid value", value)(input)
+    }?;
     let mut entry = KdlEntry::new(value);
     entry.ty = ty;
     entry.set_leading(if leading.is_empty() { " " } else { leading });
@@ -109,17 +119,17 @@ fn value(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> 
 }
 
 fn children(input: &str) -> IResult<&str, (&str, KdlDocument), KdlParseError<&str>> {
-    let (input, before) = alt((unicode_space, comment))(input)?;
+    let (input, before) = recognize(many0(node_space))(input)?;
     let (input, _) = tag("{")(input)?;
     let (input, children) = document(input)?;
-    let (input, _) = tag("}")(input)?;
+    let (input, _) = cut(context("closing '}' in node children block", tag("}")))(input)?;
     Ok((input, (before, children)))
 }
 
 fn annotation(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
     let (input, _) = tag("(")(input)?;
-    let (input, ty) = identifier(input)?;
-    let (input, _) = tag(")")(input)?;
+    let (input, ty) = cut(identifier)(input)?;
+    let (input, _) = context("closing ')' for type annotation", cut(tag(")")))(input)?;
     Ok((input, ty))
 }
 
@@ -136,17 +146,26 @@ fn linespace(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
 }
 
 fn node_space(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
-    recognize(alt((
-        delimited(many0(whitespace), escline, many0(whitespace)),
-        recognize(many1(whitespace)),
-        node_slashdash,
-    )))(input)
+    context(
+        "node space",
+        recognize(alt((
+            delimited(many0(whitespace), escline, many0(whitespace)),
+            recognize(many1(whitespace)),
+            node_slashdash,
+        ))),
+    )(input)
 }
 
 fn escline(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
     recognize(preceded(
         tag("\\"),
-        preceded(many0(whitespace), alt((single_line_comment, newline))),
+        context(
+            "newline after line escape",
+            cut(preceded(
+                many0(whitespace),
+                alt((single_line_comment, newline)),
+            )),
+        ),
     ))(input)
 }
 
@@ -193,12 +212,21 @@ fn comment(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
 
 /// `single-line-comment := '//' ('\r' [^\n] | [^\r\n])* (newline | eof)`
 fn single_line_comment(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
-    recognize(preceded(tag("//"), many_till(anychar, alt((newline, eof)))))(input)
+    recognize(preceded(
+        tag("//"),
+        cut(many_till(
+            anychar,
+            context("newline or eof after //", alt((newline, eof))),
+        )),
+    ))(input)
 }
 
 /// `multi-line-comment := '/*' commented-block
 fn multi_line_comment(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
-    recognize(preceded(tag("/*"), commented_block))(input)
+    recognize(preceded(
+        tag("/*"),
+        context("comment block body", cut(commented_block)),
+    ))(input)
 }
 
 /// `commented-block := '*/' | (multi-line-comment | '*' | '/' | [^*/]+) commented-block`
@@ -215,12 +243,15 @@ fn commented_block(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
 fn node_slashdash(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
     recognize(preceded(
         tag("/-"),
-        alt((recognize(entry), recognize(children))),
+        context(
+            "node following a slashdash",
+            cut(alt((recognize(entry), recognize(children)))),
+        ),
     ))(input)
 }
 
 fn slashdash_comment(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
-    recognize(preceded(tag("/-"), node))(input)
+    recognize(preceded(tag("/-"), cut(node)))(input)
 }
 
 fn boolean(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> {
@@ -245,14 +276,14 @@ fn string(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>>
         original.push_str(raw);
         value.push(processed);
     }
-    let (input, _) = tag("\"")(input)?;
+    let (input, _) = cut(tag("\""))(input)?;
     original.push('"');
     Ok((input, (original, KdlValue::String(value))))
 }
 
 /// `character := '\' escape | [^\"]`
 fn character(input: &str) -> IResult<&str, (&str, char), KdlParseError<&str>> {
-    with_raw(alt((preceded(char('\\'), escape), none_of("\\\""))))(input)
+    with_raw(alt((preceded(char('\\'), cut(escape)), none_of("\\\""))))(input)
 }
 
 /// This is like `recognize`, but _also_ returns the actual value.
@@ -296,7 +327,7 @@ pub(crate) static ESCAPE_CHARS: (phf::Map<char, char>, phf::Map<char, char>) = b
 /// `escape := ["\\/bfnrt] | 'u{' hex-digit{1, 6} '}'`
 fn escape(input: &str) -> IResult<&str, char, KdlParseError<&str>> {
     alt((
-        delimited(tag("u{"), unicode, char('}')),
+        delimited(tag("u{"), cut(unicode), char('}')),
         map_opt(anychar, |c| ESCAPE_CHARS.0.get(&c).copied()),
     ))(input)
 }
@@ -320,12 +351,12 @@ fn raw_string(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&s
     raw.push('r');
     let (input, hashes) = recognize(many0(char('#')))(input)?;
     raw.push_str(hashes);
-    let (input, _) = char('"')(input)?;
+    let (input, _) = cut(char('"'))(input)?;
     raw.push('"');
     let close = format!("\"{}", hashes);
     let (input, value) = take_until(&close[..])(input)?;
     raw.push_str(value);
-    let (input, _) = tag(&close[..])(input)?;
+    let (input, _) = cut(tag(&close[..]))(input)?;
     raw.push_str(&close);
     Ok((input, (raw, KdlValue::RawString(value.into()))))
 }
@@ -335,12 +366,12 @@ fn float(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> 
         with_raw(alt((
             recognize(tuple((
                 integer,
-                opt(preceded(char('.'), integer)),
+                opt(preceded(char('.'), cut(integer))),
                 one_of("eE"),
                 opt(one_of("+-")),
-                integer,
+                cut(integer),
             ))),
-            recognize(tuple((integer, char('.'), integer))),
+            recognize(tuple((integer, char('.'), cut(integer)))),
         ))),
         |(raw, x)| {
             str::replace(x, "_", "")
@@ -380,10 +411,13 @@ fn hexadecimal(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&
     map_res(
         with_raw(preceded(
             alt((tag("0x"), tag("0X"))),
-            recognize(many1(terminated(
-                one_of("0123456789abcdefABCDEF"),
-                many0(char('_')),
-            ))),
+            context(
+                "hexadecimal value",
+                cut(recognize(many1(terminated(
+                    one_of("0123456789abcdefABCDEF"),
+                    many0(char('_')),
+                )))),
+            ),
         )),
         move |(raw_body, hex): (&str, &str)| {
             raw.push_str(raw_body);
@@ -402,7 +436,13 @@ fn octal(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> 
     map_res(
         with_raw(preceded(
             alt((tag("0o"), tag("0O"))),
-            recognize(many1(terminated(one_of("01234567"), many0(char('_'))))),
+            context(
+                "octal value",
+                cut(recognize(many1(terminated(
+                    one_of("01234567"),
+                    many0(char('_')),
+                )))),
+            ),
         )),
         move |(raw_body, oct): (&str, &str)| {
             raw.push_str(raw_body);
@@ -421,7 +461,10 @@ fn binary(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>>
     map_res(
         with_raw(preceded(
             alt((tag("0b"), tag("0B"))),
-            recognize(many1(terminated(one_of("01"), many0(char('_'))))),
+            context(
+                "binary value",
+                cut(recognize(many1(terminated(one_of("01"), many0(char('_')))))),
+            ),
         )),
         move |(raw_body, binary): (&str, &str)| {
             raw.push_str(raw_body);

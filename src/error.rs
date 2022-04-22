@@ -12,25 +12,35 @@ use {
 
 /// An error that occurs when parsing a KDL document.
 #[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
-#[error("Error parsing document: {kind}")]
-#[diagnostic(code("{kind.code()}"))]
+#[error("{kind}")]
 pub struct KdlError {
+    #[source_code]
     pub input: String,
+
     /// Offset in chars of the error.
+    #[label = "here"]
     pub offset: usize,
+
     pub kind: KdlErrorKind,
 }
 
 /// A type reprenting additional information specific to the type of error being returned.
-#[derive(Debug, Clone, Eq, PartialEq, Error)]
+#[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
 pub enum KdlErrorKind {
     #[error(transparent)]
+    #[diagnostic(code(kdl::parse_int))]
     ParseIntError(ParseIntError),
+
     #[error(transparent)]
+    #[diagnostic(code(kdl::parse_float))]
     ParseFloatError(ParseFloatError),
-    #[error("Failed to parse `{0}` component.")]
+
+    #[error("Expected {0}.")]
+    #[diagnostic(code(kdl::parse_component))]
     Context(&'static str),
+
     #[error("An unspecified error occurred.")]
+    #[diagnostic(code(kdl::other))]
     Other,
 }
 
@@ -65,7 +75,7 @@ impl<I> ParseError<I> for KdlParseError<I> {
 
 impl<I> ContextError<I> for KdlParseError<I> {
     fn add_context(_input: I, ctx: &'static str, mut other: Self) -> Self {
-        other.context = Some(ctx);
+        other.context = other.context.or(Some(ctx));
         other
     }
 }

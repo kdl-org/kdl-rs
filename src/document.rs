@@ -247,7 +247,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn parsing() {
+    fn parsing() -> miette::Result<()> {
         let src = "
 // This is the first node
 foo 1 2 \"three\" null true bar=\"baz\" {
@@ -267,12 +267,11 @@ Some random comment
  */
 
 a; b; c;
-
 /-commented \"node\"
 
 another /*foo*/ \"node\" /-1 /*bar*/ null;
 final;";
-        let mut doc: KdlDocument = src.parse().unwrap();
+        let mut doc: KdlDocument = src.parse()?;
 
         assert_eq!(doc.leading, Some("".into()));
         assert_eq!(doc.get_arg("foo"), Some(&1.into()));
@@ -319,15 +318,17 @@ final;";
         assert_eq!(format!("{}", doc), src);
 
         // Programmatic manipulation works.
-        let mut node: KdlNode = "new\n".parse().unwrap();
+        let mut node: KdlNode = "new\n".parse()?;
         // Manual entry parsing preserves formatting/reprs.
-        node.push("\"blah\"=0xDEADbeef".parse::<KdlEntry>().unwrap());
+        node.push("\"blah\"=0xDEADbeef".parse::<KdlEntry>()?);
         doc.nodes_mut().push(node);
 
         assert_eq!(
             format!("{}", doc),
             format!("{}new \"blah\"=0xDEADbeef\n", src)
         );
+
+        Ok(())
     }
 
     #[test]
@@ -359,19 +360,11 @@ baz
     }
 
     #[test]
-    fn parse_examples() {
-        include_str!("../examples/kdl-schema.kdl")
-            .parse::<KdlDocument>()
-            .expect("parsing failed");
-        include_str!("../examples/Cargo.kdl")
-            .parse::<KdlDocument>()
-            .expect("parsing failed");
-        include_str!("../examples/ci.kdl")
-            .parse::<KdlDocument>()
-            .expect("parsing failed");
-        // TODO: This one fails?
-        // include_str!("../examples/nuget.kdl")
-        //     .parse::<KdlDocument>()
-        //     .expect("parsing failed");
+    fn parse_examples() -> miette::Result<()> {
+        include_str!("../examples/kdl-schema.kdl").parse::<KdlDocument>()?;
+        include_str!("../examples/Cargo.kdl").parse::<KdlDocument>()?;
+        include_str!("../examples/ci.kdl").parse::<KdlDocument>()?;
+        include_str!("../examples/nuget.kdl").parse::<KdlDocument>()?;
+        Ok(())
     }
 }
