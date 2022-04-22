@@ -1,7 +1,7 @@
 use std::num::{ParseFloatError, ParseIntError};
 
+use miette::Diagnostic;
 use nom::error::{ContextError, ErrorKind, FromExternalError, ParseError};
-
 use thiserror::Error;
 
 #[cfg(doc)]
@@ -11,16 +11,13 @@ use {
 };
 
 /// An error that occurs when parsing a KDL document.
-#[derive(Debug, Clone, Eq, PartialEq, Error)]
-#[error("Error parsing document at line {line} column {column}. {kind}")]
+#[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
+#[error("Error parsing document: {kind}")]
+#[diagnostic(code("{kind.code()}"))]
 pub struct KdlError {
     pub input: String,
     /// Offset in chars of the error.
     pub offset: usize,
-    /// 1-based line number of the error.
-    pub line: usize,
-    /// 1-based column number (in chars) of the error.
-    pub column: usize,
     pub kind: KdlErrorKind,
 }
 
@@ -31,7 +28,7 @@ pub enum KdlErrorKind {
     ParseIntError(ParseIntError),
     #[error(transparent)]
     ParseFloatError(ParseFloatError),
-    #[error("Failed to parse {0} component of semver string.")]
+    #[error("Failed to parse `{0}` component.")]
     Context(&'static str),
     #[error("An unspecified error occurred.")]
     Other,
