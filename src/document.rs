@@ -357,4 +357,21 @@ baz
             format!("{}", doc)
         );
     }
+
+    #[test]
+    fn parse_examples() {
+        include_str!("../examples/kdl-schema.kdl")
+            .parse::<KdlDocument>()
+            .expect("parsing failed");
+        include_str!("../examples/Cargo.kdl")
+            .parse::<KdlDocument>()
+            .expect("parsing failed");
+        include_str!("../examples/ci.kdl")
+            .parse::<KdlDocument>()
+            .expect("parsing failed");
+        // TODO: This one fails?
+        // include_str!("../examples/nuget.kdl")
+        //     .parse::<KdlDocument>()
+        //     .expect("parsing failed");
+    }
 }
