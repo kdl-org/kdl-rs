@@ -23,6 +23,7 @@ pub(crate) fn document(input: &str) -> IResult<&str, KdlDocument, KdlParseError<
 
 pub(crate) fn node(input: &str) -> IResult<&str, KdlNode, KdlParseError<&str>> {
     let (input, leading) = all_whitespace(input)?;
+    let (input, ty) = opt(annotation)(input)?;
     let (input, name) = identifier(input)?;
     let (input, entries) = many0(entry)(input)?;
     let (input, children) = opt(children)(input)?;
@@ -33,6 +34,7 @@ pub(crate) fn node(input: &str) -> IResult<&str, KdlNode, KdlParseError<&str>> {
     let mut node = KdlNode::new(name);
     node.set_leading(leading);
     node.set_trailing(trailing);
+    node.ty = ty;
     let ents = node.entries_mut();
     *ents = entries;
     if let Some((before, children)) = children {
@@ -70,10 +72,12 @@ pub(crate) fn entry(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>>
 
 fn property(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
     let (input, leading) = recognize(many0(node_space))(input)?;
+    let (input, ty) = opt(annotation)(input)?;
     let (input, name) = identifier(input)?;
     let (input, _) = tag("=")(input)?;
     let (input, (raw, value)) = value(input)?;
     let mut entry = KdlEntry::new_prop(name, value);
+    entry.ty = ty;
     entry.set_leading(if leading.is_empty() { " " } else { leading });
     entry.set_value_repr(raw);
     Ok((input, entry))
@@ -81,8 +85,10 @@ fn property(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
 
 fn argument(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
     let (input, leading) = recognize(many0(node_space))(input)?;
+    let (input, ty) = opt(annotation)(input)?;
     let (input, (raw, value)) = value(input)?;
     let mut entry = KdlEntry::new(value);
+    entry.ty = ty;
     entry.set_leading(if leading.is_empty() { " " } else { leading });
     entry.set_value_repr(raw);
     Ok((input, entry))
@@ -108,6 +114,13 @@ fn children(input: &str) -> IResult<&str, (&str, KdlDocument), KdlParseError<&st
     let (input, children) = document(input)?;
     let (input, _) = tag("}")(input)?;
     Ok((input, (before, children)))
+}
+
+fn annotation(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
+    let (input, _) = tag("(")(input)?;
+    let (input, ty) = identifier(input)?;
+    let (input, _) = tag(")")(input)?;
+    Ok((input, ty))
 }
 
 fn all_whitespace(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {

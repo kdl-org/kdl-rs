@@ -11,7 +11,7 @@ use crate::{KdlError, KdlErrorKind, KdlIdentifier, KdlValue};
 #[derive(Debug, Clone, PartialEq)]
 pub struct KdlEntry {
     pub(crate) leading: Option<String>,
-    pub(crate) ty: Option<String>,
+    pub(crate) ty: Option<KdlIdentifier>,
     pub(crate) value: KdlValue,
     pub(crate) value_repr: Option<String>,
     pub(crate) name: Option<KdlIdentifier>,
@@ -109,7 +109,7 @@ impl Display for KdlEntry {
             write!(f, "{}", leading)?;
         }
         if let Some(ty) = &self.ty {
-            write!(f, "{}", ty)?;
+            write!(f, "({})", ty)?;
         }
         if let Some(name) = &self.name {
             write!(f, "{}=", name)?;
