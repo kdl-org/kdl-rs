@@ -14,7 +14,7 @@ use crate::{KdlDocument, KdlEntry, KdlError, KdlErrorKind, KdlIdentifier, KdlVal
 #[derive(Debug, Clone, PartialEq)]
 pub struct KdlNode {
     pub(crate) leading: Option<String>,
-    pub(crate) ty: Option<String>,
+    pub(crate) ty: Option<KdlIdentifier>,
     pub(crate) name: KdlIdentifier,
     // TODO: consider using `hashlink` for this instead, later.
     pub(crate) entries: Vec<KdlEntry>,
@@ -50,6 +50,20 @@ impl KdlNode {
     /// Sets this node's name.
     pub fn set_name(&mut self, name: impl Into<KdlIdentifier>) {
         self.name = name.into();
+    }
+
+    /// Gets the node's type, if any.
+    pub fn ty(&self) -> Option<&KdlIdentifier> {
+        self.ty.as_ref()
+    }
+
+    /// Gets a mutable reference to the node's type.
+    pub fn ty_mut(&mut self) -> &mut Option<KdlIdentifier> {
+        &mut self.ty
+    }
+
+    pub fn set_ty(&mut self, ty: impl Into<KdlIdentifier>) {
+        self.ty = Some(ty.into());
     }
 
     /// Returns a reference to this node's entries (arguments and properties).

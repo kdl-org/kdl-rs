@@ -254,7 +254,7 @@ foo 1 2 \"three\" null true bar=\"baz\" {
     - 1
     - 2
     - \"three\"
-    something \"else\"\r
+    (mytype)something (\"name\")\"else\"\r
 }
 
 null_id null_prop=null
