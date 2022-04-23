@@ -81,6 +81,13 @@ impl KdlEntry {
         self.trailing = Some(trailing.into());
     }
 
+    /// Clears leading and trailing text (whitespace, comments), as well as
+    /// resetting this entry's value to its default representation.
+    pub fn clear_fmt(&mut self) {
+        self.leading = None;
+        self.trailing = None;
+    }
+
     /// Gets the custom string representation for this KdlEntry's [`KdlValue`].
     pub fn value_repr(&self) -> Option<&str> {
         self.value_repr.as_deref()
