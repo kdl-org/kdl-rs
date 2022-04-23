@@ -1,8 +1,6 @@
 use std::{fmt::Display, str::FromStr};
 
-use nom::{combinator::all_consuming, Finish};
-
-use crate::{parser::document, KdlError, KdlErrorKind, KdlNode, KdlValue};
+use crate::{parser, KdlError, KdlNode, KdlValue};
 
 /// Represents a KDL
 /// [`Document`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#document).
@@ -13,7 +11,6 @@ use crate::{parser::document, KdlError, KdlErrorKind, KdlNode, KdlValue};
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct KdlDocument {
     pub(crate) leading: Option<String>,
-    // TODO: Consider using `hashlink` for this, later?
     pub(crate) nodes: Vec<KdlNode>,
     pub(crate) trailing: Option<String>,
 }
@@ -209,34 +206,11 @@ impl IntoIterator for KdlDocument {
     }
 }
 
-impl KdlDocument {
-    /// Parse a KDL document from a string into a [`KdlDocument`] object model.
-    fn parse(input: &str) -> Result<KdlDocument, KdlError> {
-        all_consuming(document)(input)
-            .finish()
-            .map(|(_, arg)| arg)
-            .map_err(|e| {
-                let prefix = &input[..(input.len() - e.input.len())];
-                KdlError {
-                    input: input.into(),
-                    offset: prefix.chars().count(),
-                    kind: if let Some(kind) = e.kind {
-                        kind
-                    } else if let Some(ctx) = e.context {
-                        KdlErrorKind::Context(ctx)
-                    } else {
-                        KdlErrorKind::Other
-                    },
-                }
-            })
-    }
-}
-
 impl FromStr for KdlDocument {
     type Err = KdlError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        KdlDocument::parse(input)
+        parser::parse(input, parser::document)
     }
 }
 

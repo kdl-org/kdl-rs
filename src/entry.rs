@@ -1,8 +1,6 @@
 use std::{fmt::Display, str::FromStr};
 
-use nom::{combinator::all_consuming, Finish};
-
-use crate::{KdlError, KdlErrorKind, KdlIdentifier, KdlValue};
+use crate::{parser, KdlError, KdlIdentifier, KdlValue};
 
 /// KDL Entries are the "arguments" to KDL nodes: either a (positional)
 /// [`Argument`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#argument) or
@@ -149,32 +147,10 @@ impl FromStr for KdlEntry {
     type Err = KdlError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        KdlEntry::parse(s)
+        parser::parse(s, parser::entry)
     }
 }
 
-impl KdlEntry {
-    /// Parse a KDL document from a string into a [`KdlDocument`] object model.
-    fn parse(input: &str) -> Result<KdlEntry, KdlError> {
-        all_consuming(crate::parser::entry)(input)
-            .finish()
-            .map(|(_, arg)| arg)
-            .map_err(|e| {
-                let prefix = &input[..(input.len() - e.input.len())];
-                KdlError {
-                    input: input.into(),
-                    offset: prefix.chars().count(),
-                    kind: if let Some(kind) = e.kind {
-                        kind
-                    } else if let Some(ctx) = e.context {
-                        KdlErrorKind::Context(ctx)
-                    } else {
-                        KdlErrorKind::Other
-                    },
-                }
-            })
-    }
-}
 #[cfg(test)]
 mod test {
     use super::*;

@@ -1,4 +1,6 @@
-use std::fmt::Display;
+use std::{fmt::Display, str::FromStr};
+
+use crate::{parser, KdlError};
 
 /// Represents a KDL
 /// [Identifier](https://github.com/kdl-org/kdl/blob/main/SPEC.md#identifier).
@@ -136,6 +138,14 @@ impl From<String> for KdlIdentifier {
 impl From<KdlIdentifier> for String {
     fn from(value: KdlIdentifier) -> Self {
         value.value
+    }
+}
+
+impl FromStr for KdlIdentifier {
+    type Err = KdlError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        parser::parse(s, parser::identifier)
     }
 }
 
