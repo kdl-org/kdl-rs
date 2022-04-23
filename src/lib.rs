@@ -1,13 +1,15 @@
-//! `kdl` is a "document-oriented" parser and API. That means that, unlike
-//! serde-based implementations, it's meant to preserve formatting when
-//! editing, as well as inserting values with custom formatting. This is
-//! useful when working with human-maintained KDL files.
+//! `kdl` is a "document-oriented" parser and API for the [KDL Document
+//! Language](https://kdl.dev), a node-based, human-friendly configuration and
+//! serialization format. Unlike serde-based implementations, this crate
+//! preserves formatting when editing, as well as when inserting or changing
+//! values with custom formatting. This is most useful when working with
+//! human-maintained KDL files.
 //!
 //! You can think of this crate as
 //! [`toml_edit`](https://crates.io/crates/toml_edit), but for KDL.
 //!
-//! If you don't care about formatting or programmatic manipulation, you
-//! should check out [`knuffel`](https://crates.io/crates/knuffel) or
+//! If you don't care about formatting or programmatic manipulation, you might
+//! check out [`knuffel`](https://crates.io/crates/knuffel) or
 //! [`kaydle`](https://crates.io/crates/kaydle) instead for serde (or
 //! serde-like) parsing.
 //!

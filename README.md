@@ -1,12 +1,19 @@
 # `kdl`
 
-`kdl` is a "document-oriented" parser and API. That means that, unlike
-serde-based implementations, it's meant to preserve formatting when
-editing, as well as inserting values with custom formatting. This is
-useful when working with human-maintained KDL files.
+`kdl` is a "document-oriented" parser and API for the [KDL Document
+Language](https://kdl.dev), a node-based, human-friendly configuration and
+serialization format. Unlike serde-based implementations, this crate
+preserves formatting when editing, as well as when inserting or changing
+values with custom formatting. This is most useful when working with
+human-maintained KDL files.
 
 You can think of this crate as
 [`toml_edit`](https://crates.io/crates/toml_edit), but for KDL.
+
+If you don't care about formatting or programmatic manipulation, you might
+check out [`knuffel`](https://crates.io/crates/knuffel) or
+[`kaydle`](https://crates.io/crates/kaydle) instead for serde (or
+serde-like) parsing.
 
 ### Example
 
@@ -59,6 +66,29 @@ assert_eq!(&doc.to_string(), node_str);
 [`KdlDocument`], [`KdlNode`], [`KdlEntry`], and [`KdlIdentifier`] can all
 be parsed and managed this way.
 
+
+This error implements [`miette::Diagnostic`] and can be used to display
+detailed, pretty-printed diagnostic messages when using [`miette::Result`]
+and the `"pretty"` feature flag for `miette`:
+
+```rust
+fn main() -> miette::Result<()> {
+    "foo 1.".parse::<kdl::KdlDocument>()?;
+    Ok(())
+}
+```
+
+This will display a message like:
+```
+Error:
+  × Expected valid value.
+   ╭────
+ 1 │ foo 1.
+   ·     ─┬
+   ·      ╰── invalid float
+   ╰────
+  help: Floating point numbers must be base 10, and have numbers after the decimal point.
+```
 ### License
 
 The code in this repository is covered by [the Apache-2.0
