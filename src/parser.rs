@@ -342,30 +342,21 @@ where
     }
 }
 
-// creates a (map, inverse map) tuple
-macro_rules! bimap {
-    ($($x:expr => $y:expr),+) => {
-        (phf::phf_map!($($x => $y),+), phf::phf_map!($($y => $x),+))
-    }
-}
-
-/// a map and its inverse of escape-sequence<->char
-pub(crate) static ESCAPE_CHARS: (phf::Map<char, char>, phf::Map<char, char>) = bimap! {
-    '"' => '"',
-    '\\' => '\\',
-    '/' => '/',
-    'b' => '\u{08}',
-    'f' => '\u{0C}',
-    'n' => '\n',
-    'r' => '\r',
-    't' => '\t'
-};
-
 /// `escape := ["\\/bfnrt] | 'u{' hex-digit{1, 6} '}'`
 fn escape(input: &str) -> IResult<&str, char, KdlParseError<&str>> {
     alt((
         delimited(tag("u{"), cut(unicode), char('}')),
-        map_opt(anychar, |c| ESCAPE_CHARS.0.get(&c).copied()),
+        map_opt(anychar, |c| match c {
+            '"' => Some('"'),
+            '\\' => Some('\\'),
+            '/' => Some('/'),
+            'b' => Some('\u{08}'),
+            'f' => Some('\u{0C}'),
+            'n' => Some('\n'),
+            'r' => Some('\r'),
+            't' => Some('\t'),
+            _ => None,
+        }),
     ))(input)
 }
 
