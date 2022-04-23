@@ -66,10 +66,17 @@ assert_eq!(&doc.to_string(), node_str);
 [`KdlDocument`], [`KdlNode`], [`KdlEntry`], and [`KdlIdentifier`] can all
 be parsed and managed this way.
 
+### Error Reporting
 
-This error implements [`miette::Diagnostic`] and can be used to display
+[`KdlError`] implements [`miette::Diagnostic`] and can be used to display
 detailed, pretty-printed diagnostic messages when using [`miette::Result`]
-and the `"pretty"` feature flag for `miette`:
+and the `"fancy"` feature flag for `miette`:
+
+```toml
+# Cargo.toml
+[dependencies]
+miette = { version = "x.y.z", features = ["fancy"] }
+```
 
 ```rust
 fn main() -> miette::Result<()> {
@@ -98,3 +105,6 @@ License](LICENSE.md).
 [`KdlNode`]: https://docs.rs/kdl/3.0.1-alpha.0/kdl/struct.KdlNode.html
 [`KdlEntry`]: https://docs.rs/kdl/3.0.1-alpha.0/kdl/struct.KdlEntry.html
 [`KdlIdentifier`]: https://docs.rs/kdl/3.0.1-alpha.0/kdl/struct.KdlIdentifier.html
+[`KdlError`]: https://docs.rs/kdl/3.0.1-alpha.0/kdl/struct.KdlError.html
+[`miette::Diagnostic`]: https://docs.rs/miette/latest/miette/trait.Diagnostic.html
+[`miette::Result`]: https://docs.rs/miette/latest/miette/type.Result.html

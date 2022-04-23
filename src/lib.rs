@@ -64,10 +64,17 @@
 //! [`KdlDocument`], [`KdlNode`], [`KdlEntry`], and [`KdlIdentifier`] can all
 //! be parsed and managed this way.
 //!
+//! ## Error Reporting
 //!
-//! This error implements [`miette::Diagnostic`] and can be used to display
+//! [`KdlError`] implements [`miette::Diagnostic`] and can be used to display
 //! detailed, pretty-printed diagnostic messages when using [`miette::Result`]
-//! and the `"pretty"` feature flag for `miette`:
+//! and the `"fancy"` feature flag for `miette`:
+//!
+//! ```toml
+//! # Cargo.toml
+//! [dependencies]
+//! miette = { version = "x.y.z", features = ["fancy"] }
+//! ```
 //!
 //! ```no_run
 //! fn main() -> miette::Result<()> {

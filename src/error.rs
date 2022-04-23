@@ -14,7 +14,7 @@ use {
 ///
 /// This error implements [`miette::Diagnostic`] and can be used to display
 /// detailed, pretty-printed diagnostic messages when using [`miette::Result`]
-/// and the `"pretty"` feature flag for `miette`:
+/// and the `"fancy"` feature flag for `miette`:
 ///
 /// ```no_run
 /// fn main() -> miette::Result<()> {
