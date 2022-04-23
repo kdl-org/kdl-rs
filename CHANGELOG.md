@@ -1,5 +1,41 @@
 # `kdl` Release Changelog
 
+<a name="4.0.0"></a>
+## 4.0.0 (2022-04-23)
+
+Hello again!
+
+kdl-rs 4.0.0 is a _complete_ rewrite, featuring a full-fledged
+"document-oriented" parser: that is, formatting, whitespace, comments, etc,
+are all preserved and can be programmatically manipulated. KDL documents are
+fully round-trippable, without losing any of that human-written content!
+
+This crate will, for the time being, not include a serde-based parser, but
+there's also crates like [`knuffel`](https://crates.io/crates/knuffel) and
+[`kaydle`](https://crates.io/crates/kaydle) now that do probide serde (or
+serde-like) functionality. You should definitely check those out if you're
+looking for that kind of workflow!
+
+Please give this version a whirl if you've been curious about using KDL for
+your own projects, and let me know what can be improved, or even what you love
+about it!
+
+### Features
+
+* **api:** complete rewrite into document-oriented parser (#29) ([364ea617](https://github.com/kdl-org/kdl-rs/commit/364ea6173c0bcfc2f5e4b21e19120179f6a5c5ed))
+    * **BREAKING CHANGE**: Completely new API and bumped MSRV to 1.56.0.
+* **tests:** add test for kdl-schema.kdl (#30) ([ad34cfd9](https://github.com/kdl-org/kdl-rs/commit/ad34cfd93a9e6d8018b8086821a3463b764fb363))
+* **types:** add type annotation support (#31) ([16c82f1e](https://github.com/kdl-org/kdl-rs/commit/16c82f1ec18c221b0d98dfcfb805ed3642354f5b))
+* **errors:** improve parsing errors and fix some bugs (#33) ([8ed6a5cd](https://github.com/kdl-org/kdl-rs/commit/8ed6a5cd068e60de03a0e14493383f2515b98f81))
+* **clear_fmt:** add methods to clear formatting and reset it to default ([892bf06e](https://github.com/kdl-org/kdl-rs/commit/892bf06e69c746ea9711fe33979f28f937329672))
+* **errors:** overhauled error reporting a ton ([d63f336d](https://github.com/kdl-org/kdl-rs/commit/d63f336d188eb15a4bd8c870e7ee37617923270a))
+* **len:** add APIs to calculate component lengths (#36) ([177c42ca](https://github.com/kdl-org/kdl-rs/commit/177c42cae75d8a0d9985c26ea28cb4f1cf7077de))
+
+### Bug Fixes
+
+* **parse:** small parser tweaks + more tests ([1a8eb351](https://github.com/kdl-org/kdl-rs/commit/1a8eb351685dc368c55d992d719e6bad34398df2))
+* **api:** remove obsolete type ([40b04418](https://github.com/kdl-org/kdl-rs/commit/40b04418c9dc9a8363c000e19bc22e54c0dae7e9))
+
 <a name="3.0.0"></a>
 ## 3.0.0 (2021-09-16)
 
