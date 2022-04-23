@@ -50,16 +50,17 @@ impl KdlNode {
         self.name = name.into();
     }
 
-    /// Gets the node's type, if any.
+    /// Gets the node's type identifier, if any.
     pub fn ty(&self) -> Option<&KdlIdentifier> {
         self.ty.as_ref()
     }
 
-    /// Gets a mutable reference to the node's type.
+    /// Gets a mutable reference to the node's type identifier.
     pub fn ty_mut(&mut self) -> &mut Option<KdlIdentifier> {
         &mut self.ty
     }
 
+    /// Sets the node's type identifier.
     pub fn set_ty(&mut self, ty: impl Into<KdlIdentifier>) {
         self.ty = Some(ty.into());
     }
@@ -334,7 +335,9 @@ impl KdlNode {
 /// Represents a [`KdlNode`]'s entry key.
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeKey {
+    /// Key for a node property entry.
     Key(KdlIdentifier),
+    /// Index for a node argument entry (positional value).
     Index(usize),
 }
 
