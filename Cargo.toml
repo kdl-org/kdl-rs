@@ -13,4 +13,4 @@ edition = "2021"
 [dependencies]
 miette = "4.6.0"
 nom = { version = "7.1.1", default-features = false }
-thiserror = "1.0.22"
+thiserror = "1.0.30"
