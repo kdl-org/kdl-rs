@@ -155,7 +155,7 @@ impl FromStr for KdlEntry {
     type Err = KdlError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        parser::parse(s, parser::entry)
+        parser::parse(s, parser::entry_with_node_space)
     }
 }
 
@@ -190,6 +190,37 @@ mod test {
                 trailing: None,
             }
         );
+    }
+
+    #[test]
+    fn parsing() -> miette::Result<()> {
+        let entry: KdlEntry = " \\\n (\"m\\\"eh\")0xDEADbeef\t\\\n".parse()?;
+        assert_eq!(
+            entry,
+            KdlEntry {
+                leading: Some(" \\\n ".into()),
+                ty: Some("\"m\\\"eh\"".parse()?),
+                value: KdlValue::Base16(0xdeadbeef),
+                value_repr: Some("0xDEADbeef".into()),
+                name: None,
+                trailing: Some("\t\\\n".into()),
+            }
+        );
+
+        let entry: KdlEntry = " \\\n (\"m\\\"eh\")\"foo\"=0xDEADbeef\t\\\n".parse()?;
+        assert_eq!(
+            entry,
+            KdlEntry {
+                leading: Some(" \\\n ".into()),
+                ty: Some("\"m\\\"eh\"".parse()?),
+                value: KdlValue::Base16(0xdeadbeef),
+                value_repr: Some("0xDEADbeef".into()),
+                name: Some("\"foo\"".parse()?),
+                trailing: Some("\t\\\n".into()),
+            }
+        );
+
+        Ok(())
     }
 
     #[test]
