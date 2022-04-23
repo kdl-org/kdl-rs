@@ -106,6 +106,16 @@ impl KdlNode {
         self.trailing = Some(trailing.into());
     }
 
+    /// Length of this node when rendered as a string.
+    pub fn len(&self) -> usize {
+        format!("{}", self).len()
+    }
+
+    /// Returns true if this node is completely empty (including whitespace).
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Clears leading and trailing text (whitespace, comments), as well as
     /// the space before the children block, if any. Individual entries and
     /// their formatting will be preserved.
