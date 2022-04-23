@@ -1,6 +1,6 @@
 use std::num::{ParseFloatError, ParseIntError};
 
-use miette::Diagnostic;
+use miette::{Diagnostic, SourceSpan};
 use nom::error::{ContextError, ErrorKind, FromExternalError, ParseError};
 use thiserror::Error;
 
@@ -11,16 +11,46 @@ use {
 };
 
 /// An error that occurs when parsing a KDL document.
+///
+/// This error implements [`miette::Diagnostic`] and can be used to display
+/// detailed, pretty-printed diagnostic messages when using [`miette::Result`]
+/// and the `"pretty"` feature flag for `miette`:
+///
+/// ```no_run
+/// fn main() -> miette::Result<()> {
+///     "foo 1.".parse::<kdl::KdlDocument>()?;
+///     Ok(())
+/// }
+/// ```
+///
+/// This will display a message like:
+/// ```text
+/// Error:
+///   × Expected valid value.
+///    ╭────
+///  1 │ foo 1.
+///    ·     ─┬
+///    ·      ╰── invalid float
+///    ╰────
+///   help: Floating point numbers must be base 10, and have numbers after the decimal point.
+/// ```
 #[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
 #[error("{kind}")]
 pub struct KdlError {
-    #[source_code]
     /// Source string for the KDL document that failed to parse.
+    #[source_code]
     pub input: String,
 
     /// Offset in chars of the error.
-    #[label = "here"]
-    pub offset: usize,
+    #[label("{}", label.unwrap_or("here"))]
+    pub span: SourceSpan,
+
+    /// Label text for this span. Defaults to `"here"`.
+    pub label: Option<&'static str>,
+
+    /// Suggestion for fixing the parser error.
+    #[help]
+    pub help: Option<&'static str>,
 
     /// Specific error kind for this parser error.
     pub kind: KdlErrorKind,
@@ -29,26 +59,26 @@ pub struct KdlError {
 /// A type reprenting additional information specific to the type of error being returned.
 #[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
 pub enum KdlErrorKind {
+    /// An error occurred while parsing an integer.
     #[error(transparent)]
     #[diagnostic(code(kdl::parse_int))]
-    /// An error occurred while parsing an integer.
     ParseIntError(ParseIntError),
 
+    /// An error occurred while parsing a floating point number.
     #[error(transparent)]
     #[diagnostic(code(kdl::parse_float))]
-    /// An error occurred while parsing a floating point number.
     ParseFloatError(ParseFloatError),
 
-    #[error("Expected {0}.")]
-    #[diagnostic(code(kdl::parse_component))]
     /// Generic parsing error. The given context string denotes the component
     /// that failed to parse.
+    #[error("Expected {0}.")]
+    #[diagnostic(code(kdl::parse_component))]
     Context(&'static str),
 
-    #[error("An unspecified error occurred.")]
-    #[diagnostic(code(kdl::other))]
     /// Generic unspecified error. If this is returned, the call site should
     /// be annotated with context, if possible.
+    #[error("An unspecified error occurred.")]
+    #[diagnostic(code(kdl::other))]
     Other,
 }
 
@@ -64,15 +94,23 @@ pub struct TryFromKdlNodeValueError {
 pub(crate) struct KdlParseError<I> {
     pub(crate) input: I,
     pub(crate) context: Option<&'static str>,
+    pub(crate) len: usize,
+    pub(crate) label: Option<&'static str>,
+    pub(crate) help: Option<&'static str>,
     pub(crate) kind: Option<KdlErrorKind>,
+    pub(crate) touched: bool,
 }
 
 impl<I> ParseError<I> for KdlParseError<I> {
     fn from_error_kind(input: I, _kind: nom::error::ErrorKind) -> Self {
         Self {
             input,
+            len: 0,
+            label: None,
+            help: None,
             context: None,
             kind: None,
+            touched: false,
         }
     }
 
@@ -92,8 +130,12 @@ impl<'a> FromExternalError<&'a str, ParseIntError> for KdlParseError<&'a str> {
     fn from_external_error(input: &'a str, _kind: ErrorKind, e: ParseIntError) -> Self {
         KdlParseError {
             input,
+            len: 0,
+            label: None,
+            help: None,
             context: None,
             kind: Some(KdlErrorKind::ParseIntError(e)),
+            touched: false,
         }
     }
 }
@@ -102,8 +144,12 @@ impl<'a> FromExternalError<&'a str, ParseFloatError> for KdlParseError<&'a str> 
     fn from_external_error(input: &'a str, _kind: ErrorKind, e: ParseFloatError) -> Self {
         KdlParseError {
             input,
+            len: 0,
+            label: None,
+            help: None,
             context: None,
             kind: Some(KdlErrorKind::ParseFloatError(e)),
+            touched: false,
         }
     }
 }

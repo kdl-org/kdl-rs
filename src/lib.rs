@@ -6,6 +6,11 @@
 //! You can think of this crate as
 //! [`toml_edit`](https://crates.io/crates/toml_edit), but for KDL.
 //!
+//! If you don't care about formatting or programmatic manipulation, you
+//! should check out [`knuffel`](https://crates.io/crates/knuffel) or
+//! [`kaydle`](https://crates.io/crates/kaydle) instead for serde (or
+//! serde-like) parsing.
+//!
 //! ## Example
 //!
 //! ```rust
@@ -57,6 +62,29 @@
 //! [`KdlDocument`], [`KdlNode`], [`KdlEntry`], and [`KdlIdentifier`] can all
 //! be parsed and managed this way.
 //!
+//!
+//! This error implements [`miette::Diagnostic`] and can be used to display
+//! detailed, pretty-printed diagnostic messages when using [`miette::Result`]
+//! and the `"pretty"` feature flag for `miette`:
+//!
+//! ```no_run
+//! fn main() -> miette::Result<()> {
+//!     "foo 1.".parse::<kdl::KdlDocument>()?;
+//!     Ok(())
+//! }
+//! ```
+//!
+//! This will display a message like:
+//! ```text
+//! Error:
+//!   × Expected valid value.
+//!    ╭────
+//!  1 │ foo 1.
+//!    ·     ─┬
+//!    ·      ╰── invalid float
+//!    ╰────
+//!   help: Floating point numbers must be base 10, and have numbers after the decimal point.
+//! ```
 //! ## License
 //!
 //! The code in this repository is covered by [the Apache-2.0

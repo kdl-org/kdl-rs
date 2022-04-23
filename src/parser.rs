@@ -24,7 +24,9 @@ where
             let prefix = &input[..(input.len() - e.input.len())];
             KdlError {
                 input: input.into(),
-                offset: prefix.chars().count(),
+                span: (prefix.chars().count(), e.len).into(),
+                help: e.help,
+                label: e.label,
                 kind: if let Some(kind) = e.kind {
                     kind
                 } else if let Some(ctx) = e.context {
@@ -34,6 +36,27 @@ where
                 },
             }
         })
+}
+
+fn set_details<'a>(
+    mut err: nom::Err<KdlParseError<&'a str>>,
+    start: &'a str,
+    label: Option<&'static str>,
+    help: Option<&'static str>,
+) -> nom::Err<KdlParseError<&'a str>> {
+    match &mut err {
+        nom::Err::Error(e) | nom::Err::Failure(e) => {
+            if !e.touched {
+                e.len = start.offset(e.input);
+                e.input = start;
+                e.label = label;
+                e.help = help;
+                e.touched = true;
+            }
+        }
+        _ => {}
+    }
+    err
 }
 
 pub(crate) fn document(input: &str) -> IResult<&str, KdlDocument, KdlParseError<&str>> {
@@ -48,12 +71,13 @@ pub(crate) fn document(input: &str) -> IResult<&str, KdlDocument, KdlParseError<
 
 pub(crate) fn node(input: &str) -> IResult<&str, KdlNode, KdlParseError<&str>> {
     let (input, leading) = all_whitespace(input)?;
+    let start = input;
     let (input, ty) = opt(context("valid node type annotation", annotation))(input)?;
     let (input, name) = context("valid node name", identifier)(input)?;
     let (input, entries) = many0(context("valid node entry", entry))(input)?;
     let (input, children) = opt(context("valid node children block", children))(input)?;
     let (input, trailing) = context(
-        "trailing whitespace after node",
+        "valid node terminator",
         cut(recognize(preceded(
             many0(node_space),
             alt((
@@ -61,7 +85,15 @@ pub(crate) fn node(input: &str) -> IResult<&str, KdlNode, KdlParseError<&str>> {
                 alt((newline, single_line_comment, eof)),
             )),
         ))),
-    )(input)?;
+    )(input)
+    .map_err(|e| {
+        set_details(
+            e,
+            start,
+            Some("parsed node"),
+            Some("Nodes can only be terminated by `;` or a valid line ending."),
+        )
+    })?;
     let mut node = KdlNode::new(name);
     node.set_leading(leading);
     node.set_trailing(trailing);
@@ -81,10 +113,11 @@ pub(crate) fn identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseEr
 }
 
 fn plain_identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
+    let start = input;
     let (input, name) = recognize(preceded(
         take_while_m_n(1, 1, KdlIdentifier::is_initial_char),
         cut(take_while(KdlIdentifier::is_identifier_char)),
-    ))(input)?;
+    ))(input).map_err(|e| set_details(e, start, Some("invalid identifier character"), Some("See https://github.com/kdl-org/kdl/blob/main/SPEC.md#identifier for an explanation of valid KDL identifiers.")))?;
     let mut ident = KdlIdentifier::from(name);
     ident.set_repr(name);
     Ok((input, ident))
@@ -116,7 +149,7 @@ fn property(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
     let (input, ty) = opt(annotation)(input)?;
     let (input, name) = identifier(input)?;
     let (input, _) = context("'=' after property name", tag("="))(input)?;
-    let (input, (raw, value)) = context("property value", cut(value))(input)?;
+    let (input, (raw, value)) = context("property value", cut(value))(input).map_err(|e| set_details(e, input, Some("invalid value"), Some("Please refer to https://github.com/kdl-org/kdl/blob/main/SPEC.md#value for valid KDL value syntaxes.")))?;
     let mut entry = KdlEntry::new_prop(name, value);
     entry.ty = ty;
     entry.set_leading(leading);
@@ -157,16 +190,20 @@ fn value(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> 
 
 fn children(input: &str) -> IResult<&str, (&str, KdlDocument), KdlParseError<&str>> {
     let (input, before) = recognize(many0(node_space))(input)?;
+    let start = input;
     let (input, _) = tag("{")(input)?;
     let (input, children) = document(input)?;
-    let (input, _) = cut(context("closing '}' in node children block", tag("}")))(input)?;
+    let (input, _) = cut(context("closing '}' in node children block", tag("}")))(input)
+        .map_err(|e| set_details(e, start, Some("children block body"), None))?;
     Ok((input, (before, children)))
 }
 
 fn annotation(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
+    let start = input;
     let (input, _) = tag("(")(input)?;
     let (input, ty) = cut(identifier)(input)?;
-    let (input, _) = context("closing ')' for type annotation", cut(tag(")")))(input)?;
+    let (input, _) = context("closing ')' for type annotation", cut(tag(")")))(input)
+        .map_err(|e| set_details(e, start, Some("annotation"), Some("annotations can only be KDL identifiers (including string identifiers), and can't have any space inside the parentheses.")))?;
     Ok((input, ty))
 }
 
@@ -203,7 +240,7 @@ fn escline(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
                 alt((single_line_comment, newline)),
             )),
         ),
-    ))(input)
+    ))(input).map_err(|e| set_details(e, input, Some("line escape starts here"), Some("line escapes can only be followed by whitespace plus a newline (or single-line comment).")))
 }
 
 fn unicode_space(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
@@ -256,6 +293,7 @@ fn single_line_comment(input: &str) -> IResult<&str, &str, KdlParseError<&str>> 
             context("newline or eof after //", alt((newline, eof))),
         )),
     ))(input)
+    .map_err(|e| set_details(e, input, Some("comment"), None))
 }
 
 /// `multi-line-comment := '/*' commented-block
@@ -264,6 +302,7 @@ fn multi_line_comment(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
         tag("/*"),
         context("comment block body", cut(commented_block)),
     ))(input)
+    .map_err(|e| set_details(e, input, Some("comment"), None))
 }
 
 /// `commented-block := '*/' | (multi-line-comment | '*' | '/' | [^*/]+) commented-block`
@@ -285,10 +324,12 @@ fn node_slashdash(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
             cut(alt((recognize(entry), recognize(children)))),
         ),
     ))(input)
+    .map_err(|e| set_details(e, input, Some("slashdash"), None))
 }
 
 fn slashdash_comment(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
     recognize(preceded(tag("/-"), cut(node)))(input)
+        .map_err(|e| set_details(e, input, Some("slashdash"), None))
 }
 
 fn boolean(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> {
@@ -313,7 +354,8 @@ fn string(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>>
         original.push_str(raw);
         value.push(processed);
     }
-    let (input, _) = cut(tag("\""))(input)?;
+    let (input, _) =
+        cut(tag("\""))(input).map_err(|e| set_details(e, input, Some("string"), None))?;
     original.push('"');
     Ok((input, (original, KdlValue::String(value))))
 }
@@ -407,6 +449,16 @@ fn float(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> 
                 .map(|x| (raw.into(), KdlValue::Base10Float(x)))
         },
     )(input)
+    .map_err(|e| {
+        set_details(
+            e,
+            input,
+            Some("invalid float"),
+            Some(
+                "Floating point numbers must be base 10, and have numbers after the decimal point.",
+            ),
+        )
+    })
 }
 
 /// ```text
@@ -454,6 +506,7 @@ fn hexadecimal(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&
                 .map(|x| (raw.clone(), KdlValue::Base16(x)))
         },
     )(input)
+    .map_err(|e| set_details(e, input, Some("invalid hexadecimal"), Some("Hexadecimal values can only include the characters 0-9 and a-f (case-insensitive), with optional `_` separators.")))
 }
 
 /// `octal := sign? '0o' [0-7] [0-7_]*`
@@ -479,6 +532,14 @@ fn octal(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> 
                 .map(|x| (raw.clone(), KdlValue::Base8(x)))
         },
     )(input)
+    .map_err(|e| {
+        set_details(
+            e,
+            input,
+            Some("invalid octal"),
+            Some("octal values can only include the characters 0-7, with optional `_` separators."),
+        )
+    })
 }
 
 /// `binary := sign? '0b' ('0' | '1') ('0' | '1' | '_')*`
@@ -501,6 +562,7 @@ fn binary(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>>
                 .map(|x| (raw.clone(), KdlValue::Base2(x)))
         },
     )(input)
+    .map_err(|e| set_details(e, input, Some("invalid binary"), Some("Hexadecimal values can only include the characters 0 and 1, with optional `_` separators.")))
 }
 
 fn sign(input: &str) -> IResult<&str, i64, KdlParseError<&str>> {
