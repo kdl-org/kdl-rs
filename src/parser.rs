@@ -4,12 +4,37 @@ use crate::nom_compat::{many0, many1, many_till};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until, take_until1, take_while, take_while_m_n};
 use nom::character::complete::{anychar, char, none_of, one_of};
-use nom::combinator::{cut, eof, map, map_opt, map_res, opt, recognize};
+use nom::combinator::{all_consuming, cut, eof, map, map_opt, map_res, opt, recognize};
 use nom::error::{context, ParseError};
 use nom::sequence::{delimited, preceded, terminated, tuple};
-use nom::{IResult, Offset, Parser, Slice};
+use nom::{Finish, IResult, Offset, Parser, Slice};
 
-use crate::{KdlDocument, KdlEntry, KdlIdentifier, KdlNode, KdlParseError, KdlValue};
+use crate::{
+    KdlDocument, KdlEntry, KdlError, KdlErrorKind, KdlIdentifier, KdlNode, KdlParseError, KdlValue,
+};
+
+pub(crate) fn parse<'a, T, P>(input: &'a str, parser: P) -> Result<T, KdlError>
+where
+    P: Parser<&'a str, T, KdlParseError<&'a str>>,
+{
+    all_consuming(parser)(input)
+        .finish()
+        .map(|(_, arg)| arg)
+        .map_err(|e| {
+            let prefix = &input[..(input.len() - e.input.len())];
+            KdlError {
+                input: input.into(),
+                offset: prefix.chars().count(),
+                kind: if let Some(kind) = e.kind {
+                    kind
+                } else if let Some(ctx) = e.context {
+                    KdlErrorKind::Context(ctx)
+                } else {
+                    KdlErrorKind::Other
+                },
+            }
+        })
+}
 
 pub(crate) fn document(input: &str) -> IResult<&str, KdlDocument, KdlParseError<&str>> {
     let (input, nodes) = many0(node)(input)?;
@@ -51,7 +76,7 @@ pub(crate) fn node(input: &str) -> IResult<&str, KdlNode, KdlParseError<&str>> {
     Ok((input, node))
 }
 
-fn identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
+pub(crate) fn identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
     alt((plain_identifier, quoted_identifier))(input)
 }
 

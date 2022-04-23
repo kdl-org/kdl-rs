@@ -4,9 +4,7 @@ use std::{
     str::FromStr,
 };
 
-use nom::{combinator::all_consuming, Finish};
-
-use crate::{KdlDocument, KdlEntry, KdlError, KdlErrorKind, KdlIdentifier, KdlValue};
+use crate::{parser, KdlDocument, KdlEntry, KdlError, KdlIdentifier, KdlValue};
 
 /// Represents an individual KDL
 /// [`Node`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#node) inside a
@@ -393,34 +391,11 @@ impl IndexMut<&str> for KdlNode {
     }
 }
 
-impl KdlNode {
-    /// Parse a KDL document from a string into a [`KdlDocument`] object model.
-    fn parse(input: &str) -> Result<KdlNode, KdlError> {
-        all_consuming(crate::parser::node)(input)
-            .finish()
-            .map(|(_, arg)| arg)
-            .map_err(|e| {
-                let prefix = &input[..(input.len() - e.input.len())];
-                KdlError {
-                    input: input.into(),
-                    offset: prefix.chars().count(),
-                    kind: if let Some(kind) = e.kind {
-                        kind
-                    } else if let Some(ctx) = e.context {
-                        KdlErrorKind::Context(ctx)
-                    } else {
-                        KdlErrorKind::Other
-                    },
-                }
-            })
-    }
-}
-
 impl FromStr for KdlNode {
     type Err = KdlError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        KdlNode::parse(input)
+        parser::parse(input, parser::node)
     }
 }
 
