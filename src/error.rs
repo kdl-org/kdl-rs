@@ -15,12 +15,14 @@ use {
 #[error("{kind}")]
 pub struct KdlError {
     #[source_code]
+    /// Source string for the KDL document that failed to parse.
     pub input: String,
 
     /// Offset in chars of the error.
     #[label = "here"]
     pub offset: usize,
 
+    /// Specific error kind for this parser error.
     pub kind: KdlErrorKind,
 }
 
@@ -29,18 +31,24 @@ pub struct KdlError {
 pub enum KdlErrorKind {
     #[error(transparent)]
     #[diagnostic(code(kdl::parse_int))]
+    /// An error occurred while parsing an integer.
     ParseIntError(ParseIntError),
 
     #[error(transparent)]
     #[diagnostic(code(kdl::parse_float))]
+    /// An error occurred while parsing a floating point number.
     ParseFloatError(ParseFloatError),
 
     #[error("Expected {0}.")]
     #[diagnostic(code(kdl::parse_component))]
+    /// Generic parsing error. The given context string denotes the component
+    /// that failed to parse.
     Context(&'static str),
 
     #[error("An unspecified error occurred.")]
     #[diagnostic(code(kdl::other))]
+    /// Generic unspecified error. If this is returned, the call site should
+    /// be annotated with context, if possible.
     Other,
 }
 

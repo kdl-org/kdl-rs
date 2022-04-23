@@ -1,7 +1,7 @@
 use nom::error::{ErrorKind, ParseError};
 use nom::{Err, IResult, Parser};
 
-pub fn many0<I, O, E, F>(mut f: F) -> impl FnMut(I) -> IResult<I, Vec<O>, E>
+pub(crate) fn many0<I, O, E, F>(mut f: F) -> impl FnMut(I) -> IResult<I, Vec<O>, E>
 where
     I: Clone + PartialEq,
     F: Parser<I, O, E>,
@@ -26,7 +26,7 @@ where
     }
 }
 
-pub fn many1<I, O, E, F>(mut f: F) -> impl FnMut(I) -> IResult<I, Vec<O>, E>
+pub(crate) fn many1<I, O, E, F>(mut f: F) -> impl FnMut(I) -> IResult<I, Vec<O>, E>
 where
     I: Clone + PartialEq,
     F: Parser<I, O, E>,
@@ -58,7 +58,7 @@ where
     }
 }
 
-pub fn many_till<I, O, P, E, F, G>(
+pub(crate) fn many_till<I, O, P, E, F, G>(
     mut f: F,
     mut g: G,
 ) -> impl FnMut(I) -> IResult<I, (Vec<O>, P), E>

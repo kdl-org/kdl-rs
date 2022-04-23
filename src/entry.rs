@@ -29,6 +29,7 @@ impl KdlEntry {
         }
     }
 
+    /// Gets a reference to this entry's name, if it's a property entry.
     pub fn name(&self) -> Option<&KdlIdentifier> {
         self.name.as_ref()
     }

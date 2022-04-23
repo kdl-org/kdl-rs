@@ -8,6 +8,14 @@ use crate::{parser, KdlError, KdlNode, KdlValue};
 /// This type is also used to manage a [`KdlNode`]'s [`Children
 /// Block`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#children-block),
 /// when present.
+///
+/// # Examples
+///
+/// The easiest way to create a `KdlDocument` is to parse it:
+/// ```rust
+/// # use kdl::KdlDocument;
+/// let kdl: KdlDocument = "foo 1 2 3\nbar 4 5 6".parse().expect("parse failed");
+/// ```
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct KdlDocument {
     pub(crate) leading: Option<String>,
@@ -88,6 +96,9 @@ impl KdlDocument {
             .collect()
     }
 
+    /// Gets a mutable reference to the first argument (value) of the first
+    /// child node with a matching name. This is a shorthand utility for cases
+    /// where a document is being used as a key/value store.
     pub fn get_arg_mut(&mut self, name: &str) -> Option<&mut KdlValue> {
         self.get_mut(name)
             .and_then(|node| node.get_mut(0))
