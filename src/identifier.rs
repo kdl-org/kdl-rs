@@ -31,6 +31,16 @@ impl KdlIdentifier {
         self.repr = Some(repr.into());
     }
 
+    /// Length of this identifier when rendered as a string.
+    pub fn len(&self) -> usize {
+        format!("{}", self).len()
+    }
+
+    /// Returns true if this identifier is completely empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Resets this identifier to its default representation. It will attempt
     /// to make it an unquoted identifier, and fall back to a string
     /// representation if that would be invalid.

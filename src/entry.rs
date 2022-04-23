@@ -98,6 +98,16 @@ impl KdlEntry {
         self.value_repr = Some(repr.into());
     }
 
+    /// Length of this entry when rendered as a string.
+    pub fn len(&self) -> usize {
+        format!("{}", self).len()
+    }
+
+    /// Returns true if this entry is completely empty (including whitespace).
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Auto-formats this entry.
     pub fn fmt(&mut self) {
         self.leading = None;

@@ -168,6 +168,16 @@ impl KdlDocument {
         self.trailing = Some(trailing.into());
     }
 
+    /// Length of this document when rendered as a string.
+    pub fn len(&self) -> usize {
+        format!("{}", self).len()
+    }
+
+    /// Returns true if this document is completely empty (including whitespace)
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Clears leading and trailing text (whitespace, comments). `KdlNode`s in
     /// this document will be unaffected.
     pub fn clear_fmt(&mut self) {
