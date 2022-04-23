@@ -97,7 +97,17 @@ fn quoted_identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<
     Ok((input, ident))
 }
 
-pub(crate) fn entry(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
+pub(crate) fn entry_with_node_space(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
+    let (input, leading) = recognize(many0(node_space))(input)?;
+    let leading = if leading.is_empty() { " " } else { leading };
+    let (input, mut entry) = entry(input)?;
+    let (input, trailing) = recognize(many0(node_space))(input)?;
+    entry.set_leading(leading);
+    entry.set_trailing(trailing);
+    Ok((input, entry))
+}
+
+fn entry(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
     alt((property, argument))(input)
 }
 
@@ -109,7 +119,8 @@ fn property(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
     let (input, (raw, value)) = context("property value", cut(value))(input)?;
     let mut entry = KdlEntry::new_prop(name, value);
     entry.ty = ty;
-    entry.set_leading(if leading.is_empty() { " " } else { leading });
+    entry.set_leading(leading);
+    entry.set_trailing("");
     entry.set_value_repr(raw);
     Ok((input, entry))
 }
@@ -124,7 +135,8 @@ fn argument(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
     }?;
     let mut entry = KdlEntry::new(value);
     entry.ty = ty;
-    entry.set_leading(if leading.is_empty() { " " } else { leading });
+    entry.set_leading(leading);
+    entry.set_trailing("");
     entry.set_value_repr(raw);
     Ok((input, entry))
 }
@@ -530,6 +542,7 @@ mod node_tests {
 
                 let mut one = KdlEntry::new(1);
                 one.set_leading(" ");
+                one.set_trailing("");
                 one.set_value_repr("1");
                 assert_eq!(entries.next(), Some(&one));
 
@@ -537,6 +550,7 @@ mod node_tests {
                 ident.set_repr("\"bar\"");
                 let mut bar = KdlEntry::new_prop(ident, false);
                 bar.set_leading(" ");
+                bar.set_trailing("");
                 bar.set_value_repr("false");
                 assert_eq!(entries.next(), Some(&bar));
             }

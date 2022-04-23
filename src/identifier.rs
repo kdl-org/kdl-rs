@@ -161,6 +161,41 @@ mod test {
     use super::*;
 
     #[test]
+    fn parsing() -> miette::Result<()> {
+        let plain = "foo";
+        assert_eq!(
+            plain.parse::<KdlIdentifier>()?,
+            KdlIdentifier {
+                value: plain.to_string(),
+                repr: Some(plain.to_string()),
+            }
+        );
+
+        let quoted = "\"foo\\\"bar\"";
+        assert_eq!(
+            quoted.parse::<KdlIdentifier>()?,
+            KdlIdentifier {
+                value: "foo\"bar".to_string(),
+                repr: Some(quoted.to_string()),
+            }
+        );
+
+        let invalid = "123";
+        assert!(invalid.parse::<KdlIdentifier>().is_err());
+
+        let invalid = "   space   ";
+        assert!(invalid.parse::<KdlIdentifier>().is_err());
+
+        let invalid = "\"x";
+        assert!(invalid.parse::<KdlIdentifier>().is_err());
+
+        let invalid = "r#\"foo\"#";
+        assert!(invalid.parse::<KdlIdentifier>().is_err());
+
+        Ok(())
+    }
+
+    #[test]
     fn formatting() {
         let plain = KdlIdentifier::from("foo");
         assert_eq!(format!("{}", plain), "foo");

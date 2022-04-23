@@ -441,7 +441,9 @@ impl KdlNode {
             space_before_children = entry.trailing.is_none();
         }
         if let Some(children) = &self.children {
-            if space_before_children {
+            if let Some(before) = self.before_children() {
+                write!(f, "{}", before)?;
+            } else if space_before_children {
                 write!(f, " ")?;
             }
             write!(f, "{{")?;
@@ -461,6 +463,18 @@ impl KdlNode {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn parsing() -> miette::Result<()> {
+        let node: KdlNode = "\n\t  (\"ty\")\"node\" 0xDEADbeef;\n".parse()?;
+        assert_eq!(node.leading(), Some("\n\t  "));
+        assert_eq!(node.trailing(), Some(";\n"));
+        assert_eq!(node.ty(), Some(&"\"ty\"".parse()?));
+        assert_eq!(node.name(), &"\"node\"".parse()?);
+        assert_eq!(node.get(0), Some(&"0xDEADbeef".parse()?));
+
+        Ok(())
+    }
 
     #[test]
     fn indexing() {
