@@ -168,6 +168,13 @@ impl KdlDocument {
         self.trailing = Some(trailing.into());
     }
 
+    /// Clears leading and trailing text (whitespace, comments). `KdlNode`s in
+    /// this document will be unaffected.
+    pub fn clear_fmt(&mut self) {
+        self.leading = None;
+        self.trailing = None;
+    }
+
     /// Auto-formats this Document.
     ///
     /// Note: This currently removes comments as well.

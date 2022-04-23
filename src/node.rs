@@ -106,6 +106,15 @@ impl KdlNode {
         self.trailing = Some(trailing.into());
     }
 
+    /// Clears leading and trailing text (whitespace, comments), as well as
+    /// the space before the children block, if any. Individual entries and
+    /// their formatting will be preserved.
+    pub fn clear_fmt(&mut self) {
+        self.leading = None;
+        self.trailing = None;
+        self.before_children = None;
+    }
+
     /// Fetches an entry by key. Number keys will look up arguments, strings
     /// will look up properties.
     pub fn get(&self, key: impl Into<NodeKey>) -> Option<&KdlEntry> {

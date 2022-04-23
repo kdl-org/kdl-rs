@@ -31,6 +31,13 @@ impl KdlIdentifier {
         self.repr = Some(repr.into());
     }
 
+    /// Resets this identifier to its default representation. It will attempt
+    /// to make it an unquoted identifier, and fall back to a string
+    /// representation if that would be invalid.
+    pub fn clear_fmt(&mut self) {
+        self.repr = None;
+    }
+
     /// Auto-formats this identifier.
     pub fn fmt(&mut self) {
         self.repr = None;
