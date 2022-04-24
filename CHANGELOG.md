@@ -1,6 +1,13 @@
 # `kdl` Release Changelog
 
-<a name="4.0.0"></a>
+<a name="v4.1.0"></a>
+## 4.1.0 (2022-04-24)
+
+### Features
+
+* **fmt:** shiny new comment-preserving formatter! (#38) ([12d373a1](https://github.com/kdl-org/kdl-rs/commit/12d373a1e0de6533e7722e3ecc69e7ddc0e59db9))
+
+<a name="v4.0.0"></a>
 ## 4.0.0 (2022-04-23)
 
 Hello again!
