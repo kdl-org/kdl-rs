@@ -101,10 +101,10 @@ Error:
 The code in this repository is covered by [the Apache-2.0
 License](LICENSE.md).
 
-[`KdlDocument`]: https://docs.rs/kdl/3.0.1-alpha.0/kdl/struct.KdlDocument.html
-[`KdlNode`]: https://docs.rs/kdl/3.0.1-alpha.0/kdl/struct.KdlNode.html
-[`KdlEntry`]: https://docs.rs/kdl/3.0.1-alpha.0/kdl/struct.KdlEntry.html
-[`KdlIdentifier`]: https://docs.rs/kdl/3.0.1-alpha.0/kdl/struct.KdlIdentifier.html
-[`KdlError`]: https://docs.rs/kdl/3.0.1-alpha.0/kdl/struct.KdlError.html
+[`KdlDocument`]: https://docs.rs/kdl/latest/kdl/struct.KdlDocument.html
+[`KdlNode`]: https://docs.rs/kdl/latest/kdl/struct.KdlNode.html
+[`KdlEntry`]: https://docs.rs/kdl/latest/kdl/struct.KdlEntry.html
+[`KdlIdentifier`]: https://docs.rs/kdl/latest/kdl/struct.KdlIdentifier.html
+[`KdlError`]: https://docs.rs/kdl/latest/kdl/struct.KdlError.html
 [`miette::Diagnostic`]: https://docs.rs/miette/latest/miette/trait.Diagnostic.html
 [`miette::Result`]: https://docs.rs/miette/latest/miette/type.Result.html
