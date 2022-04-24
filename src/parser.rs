@@ -112,6 +112,33 @@ pub(crate) fn identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseEr
     alt((plain_identifier, quoted_identifier))(input)
 }
 
+pub(crate) fn leading_comments(input: &str) -> IResult<&str, Vec<&str>, KdlParseError<&str>> {
+    terminated(
+        many0(preceded(opt(many0(alt((newline, unicode_space)))), comment)),
+        opt(many0(alt((newline, unicode_space, eof)))),
+    )(input)
+}
+
+pub(crate) fn trailing_comments(mut input: &str) -> IResult<&str, Vec<&str>, KdlParseError<&str>> {
+    let mut comments = vec![];
+    loop {
+        let (inp, _) = opt(many0(alt((newline, unicode_space, tag("\\")))))(input)?;
+        let (inp, comment) = opt(comment)(inp)?;
+        if let Some(comment) = comment {
+            comments.push(comment);
+        }
+        let (inp, _) = opt(many0(alt((newline, unicode_space, tag("\\"), tag(";")))))(inp)?;
+        let (inp, end) = opt(eof)(inp)?;
+        if end.is_some() {
+            return Ok((inp, comments));
+        }
+        if input == inp {
+            panic!("invalid trailing text");
+        }
+        input = inp;
+    }
+}
+
 fn plain_identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
     let start = input;
     let (input, name) = recognize(preceded(
@@ -642,6 +669,13 @@ mod comment_tests {
     #[test]
     fn slashdash() {
         assert_eq!(comment("/-foo 1 2"), Ok(("", "/-foo 1 2")));
+    }
+
+    #[test]
+    fn surrounding() {
+        // assert_eq!(trailing_comments("// foo"), Ok(("", vec!["// foo"])));
+        // assert_eq!(trailing_comments("/* foo */"), Ok(("", vec!["/* foo */"])));
+        // assert_eq!(trailing_comments("/* foo */ \n // bar"), Ok(("", vec!["/* foo */", "// bar"])));
     }
 }
 

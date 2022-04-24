@@ -340,14 +340,7 @@ impl KdlNode {
 
     /// Auto-formats this node and its contents.
     pub fn fmt(&mut self) {
-        self.leading = None;
-        self.trailing = None;
-        for entry in &mut self.entries {
-            entry.fmt();
-        }
-        if let Some(children) = &mut self.children {
-            children.fmt();
-        }
+        self.fmt_impl(0);
     }
 }
 
@@ -428,6 +421,41 @@ impl Display for KdlNode {
 }
 
 impl KdlNode {
+    pub(crate) fn fmt_impl(&mut self, indent: usize) {
+        if let Some(s) = self.leading.as_mut() {
+            crate::fmt::fmt_leading(s, indent);
+        }
+        if let Some(s) = self.trailing.as_mut() {
+            crate::fmt::fmt_trailing(s);
+            if s.starts_with(';') {
+                s.remove(0);
+            }
+            if let Some(c) = s.chars().next() {
+                if !c.is_whitespace() {
+                    s.insert(0, ' ');
+                }
+            }
+            s.push('\n');
+        }
+        self.before_children = None;
+        self.name.clear_fmt();
+        if let Some(ty) = self.ty.as_mut() {
+            ty.clear_fmt()
+        }
+        for entry in &mut self.entries {
+            entry.fmt();
+        }
+        if let Some(children) = self.children.as_mut() {
+            children.fmt_impl(indent + 4);
+            if let Some(leading) = children.leading.as_mut() {
+                leading.push('\n');
+            }
+            if let Some(trailing) = children.trailing.as_mut() {
+                trailing.push_str(format!("{:indent$}", "", indent = indent).as_str());
+            }
+        }
+    }
+
     pub(crate) fn stringify(
         &self,
         f: &mut std::fmt::Formatter<'_>,

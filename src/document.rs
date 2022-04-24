@@ -185,15 +185,10 @@ impl KdlDocument {
         self.trailing = None;
     }
 
-    /// Auto-formats this Document.
-    ///
-    /// Note: This currently removes comments as well.
+    /// Auto-formats this Document, making everything nice while preserving
+    /// comments.
     pub fn fmt(&mut self) {
-        self.leading = None;
-        self.trailing = None;
-        for node in &mut self.nodes {
-            node.fmt();
-        }
+        self.fmt_impl(0);
     }
 }
 
@@ -204,6 +199,18 @@ impl Display for KdlDocument {
 }
 
 impl KdlDocument {
+    pub(crate) fn fmt_impl(&mut self, indent: usize) {
+        if let Some(s) = self.leading.as_mut() {
+            crate::fmt::fmt_leading(s, indent);
+        }
+        if let Some(s) = self.trailing.as_mut() {
+            crate::fmt::fmt_trailing(s);
+        }
+        for node in &mut self.nodes {
+            node.fmt_impl(indent);
+        }
+    }
+
     pub(crate) fn stringify(
         &self,
         f: &mut std::fmt::Formatter<'_>,
@@ -359,6 +366,67 @@ baz
 "#,
             format!("{}", doc)
         );
+    }
+
+    #[test]
+    fn fmt() -> miette::Result<()> {
+        let mut doc: KdlDocument = r#"
+
+        /* x */ foo    1 "bar"=0xDEADbeef {
+    child1     1  ;
+
+ // child 2 comment
+
+        child2 2 // comment
+
+               child3    "
+
+   string\t" \
+{
+       /*
+
+
+       multiline*/
+                                    inner1    \
+                    r"value" \
+                    ;
+
+        inner2      \ //comment
+        {
+            inner3
+        }
+    }
+               }
+
+        // trailing comment here
+
+        "#
+        .parse()?;
+
+        KdlDocument::fmt(&mut doc);
+
+        print!("{}", doc);
+        assert_eq!(
+            doc.to_string(),
+            r#"/* x */
+foo 1 bar=0xdeadbeef {
+    child1 1
+    // child 2 comment
+    child2 2 // comment
+    child3 "\n\n   string\t" {
+        /*
+
+
+       multiline*/
+        inner1 r"value"
+        inner2 {
+            inner3
+        }
+    }
+}
+// trailing comment here"#
+        );
+        Ok(())
     }
 
     #[test]

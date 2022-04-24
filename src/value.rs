@@ -165,7 +165,6 @@ impl Display for KdlValue {
 
 impl KdlValue {
     fn write_raw_string(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "r")?;
         let raw = self.as_string().unwrap();
         let mut consecutive = 0usize;
         let mut maxhash = 0usize;
@@ -173,14 +172,15 @@ impl KdlValue {
             if char == '#' {
                 consecutive += 1;
             } else if char == '"' {
-                maxhash = maxhash.max(consecutive);
+                maxhash = maxhash.max(consecutive + 1);
             } else {
                 consecutive = 0;
             }
         }
-        write!(f, "{}", "#".repeat(maxhash + 1))?;
+        write!(f, "r")?;
+        write!(f, "{}", "#".repeat(maxhash))?;
         write!(f, "\"{}\"", raw)?;
-        write!(f, "{}", "#".repeat(maxhash + 1))?;
+        write!(f, "{}", "#".repeat(maxhash))?;
         Ok(())
     }
 }
