@@ -114,6 +114,7 @@ pub use value::*;
 mod document;
 mod entry;
 mod error;
+mod fmt;
 mod identifier;
 mod node;
 mod nom_compat;
