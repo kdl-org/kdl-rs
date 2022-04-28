@@ -1,5 +1,12 @@
 # `kdl` Release Changelog
 
+<a name="4.1.1"></a>
+## 4.1.1 (2022-04-28)
+
+### Bug Fixes
+
+* **compliance:** pull in spec test suite and fix issues (#40) ([58a40fdf](https://github.com/kdl-org/kdl-rs/commit/58a40fdf487b303f7466c93d84a4cd8a5665aa24))
+
 <a name="v4.1.0"></a>
 ## 4.1.0 (2022-04-24)
 
