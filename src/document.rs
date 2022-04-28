@@ -188,7 +188,12 @@ impl KdlDocument {
     /// Auto-formats this Document, making everything nice while preserving
     /// comments.
     pub fn fmt(&mut self) {
-        self.fmt_impl(0);
+        self.fmt_impl(0, false);
+    }
+
+    /// Formats the document and removes all comments from the document.
+    pub fn fmt_no_comments(&mut self) {
+        self.fmt_impl(0, true);
     }
 }
 
@@ -199,15 +204,20 @@ impl Display for KdlDocument {
 }
 
 impl KdlDocument {
-    pub(crate) fn fmt_impl(&mut self, indent: usize) {
+    pub(crate) fn fmt_impl(&mut self, indent: usize, no_comments: bool) {
         if let Some(s) = self.leading.as_mut() {
-            crate::fmt::fmt_leading(s, indent);
+            crate::fmt::fmt_leading(s, indent, no_comments);
+        }
+        let mut has_nodes = false;
+        for node in &mut self.nodes {
+            has_nodes = true;
+            node.fmt_impl(indent, no_comments);
         }
         if let Some(s) = self.trailing.as_mut() {
-            crate::fmt::fmt_trailing(s);
-        }
-        for node in &mut self.nodes {
-            node.fmt_impl(indent);
+            crate::fmt::fmt_trailing(s, no_comments);
+            if !has_nodes {
+                s.push('\n');
+            }
         }
     }
 

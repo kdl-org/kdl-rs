@@ -96,6 +96,32 @@ Error:
    ╰────
   help: Floating point numbers must be base 10, and have numbers after the decimal point.
 ```
+
+### Quirks
+
+#### Properties
+
+Multiple properties with the same name are allowed, and all duplicated
+**will be preserved**, meaning those documents will correctly round-trip.
+When using `node.get()`/`node["key"]` & company, the _last_ property with
+that name's value will be returned.
+
+#### Numbers
+
+KDL itself does not specify a particular representation for numbers and
+accepts just about anything valid, no matter how large and how small. This
+means a few things:
+
+* Numbers without a decimal point are interpreted as u64.
+* Numbers with a decimal point are interpreted as f64.
+* Floating point numbers that evaluate to f64::INFINITY or
+  f64::NEG_INFINITY or NaN will be represented as such in the values,
+  instead of the original numbers.
+* A similar restriction applies to overflowed u64 values.
+* The original _representation_ of these numbers will be preserved, unless
+  you `doc.fmt()`, in which case the original representation will be
+  thrown away and the actual value will be used when serializing.
+
 ### License
 
 The code in this repository is covered by [the Apache-2.0

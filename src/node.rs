@@ -134,14 +134,15 @@ impl KdlNode {
     fn get_impl(&self, key: NodeKey) -> Option<&KdlEntry> {
         match key {
             NodeKey::Key(key) => {
+                let mut current = None;
                 for entry in &self.entries {
                     if entry.name.is_some()
                         && entry.name.as_ref().map(|i| i.value()) == Some(key.value())
                     {
-                        return Some(entry);
+                        current = Some(entry);
                     }
                 }
-                None
+                current
             }
             NodeKey::Index(idx) => {
                 let mut current_idx = 0;
@@ -170,14 +171,15 @@ impl KdlNode {
     fn get_mut_impl(&mut self, key: NodeKey) -> Option<&mut KdlEntry> {
         match key {
             NodeKey::Key(key) => {
+                let mut current = None;
                 for entry in &mut self.entries {
                     if entry.name.is_some()
                         && entry.name.as_ref().map(|i| i.value()) == Some(key.value())
                     {
-                        return Some(entry);
+                        current = Some(entry);
                     }
                 }
-                None
+                current
             }
             NodeKey::Index(idx) => {
                 let mut current_idx = 0;
@@ -340,7 +342,12 @@ impl KdlNode {
 
     /// Auto-formats this node and its contents.
     pub fn fmt(&mut self) {
-        self.fmt_impl(0);
+        self.fmt_impl(0, false);
+    }
+
+    /// Auto-formats this node and its contents, stripping comments.
+    pub fn fmt_no_comments(&mut self) {
+        self.fmt_impl(0, true);
     }
 }
 
@@ -421,12 +428,12 @@ impl Display for KdlNode {
 }
 
 impl KdlNode {
-    pub(crate) fn fmt_impl(&mut self, indent: usize) {
+    pub(crate) fn fmt_impl(&mut self, indent: usize, no_comments: bool) {
         if let Some(s) = self.leading.as_mut() {
-            crate::fmt::fmt_leading(s, indent);
+            crate::fmt::fmt_leading(s, indent, no_comments);
         }
         if let Some(s) = self.trailing.as_mut() {
-            crate::fmt::fmt_trailing(s);
+            crate::fmt::fmt_trailing(s, no_comments);
             if s.starts_with(';') {
                 s.remove(0);
             }
@@ -446,7 +453,7 @@ impl KdlNode {
             entry.fmt();
         }
         if let Some(children) = self.children.as_mut() {
-            children.fmt_impl(indent + 4);
+            children.fmt_impl(indent + 4, no_comments);
             if let Some(leading) = children.leading.as_mut() {
                 leading.push('\n');
             }
@@ -511,6 +518,11 @@ mod test {
         assert_eq!(node.name(), &"\"node\"".parse()?);
         assert_eq!(node.get(0), Some(&"0xDEADbeef".parse()?));
 
+        r#"
+        node "test" {
+            link "blah" anything="self"
+        }"#
+        .parse::<KdlNode>()?;
         Ok(())
     }
 
@@ -528,5 +540,9 @@ mod test {
 
         assert_eq!(node[0], false.into());
         assert_eq!(node["foo"], KdlValue::Null);
+
+        node.entries_mut().push(KdlEntry::new_prop("x", 1));
+        node.entries_mut().push(KdlEntry::new_prop("x", 2));
+        assert_eq!(&node["x"], &2.into())
     }
 }

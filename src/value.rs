@@ -151,11 +151,23 @@ impl Display for KdlValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::RawString(_) => self.write_raw_string(f),
-            Self::String(string) => write!(f, "{:?}", string),
+            Self::String(_) => self.write_string(f),
             Self::Base2(value) => write!(f, "0b{:b}", value),
             Self::Base8(value) => write!(f, "0o{:o}", value),
-            Self::Base10(value) => write!(f, "{}", value),
-            Self::Base10Float(value) => write!(f, "{}", value),
+            Self::Base10(value) => write!(f, "{:?}", value),
+            Self::Base10Float(value) => write!(
+                f,
+                "{:?}",
+                if value == &f64::INFINITY {
+                    f64::MAX
+                } else if value == &f64::NEG_INFINITY {
+                    -f64::MAX
+                } else if value.is_nan() {
+                    0.0
+                } else {
+                    *value
+                }
+            ),
             Self::Base16(value) => write!(f, "0x{:x}", value),
             Self::Bool(value) => write!(f, "{}", value),
             Self::Null => write!(f, "null"),
@@ -164,6 +176,23 @@ impl Display for KdlValue {
 }
 
 impl KdlValue {
+    fn write_string(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let string = self.as_string().unwrap();
+        write!(f, "\"")?;
+        for char in string.chars() {
+            match char {
+                '\\' | '"' => write!(f, "\\{}", char)?,
+                '\n' => write!(f, "\\n")?,
+                '\r' => write!(f, "\\r")?,
+                '\t' => write!(f, "\\t")?,
+                '\u{08}' => write!(f, "\\b")?,
+                '\u{0C}' => write!(f, "\\f")?,
+                _ => write!(f, "{}", char)?,
+            }
+        }
+        write!(f, "\"")?;
+        Ok(())
+    }
     fn write_raw_string(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let raw = self.as_string().unwrap();
         let mut consecutive = 0usize;

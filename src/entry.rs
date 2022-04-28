@@ -124,11 +124,11 @@ impl Display for KdlEntry {
         if let Some(leading) = &self.leading {
             write!(f, "{}", leading)?;
         }
-        if let Some(ty) = &self.ty {
-            write!(f, "({})", ty)?;
-        }
         if let Some(name) = &self.name {
             write!(f, "{}=", name)?;
+        }
+        if let Some(ty) = &self.ty {
+            write!(f, "({})", ty)?;
         }
         if let Some(repr) = &self.value_repr {
             write!(f, "{}", repr)?;
@@ -165,7 +165,7 @@ impl FromStr for KdlEntry {
     type Err = KdlError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        parser::parse(s, parser::entry_with_node_space)
+        parser::parse(s, parser::entry_with_trailing)
     }
 }
 
@@ -217,7 +217,7 @@ mod test {
             }
         );
 
-        let entry: KdlEntry = " \\\n (\"m\\\"eh\")\"foo\"=0xDEADbeef\t\\\n".parse()?;
+        let entry: KdlEntry = " \\\n \"foo\"=(\"m\\\"eh\")0xDEADbeef\t\\\n".parse()?;
         assert_eq!(
             entry,
             KdlEntry {
