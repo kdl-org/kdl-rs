@@ -4,7 +4,7 @@ use crate::{parser, KdlError};
 
 /// Represents a KDL
 /// [Identifier](https://github.com/kdl-org/kdl/blob/main/SPEC.md#identifier).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct KdlIdentifier {
     pub(crate) value: String,
     pub(crate) repr: Option<String>,
@@ -197,9 +197,6 @@ mod test {
         assert!(invalid.parse::<KdlIdentifier>().is_err());
 
         let invalid = "\"x";
-        assert!(invalid.parse::<KdlIdentifier>().is_err());
-
-        let invalid = "r#\"foo\"#";
         assert!(invalid.parse::<KdlIdentifier>().is_err());
 
         Ok(())

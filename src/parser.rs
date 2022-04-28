@@ -2,9 +2,9 @@ use std::ops::RangeTo;
 
 use crate::nom_compat::{many0, many1, many_till};
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_until, take_until1, take_while, take_while_m_n};
+use nom::bytes::complete::{tag, take_until, take_while, take_while_m_n};
 use nom::character::complete::{anychar, char, none_of, one_of};
-use nom::combinator::{all_consuming, cut, eof, map, map_opt, map_res, opt, recognize};
+use nom::combinator::{all_consuming, cut, eof, map, map_opt, map_res, opt, peek, recognize};
 use nom::error::{context, ParseError};
 use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::{Finish, IResult, Offset, Parser, Slice};
@@ -81,7 +81,7 @@ pub(crate) fn node(input: &str) -> IResult<&str, KdlNode, KdlParseError<&str>> {
         cut(recognize(preceded(
             many0(node_space),
             alt((
-                terminated(recognize(opt(tag(";"))), alt((linespace, eof))),
+                terminated(recognize(tag(";")), opt(alt((linespace, eof)))),
                 alt((newline, single_line_comment, eof)),
             )),
         ))),
@@ -109,7 +109,7 @@ pub(crate) fn node(input: &str) -> IResult<&str, KdlNode, KdlParseError<&str>> {
 }
 
 pub(crate) fn identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
-    alt((plain_identifier, quoted_identifier))(input)
+    alt((quoted_identifier, plain_identifier))(input)
 }
 
 pub(crate) fn leading_comments(input: &str) -> IResult<&str, Vec<&str>, KdlParseError<&str>> {
@@ -145,22 +145,38 @@ fn plain_identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&
         take_while_m_n(1, 1, KdlIdentifier::is_initial_char),
         cut(take_while(KdlIdentifier::is_identifier_char)),
     ))(input).map_err(|e| set_details(e, start, Some("invalid identifier character"), Some("See https://github.com/kdl-org/kdl/blob/main/SPEC.md#identifier for an explanation of valid KDL identifiers.")))?;
+    match name {
+        "false" | "true" | "null" => {
+            return Err(nom::Err::Error(KdlParseError {
+                input,
+                context: Some("non-keyword identifier"),
+                len: name.len(),
+                label: Some("reserved keyword"),
+                help: Some("Reserved keywords cannot be used as identifiers."),
+                kind: None,
+                touched: false,
+            }))
+        }
+        _ => {}
+    }
     let mut ident = KdlIdentifier::from(name);
     ident.set_repr(name);
     Ok((input, ident))
 }
 
 fn quoted_identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
-    let (input, (raw, val)) = string(input)?;
+    let (input, (raw, val)) = alt((string, raw_string))(input)?;
     let mut ident = KdlIdentifier::from(val.as_string().unwrap());
     ident.set_repr(raw);
     Ok((input, ident))
 }
 
-pub(crate) fn entry_with_node_space(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
-    let (input, leading) = recognize(many0(node_space))(input)?;
-    let leading = if leading.is_empty() { " " } else { leading };
-    let (input, mut entry) = entry(input)?;
+pub(crate) fn entry_with_trailing(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
+    let (input, mut leading) = recognize(many0(node_space))(input)?;
+    if leading.is_empty() {
+        leading = " ";
+    };
+    let (input, mut entry) = alt((property, argument))(input)?;
     let (input, trailing) = recognize(many0(node_space))(input)?;
     entry.set_leading(leading);
     entry.set_trailing(trailing);
@@ -168,25 +184,32 @@ pub(crate) fn entry_with_node_space(input: &str) -> IResult<&str, KdlEntry, KdlP
 }
 
 fn entry(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
-    alt((property, argument))(input)
+    let (input, leading) = recognize(many1(node_space))(input)?;
+    let (input, mut entry) = alt((property, argument))(input)?;
+    entry.set_leading(leading);
+    Ok((input, entry))
+}
+
+fn entry_maybe_space(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
+    let (input, leading) = recognize(many0(node_space))(input)?;
+    let (input, mut entry) = alt((property, argument))(input)?;
+    entry.set_leading(leading);
+    Ok((input, entry))
 }
 
 fn property(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
-    let (input, leading) = recognize(many0(node_space))(input)?;
-    let (input, ty) = opt(annotation)(input)?;
     let (input, name) = identifier(input)?;
     let (input, _) = context("'=' after property name", tag("="))(input)?;
+    let (input, ty) = opt(annotation)(input)?;
     let (input, (raw, value)) = context("property value", cut(value))(input).map_err(|e| set_details(e, input, Some("invalid value"), Some("Please refer to https://github.com/kdl-org/kdl/blob/main/SPEC.md#value for valid KDL value syntaxes.")))?;
     let mut entry = KdlEntry::new_prop(name, value);
     entry.ty = ty;
-    entry.set_leading(leading);
     entry.set_trailing("");
     entry.set_value_repr(raw);
     Ok((input, entry))
 }
 
 fn argument(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
-    let (input, leading) = recognize(many0(node_space))(input)?;
     let (input, ty) = opt(annotation)(input)?;
     let (input, (raw, value)) = if ty.is_some() {
         context("valid value", cut(value))(input)
@@ -195,7 +218,6 @@ fn argument(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
     }?;
     let mut entry = KdlEntry::new(value);
     entry.ty = ty;
-    entry.set_leading(leading);
     entry.set_trailing("");
     entry.set_value_repr(raw);
     Ok((input, entry))
@@ -329,7 +351,7 @@ fn multi_line_comment(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
         tag("/*"),
         context("comment block body", cut(commented_block)),
     ))(input)
-    .map_err(|e| set_details(e, input, Some("comment"), None))
+    .map_err(|e| set_details(e, input, Some("comment"), Some("multi-line comments must start with /* and be terminated with a matching */. They may be nested, but their */ must match.")))
 }
 
 /// `commented-block := '*/' | (multi-line-comment | '*' | '/' | [^*/]+) commented-block`
@@ -337,7 +359,12 @@ fn commented_block(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
     alt((
         tag("*/"),
         terminated(
-            alt((multi_line_comment, take_until1("*/"), tag("*"), tag("/"))),
+            alt((
+                multi_line_comment,
+                tag("*"),
+                tag("/"),
+                recognize(many_till(anychar, peek(alt((tag("*"), tag("/")))))),
+            )),
             commented_block,
         ),
     ))(input)
@@ -348,7 +375,7 @@ fn node_slashdash(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
         tag("/-"),
         context(
             "node following a slashdash",
-            cut(alt((recognize(entry), recognize(children)))),
+            cut(alt((recognize(entry_maybe_space), recognize(children)))),
         ),
     ))(input)
     .map_err(|e| set_details(e, input, Some("slashdash"), None))
@@ -430,6 +457,7 @@ fn escape(input: &str) -> IResult<&str, char, KdlParseError<&str>> {
 }
 
 fn unicode(input: &str) -> IResult<&str, char, KdlParseError<&str>> {
+    // TODO: This should only accept up to 0x10FFFF.
     map_opt(
         map_res(
             take_while_m_n(1, 6, |c: char| c.is_ascii_hexdigit()),
@@ -448,7 +476,7 @@ fn raw_string(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&s
     raw.push('r');
     let (input, hashes) = recognize(many0(char('#')))(input)?;
     raw.push_str(hashes);
-    let (input, _) = cut(char('"'))(input)?;
+    let (input, _) = char('"')(input)?;
     raw.push('"');
     let close = format!("\"{}", hashes);
     let (input, value) = take_until(&close[..])(input)?;
@@ -528,6 +556,7 @@ fn hexadecimal(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&
         )),
         move |(raw_body, hex): (&str, &str)| {
             raw.push_str(raw_body);
+            // TODO: Failure in case of int overflow!
             i64::from_str_radix(&str::replace(hex, "_", ""), 16)
                 .map(|x| x * sign)
                 .map(|x| (raw.clone(), KdlValue::Base16(x)))
@@ -664,6 +693,10 @@ mod comment_tests {
     #[test]
     fn multi_line() {
         assert_eq!(comment("/* Hello world */"), Ok(("", "/* Hello world */")));
+        assert_eq!(
+            comment("/* Hello /* world */ blah */"),
+            Ok(("", "/* Hello /* world */ blah */"))
+        );
     }
 
     #[test]
@@ -752,6 +785,8 @@ mod value_tests {
                 )
             ))
         );
+        let (_, n) = node("node 0x0123_4567_89ab_cdef").expect("failed to parse node");
+        assert_eq!(&n[0], &KdlValue::Base16(0x0123456789abcdef));
         assert_eq!(
             value("0x123_4567"),
             Ok(("", ("0x123_4567".into(), KdlValue::Base16(0x1234567))))
