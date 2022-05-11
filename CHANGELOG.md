@@ -1,5 +1,12 @@
 # `kdl` Release Changelog
 
+<a name="4.2.0"></a>
+## 4.2.0 (2022-05-11)
+
+### Features
+
+* **entry:** Add accessors to entry type. (#43) ([afccf012](https://github.com/kdl-org/kdl-rs/commit/afccf012168dcab1de89f3737014ee8ee037785b))
+
 <a name="4.1.1"></a>
 ## 4.1.1 (2022-04-28)
 
