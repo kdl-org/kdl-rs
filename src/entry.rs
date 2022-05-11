@@ -49,6 +49,21 @@ impl KdlEntry {
         self.value = value.into();
     }
 
+    /// Gets the entry's type.
+    pub fn ty(&self) -> Option<&KdlIdentifier> {
+        self.ty.as_ref()
+    }
+
+    /// Gets a mutable reference to this entry's type.
+    pub fn ty_mut(&mut self) -> Option<&mut KdlIdentifier> {
+        self.ty.as_mut()
+    }
+
+    /// Sets the entry's type.
+    pub fn set_ty(&mut self, ty: impl Into<KdlIdentifier>) {
+        self.ty = Some(ty.into());
+    }
+
     /// Creates a new Property (key/value) KdlEntry.
     pub fn new_prop(key: impl Into<KdlIdentifier>, value: impl Into<KdlValue>) -> Self {
         KdlEntry {
