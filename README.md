@@ -11,9 +11,8 @@ You can think of this crate as
 [`toml_edit`](https://crates.io/crates/toml_edit), but for KDL.
 
 If you don't care about formatting or programmatic manipulation, you might
-check out [`knuffel`](https://crates.io/crates/knuffel) or
-[`kaydle`](https://crates.io/crates/kaydle) instead for serde (or
-serde-like) parsing.
+check out [`knuffel`](https://crates.io/crates/knuffel) instead for serde
+(or serde-like) parsing.
 
 ### Example
 
