@@ -527,6 +527,21 @@ mod test {
     use super::*;
 
     #[test]
+    fn canonical_clear_fmt() -> miette::Result<()> {
+        let mut left_node: KdlNode = r#"node /-"commented" param_name=103.000 {
+            // This is a nested node
+            nested 1 2 3
+        }"#
+        .parse()?;
+        let mut right_node: KdlNode = "node param_name=103.0 { nested 1 2 3; }".parse()?;
+        assert_ne!(left_node, right_node);
+        left_node.clear_fmt_recursive();
+        right_node.clear_fmt_recursive();
+        assert_eq!(left_node, right_node);
+        Ok(())
+    }
+
+    #[test]
     fn parsing() -> miette::Result<()> {
         let node: KdlNode = "\n\t  (\"ty\")\"node\" 0xDEADbeef;\n".parse()?;
         assert_eq!(node.leading(), Some("\n\t  "));
