@@ -180,9 +180,20 @@ impl KdlDocument {
 
     /// Clears leading and trailing text (whitespace, comments). `KdlNode`s in
     /// this document will be unaffected.
+    ///
+    /// If you need to clear the `KdlNode`s, use [`Self::clear_fmt_recursive`].
     pub fn clear_fmt(&mut self) {
         self.leading = None;
         self.trailing = None;
+    }
+
+    /// Clears leading and trailing text (whitespace, comments), also clearing
+    /// all the `KdlNode`s in the document.
+    pub fn clear_fmt_recursive(&mut self) {
+        self.clear_fmt();
+        for node in self.nodes.iter_mut() {
+            node.clear_fmt_recursive();
+        }
     }
 
     /// Auto-formats this Document, making everything nice while preserving
