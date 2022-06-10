@@ -119,10 +119,27 @@ impl KdlNode {
     /// Clears leading and trailing text (whitespace, comments), as well as
     /// the space before the children block, if any. Individual entries and
     /// their formatting will be preserved.
+    ///
+    /// If you want to clear formatting on all children and entries as well,
+    /// use [`Self::clear_fmt_recursive`].
     pub fn clear_fmt(&mut self) {
         self.leading = None;
         self.trailing = None;
         self.before_children = None;
+    }
+
+    /// Clears leading and trailing text (whitespace, comments), as well as
+    /// the space before the children block, if any. Individual entries and
+    /// children formatting will also be cleared.
+    pub fn clear_fmt_recursive(&mut self) {
+        self.clear_fmt();
+        self.name.clear_fmt();
+        if let Some(children) = &mut self.children {
+            children.clear_fmt_recursive();
+        }
+        for entry in self.entries.iter_mut() {
+            entry.clear_fmt();
+        }
     }
 
     /// Fetches an entry by key. Number keys will look up arguments, strings
@@ -508,6 +525,21 @@ impl KdlNode {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn canonical_clear_fmt() -> miette::Result<()> {
+        let mut left_node: KdlNode = r#"node /-"commented" param_name=103.000 {
+            // This is a nested node
+            nested 1 2 3
+        }"#
+        .parse()?;
+        let mut right_node: KdlNode = "node param_name=103.0 { nested 1 2 3; }".parse()?;
+        assert_ne!(left_node, right_node);
+        left_node.clear_fmt_recursive();
+        right_node.clear_fmt_recursive();
+        assert_eq!(left_node, right_node);
+        Ok(())
+    }
 
     #[test]
     fn parsing() -> miette::Result<()> {

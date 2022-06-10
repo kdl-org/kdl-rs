@@ -101,6 +101,13 @@ impl KdlEntry {
     pub fn clear_fmt(&mut self) {
         self.leading = None;
         self.trailing = None;
+        self.value_repr = None;
+        if let Some(ty) = &mut self.ty {
+            ty.clear_fmt();
+        }
+        if let Some(name) = &mut self.name {
+            name.clear_fmt();
+        }
     }
 
     /// Gets the custom string representation for this KdlEntry's [`KdlValue`].
@@ -187,6 +194,17 @@ impl FromStr for KdlEntry {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn reset_value_repr() -> miette::Result<()> {
+        let mut left_entry: KdlEntry = "   name=1.03e2".parse()?;
+        let mut right_entry: KdlEntry = "   name=103.0".parse()?;
+        assert_ne!(left_entry, right_entry);
+        left_entry.clear_fmt();
+        right_entry.clear_fmt();
+        assert_eq!(left_entry, right_entry);
+        Ok(())
+    }
 
     #[test]
     fn new() {

@@ -180,9 +180,20 @@ impl KdlDocument {
 
     /// Clears leading and trailing text (whitespace, comments). `KdlNode`s in
     /// this document will be unaffected.
+    ///
+    /// If you need to clear the `KdlNode`s, use [`Self::clear_fmt_recursive`].
     pub fn clear_fmt(&mut self) {
         self.leading = None;
         self.trailing = None;
+    }
+
+    /// Clears leading and trailing text (whitespace, comments), also clearing
+    /// all the `KdlNode`s in the document.
+    pub fn clear_fmt_recursive(&mut self) {
+        self.clear_fmt();
+        for node in self.nodes.iter_mut() {
+            node.clear_fmt_recursive();
+        }
     }
 
     /// Auto-formats this Document, making everything nice while preserving
@@ -264,6 +275,36 @@ mod test {
     use crate::{KdlEntry, KdlValue};
 
     use super::*;
+
+    #[test]
+    fn canonical_clear_fmt() -> miette::Result<()> {
+        let left_src = r#"
+// There is a node here
+first_node /*with cool comments, too */ param=1.03e2 /-"commented" "argument" {
+    // With nested nodes too
+    nested 1 2 3
+    nested_2 "hi" "world" // this one is cool
+}
+second_node param=153 { nested one=1 two=2; }"#;
+        let right_src = r#"
+first_node param=103.0       "argument" {
+        // Different indentation, because
+        // Why not
+        nested 1 2 3
+        nested_2 "hi" /* actually, "hello" */ "world"
+}
+// There is a node here
+second_node /* This time, the comment is here */ param=153 {
+        nested one=1 two=2
+}"#;
+        let mut left_doc: KdlDocument = left_src.parse()?;
+        let mut right_doc: KdlDocument = right_src.parse()?;
+        assert_ne!(left_doc, right_doc);
+        left_doc.clear_fmt_recursive();
+        right_doc.clear_fmt_recursive();
+        assert_eq!(left_doc, right_doc);
+        Ok(())
+    }
 
     #[test]
     fn parsing() -> miette::Result<()> {
