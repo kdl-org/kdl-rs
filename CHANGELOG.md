@@ -1,5 +1,12 @@
 # `kdl` Release Changelog
 
+<a name="4.3.0"></a>
+## 4.3.0 (2022-06-11)
+
+### Features
+
+* **fmt:** Add clear_fmt_recursive method (#45) ([cd2d6e42](https://github.com/kdl-org/kdl-rs/commit/cd2d6e42b19b801a43e78256dca1d856367349f4))
+
 <a name="4.2.0"></a>
 ## 4.2.0 (2022-05-11)
 
