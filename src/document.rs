@@ -472,8 +472,8 @@ foo 1 bar=0xdeadbeef {
         inner1 r"value"
         inner2 {
             inner3
+                }
         }
-    }
 }
 // trailing comment here"#
         );
