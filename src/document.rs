@@ -481,6 +481,25 @@ foo 1 bar=0xdeadbeef {
     }
 
     #[test]
+    fn simple_fmt() -> miette::Result<()> {
+        let mut doc: KdlDocument = "a { b { c { }; }; }".parse().unwrap();
+        KdlDocument::fmt(&mut doc);
+        print!("{}", doc);
+        assert_eq!(
+            doc.to_string(),
+            r#"a {
+    b {
+        c {
+
+        }
+    }
+}
+"#
+        );
+        Ok(())
+    }
+
+    #[test]
     fn parse_examples() -> miette::Result<()> {
         include_str!("../examples/kdl-schema.kdl").parse::<KdlDocument>()?;
         include_str!("../examples/Cargo.kdl").parse::<KdlDocument>()?;
