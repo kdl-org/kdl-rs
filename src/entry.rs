@@ -81,6 +81,12 @@ impl KdlEntry {
         self.leading.as_deref()
     }
 
+    /// Gets leading text (whitespace, comments) for this KdlEntry,
+    /// and starts tracking it if it was not already being tracked.
+    pub fn leading_mut(&mut self) -> &mut String {
+        self.leading.get_or_insert(String::new())
+    }
+
     /// Sets leading text (whitespace, comments) for this KdlEntry.
     pub fn set_leading(&mut self, leading: impl Into<String>) {
         self.leading = Some(leading.into());
@@ -89,6 +95,12 @@ impl KdlEntry {
     /// Gets trailing text (whitespace, comments) for this KdlEntry.
     pub fn trailing(&self) -> Option<&str> {
         self.trailing.as_deref()
+    }
+
+    /// Gets trailing text (whitespace, comments) for this KdlEntry,
+    /// and starts tracking it if it was not already being tracked.
+    pub fn trailing_mut(&mut self) -> &mut String {
+        self.trailing.get_or_insert(String::new())
     }
 
     /// Sets trailing text (whitespace, comments) for this KdlEntry.
@@ -115,6 +127,13 @@ impl KdlEntry {
         self.value_repr.as_deref()
     }
 
+    /// Gets the custom string representation for this KdlEntry's [`KdlValue`],
+    /// and starts tracking it if it was not already being tracked.
+    pub fn value_repr_mut(&mut self) -> &mut String {
+        self.value_repr
+            .get_or_insert_with(|| format!("{}", self.value))
+    }
+
     /// Sets a custom string representation for this KdlEntry's [`KdlValue`].
     pub fn set_value_repr(&mut self, repr: impl Into<String>) {
         self.value_repr = Some(repr.into());
@@ -132,8 +151,8 @@ impl KdlEntry {
 
     /// Auto-formats this entry.
     pub fn fmt(&mut self) {
-        self.leading = None;
-        self.trailing = None;
+        self.leading = Some(" ".into());
+        self.trailing = Some(String::new());
         self.value_repr = None;
         if let Some(name) = &mut self.name {
             name.fmt();
@@ -143,21 +162,21 @@ impl KdlEntry {
 
 impl Display for KdlEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(leading) = &self.leading {
+        if let Some(leading) = self.leading() {
             write!(f, "{}", leading)?;
         }
-        if let Some(name) = &self.name {
+        if let Some(name) = self.name() {
             write!(f, "{}=", name)?;
         }
-        if let Some(ty) = &self.ty {
+        if let Some(ty) = self.ty() {
             write!(f, "({})", ty)?;
         }
-        if let Some(repr) = &self.value_repr {
+        if let Some(repr) = self.value_repr() {
             write!(f, "{}", repr)?;
         } else {
             write!(f, "{}", self.value)?;
         }
-        if let Some(trailing) = &self.trailing {
+        if let Some(trailing) = self.trailing() {
             write!(f, "{}", trailing)?;
         }
         Ok(())
@@ -194,6 +213,7 @@ impl FromStr for KdlEntry {
 #[cfg(test)]
 mod test {
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn reset_value_repr() -> miette::Result<()> {

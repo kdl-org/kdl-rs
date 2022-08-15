@@ -638,6 +638,7 @@ fn sign(input: &str) -> IResult<&str, i64, KdlParseError<&str>> {
 #[cfg(test)]
 mod node_tests {
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn basic() {
@@ -684,6 +685,7 @@ mod whitespace_tests {
 #[cfg(test)]
 mod comment_tests {
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn single_line() {
@@ -715,6 +717,7 @@ mod comment_tests {
 #[cfg(test)]
 mod value_tests {
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn boolean_val() {

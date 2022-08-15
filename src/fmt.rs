@@ -1,7 +1,6 @@
+use std::fmt::Write;
+
 pub(crate) fn fmt_leading(leading: &mut String, indent: usize, no_comments: bool) {
-    if leading.is_empty() {
-        return;
-    }
     let mut result = String::new();
     if !no_comments {
         let comments = crate::parser::parse(leading.trim(), crate::parser::leading_comments)
@@ -9,11 +8,11 @@ pub(crate) fn fmt_leading(leading: &mut String, indent: usize, no_comments: bool
         for line in comments {
             let trimmed = line.trim();
             if !trimmed.is_empty() {
-                result.push_str(&format!("{:indent$}{}\n", "", trimmed, indent = indent));
+                writeln!(result, "{:indent$}{trimmed}", "").unwrap();
             }
         }
     }
-    result.push_str(&format!("{:indent$}", "", indent = indent));
+    write!(result, "{:indent$}", "").unwrap();
     *leading = result;
 }
 

@@ -26,6 +26,19 @@ impl KdlIdentifier {
         self.repr.as_deref()
     }
 
+    /// Gets the custom string representation for this identifier,
+    /// and starts tracking it if it was not already being tracked.
+    pub fn repr_mut(&mut self) -> &mut String {
+        self.repr = Some(self.repr.take().unwrap_or_else(|| {
+            if self.plain_value() {
+                self.value.clone()
+            } else {
+                format!("{:?}", self.value)
+            }
+        }));
+        self.repr.as_mut().unwrap()
+    }
+
     /// Sets a custom string representation for this identifier.
     pub fn set_repr(&mut self, repr: impl Into<String>) {
         self.repr = Some(repr.into());
@@ -51,12 +64,13 @@ impl KdlIdentifier {
     /// Auto-formats this identifier.
     pub fn fmt(&mut self) {
         self.repr = None;
+        self.repr_mut();
     }
 }
 
 impl Display for KdlIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(repr) = &self.repr {
+        if let Some(repr) = self.repr() {
             write!(f, "{}", repr)
         } else if self.plain_value() {
             write!(f, "{}", self.value)
@@ -169,6 +183,7 @@ impl FromStr for KdlIdentifier {
 #[cfg(test)]
 mod test {
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn parsing() -> miette::Result<()> {

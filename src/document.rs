@@ -153,6 +153,12 @@ impl KdlDocument {
         self.leading.as_deref()
     }
 
+    /// Gets leading text (whitespace, comments) for this KdlDocument,
+    /// and starts tracking it if it was not already being tracked.
+    pub fn leading_mut(&mut self) -> &mut String {
+        self.leading.get_or_insert(String::new())
+    }
+
     /// Sets leading text (whitespace, comments) for this KdlDocument.
     pub fn set_leading(&mut self, leading: impl Into<String>) {
         self.leading = Some(leading.into());
@@ -161,6 +167,12 @@ impl KdlDocument {
     /// Gets trailing text (whitespace, comments) for this KdlDocument.
     pub fn trailing(&self) -> Option<&str> {
         self.trailing.as_deref()
+    }
+
+    /// Gets trailing text (whitespace, comments) for this KdlDocument,
+    /// and starts tracking it if it was not already being tracked.
+    pub fn trailing_mut(&mut self) -> &mut String {
+        self.trailing.get_or_insert(String::new())
     }
 
     /// Sets trailing text (whitespace, comments) for this KdlDocument.
@@ -216,19 +228,15 @@ impl Display for KdlDocument {
 
 impl KdlDocument {
     pub(crate) fn fmt_impl(&mut self, indent: usize, no_comments: bool) {
-        if let Some(s) = self.leading.as_mut() {
-            crate::fmt::fmt_leading(s, indent, no_comments);
-        }
+        self.leading = Some(String::new());
         let mut has_nodes = false;
         for node in &mut self.nodes {
             has_nodes = true;
             node.fmt_impl(indent, no_comments);
         }
-        if let Some(s) = self.trailing.as_mut() {
-            crate::fmt::fmt_trailing(s, no_comments);
-            if !has_nodes {
-                s.push('\n');
-            }
+        crate::fmt::fmt_trailing(self.trailing_mut(), no_comments);
+        if !has_nodes {
+            self.trailing_mut().push('\n');
         }
     }
 
@@ -237,7 +245,7 @@ impl KdlDocument {
         f: &mut std::fmt::Formatter<'_>,
         indent: usize,
     ) -> std::fmt::Result {
-        if let Some(leading) = &self.leading {
+        if let Some(leading) = self.leading() {
             write!(f, "{}", leading)?;
         }
         for node in &self.nodes {
@@ -246,7 +254,7 @@ impl KdlDocument {
                 writeln!(f)?;
             }
         }
-        if let Some(trailing) = &self.trailing {
+        if let Some(trailing) = self.trailing() {
             write!(f, "{}", trailing)?;
         }
         Ok(())
@@ -275,6 +283,7 @@ mod test {
     use crate::{KdlEntry, KdlValue};
 
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn canonical_clear_fmt() -> miette::Result<()> {

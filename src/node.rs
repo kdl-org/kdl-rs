@@ -81,6 +81,12 @@ impl KdlNode {
         self.leading.as_deref()
     }
 
+    /// Gets leading text (whitespace, comments) for this node,
+    /// and starts tracking it if it was not already being tracked.
+    pub fn leading_mut(&mut self) -> &mut String {
+        self.leading.get_or_insert(String::new())
+    }
+
     /// Sets leading text (whitespace, comments) for this node.
     pub fn set_leading(&mut self, leading: impl Into<String>) {
         self.leading = Some(leading.into());
@@ -91,6 +97,12 @@ impl KdlNode {
         self.before_children.as_deref()
     }
 
+    /// Gets text (whitespace, comments) right before the children block's starting `{`,
+    /// and starts tracking it if it was not already being tracked.
+    pub fn before_children_mut(&mut self) -> &mut String {
+        self.before_children.get_or_insert(String::new())
+    }
+
     /// Gets text (whitespace, comments) right before the children block's starting `{`.
     pub fn set_before_children(&mut self, before: impl Into<String>) {
         self.before_children = Some(before.into());
@@ -99,6 +111,12 @@ impl KdlNode {
     /// Gets trailing text (whitespace, comments) for this node.
     pub fn trailing(&self) -> Option<&str> {
         self.trailing.as_deref()
+    }
+
+    /// Gets trailing text (whitespace, comments) for this node,
+    /// and starts tracking it if it was not already being tracked.
+    pub fn trailing_mut(&mut self) -> &mut String {
+        self.trailing.get_or_insert(String::new())
     }
 
     /// Sets trailing text (whitespace, comments) for this node.
@@ -446,22 +464,19 @@ impl Display for KdlNode {
 
 impl KdlNode {
     pub(crate) fn fmt_impl(&mut self, indent: usize, no_comments: bool) {
-        if let Some(s) = self.leading.as_mut() {
-            crate::fmt::fmt_leading(s, indent, no_comments);
+        crate::fmt::fmt_leading(self.leading_mut(), indent, no_comments);
+        let trailing = self.trailing_mut();
+        crate::fmt::fmt_trailing(trailing, no_comments);
+        if trailing.starts_with(';') {
+            trailing.remove(0);
         }
-        if let Some(s) = self.trailing.as_mut() {
-            crate::fmt::fmt_trailing(s, no_comments);
-            if s.starts_with(';') {
-                s.remove(0);
+        if let Some(c) = trailing.chars().next() {
+            if !c.is_whitespace() {
+                trailing.insert(0, ' ');
             }
-            if let Some(c) = s.chars().next() {
-                if !c.is_whitespace() {
-                    s.insert(0, ' ');
-                }
-            }
-            s.push('\n');
         }
-        self.before_children = None;
+        trailing.push('\n');
+        self.before_children = Some(" ".into());
         self.name.clear_fmt();
         if let Some(ty) = self.ty.as_mut() {
             ty.clear_fmt()
@@ -471,12 +486,10 @@ impl KdlNode {
         }
         if let Some(children) = self.children.as_mut() {
             children.fmt_impl(indent + 4, no_comments);
-            if let Some(leading) = children.leading.as_mut() {
-                leading.push('\n');
-            }
-            if let Some(trailing) = children.trailing.as_mut() {
-                trailing.push_str(format!("{:indent$}", "", indent = indent).as_str());
-            }
+            children.leading_mut().push('\n');
+            children
+                .trailing_mut()
+                .push_str(format!("{:indent$}", "", indent = indent).as_str());
         }
     }
 
@@ -485,24 +498,24 @@ impl KdlNode {
         f: &mut std::fmt::Formatter<'_>,
         indent: usize,
     ) -> std::fmt::Result {
-        if let Some(leading) = &self.leading {
+        if let Some(leading) = self.leading() {
             write!(f, "{}", leading)?;
         } else {
-            write!(f, "{:indent$}", "", indent = indent)?;
+            write!(f, "{:indent$}", "")?;
         }
-        if let Some(ty) = &self.ty {
+        if let Some(ty) = self.ty() {
             write!(f, "({})", ty)?;
         }
         write!(f, "{}", self.name)?;
         let mut space_before_children = true;
-        for entry in &self.entries {
+        for entry in self.entries() {
             if entry.leading.is_none() {
                 write!(f, " ")?;
             }
             write!(f, "{}", entry)?;
             space_before_children = entry.trailing.is_none();
         }
-        if let Some(children) = &self.children {
+        if let Some(children) = self.children() {
             if let Some(before) = self.before_children() {
                 write!(f, "{}", before)?;
             } else if space_before_children {
@@ -515,7 +528,7 @@ impl KdlNode {
             children.stringify(f, indent + 4)?;
             write!(f, "}}")?;
         }
-        if let Some(trailing) = &self.trailing {
+        if let Some(trailing) = self.trailing() {
             write!(f, "{}", trailing)?;
         }
         Ok(())
@@ -525,6 +538,7 @@ impl KdlNode {
 #[cfg(test)]
 mod test {
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn canonical_clear_fmt() -> miette::Result<()> {

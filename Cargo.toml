@@ -14,3 +14,6 @@ edition = "2021"
 miette = "4.6.0"
 nom = { version = "7.1.1", default-features = false }
 thiserror = "1.0.30"
+
+[dev-dependencies]
+pretty_assertions = "1.2.1"

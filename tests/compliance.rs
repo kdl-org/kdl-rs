@@ -7,6 +7,8 @@ use std::{
 use kdl::{KdlDocument, KdlError, KdlIdentifier, KdlValue};
 use miette::IntoDiagnostic;
 
+use pretty_assertions::assert_eq;
+
 #[test]
 fn spec_compliance() -> miette::Result<()> {
     let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
