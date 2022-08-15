@@ -1,4 +1,4 @@
-use kdl::{KdlDocument, KdlNode, KdlValue};
+use kdl::{KdlDocument, KdlNode};
 
 #[test]
 fn build_and_format() {
@@ -19,8 +19,8 @@ fn build_and_format() {
         r#"a {
     b {
         c {
-}
-}
+        }
+    }
 }
 "#
     );

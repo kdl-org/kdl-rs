@@ -513,6 +513,9 @@ impl KdlNode {
                 writeln!(f)?;
             }
             children.stringify(f, indent + 4)?;
+            if children.trailing.is_none() {
+                write!(f, "{:indent$}", "", indent = indent)?;
+            }
             write!(f, "}}")?;
         }
         if let Some(trailing) = &self.trailing {
