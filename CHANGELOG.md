@@ -1,5 +1,16 @@
 # `kdl` Release Changelog
 
+<a name="4.4.0"></a>
+## 4.4.0 (2022-08-18)
+
+### Features
+
+* **deps:** bump miette ([8d0f36ce](https://github.com/kdl-org/kdl-rs/commit/8d0f36ceb1c5c1243bae3247b6c86bfa45083f19))
+
+### Bug Fixes
+
+* **formatting:** Fix formatting when decoration is not present (#56) ([2e9c0447](https://github.com/kdl-org/kdl-rs/commit/2e9c0447f9420e37d5fe46d2a42ec7b9f0646d90))
+
 <a name="4.3.0"></a>
 ## 4.3.0 (2022-06-11)
 
