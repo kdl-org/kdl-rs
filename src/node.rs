@@ -369,7 +369,7 @@ impl KdlNode {
 }
 
 /// Represents a [`KdlNode`]'s entry key.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NodeKey {
     /// Key for a node property entry.
     Key(KdlIdentifier),
@@ -513,7 +513,10 @@ impl KdlNode {
                 writeln!(f)?;
             }
             children.stringify(f, indent + 4)?;
-            write!(f, "{:indent$}}}", "", indent = indent)?;
+            if children.trailing.is_none() {
+                write!(f, "{:indent$}", "", indent = indent)?;
+            }
+            write!(f, "}}")?;
         }
         if let Some(trailing) = &self.trailing {
             write!(f, "{}", trailing)?;

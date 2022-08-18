@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 pub(crate) fn fmt_leading(leading: &mut String, indent: usize, no_comments: bool) {
     if leading.is_empty() {
         return;
@@ -9,11 +11,11 @@ pub(crate) fn fmt_leading(leading: &mut String, indent: usize, no_comments: bool
         for line in comments {
             let trimmed = line.trim();
             if !trimmed.is_empty() {
-                result.push_str(&format!("{:indent$}{}\n", "", trimmed, indent = indent));
+                writeln!(result, "{:indent$}{}", "", trimmed, indent = indent).unwrap();
             }
         }
     }
-    result.push_str(&format!("{:indent$}", "", indent = indent));
+    write!(result, "{:indent$}", "", indent = indent).unwrap();
     *leading = result;
 }
 
