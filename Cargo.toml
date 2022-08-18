@@ -11,6 +11,6 @@ keywords = ["kdl", "document", "serialization", "config"]
 edition = "2021"
 
 [dependencies]
-miette = "4.6.0"
+miette = "5.3.0"
 nom = { version = "7.1.1", default-features = false }
 thiserror = "1.0.30"
