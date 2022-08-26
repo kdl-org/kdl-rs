@@ -1,3 +1,5 @@
+#[cfg(feature = "span")]
+use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
 use crate::{parser, KdlError, KdlNode, KdlValue};
@@ -16,17 +18,62 @@ use crate::{parser, KdlError, KdlNode, KdlValue};
 /// # use kdl::KdlDocument;
 /// let kdl: KdlDocument = "foo 1 2 3\nbar 4 5 6".parse().expect("parse failed");
 /// ```
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct KdlDocument {
     pub(crate) leading: Option<String>,
     pub(crate) nodes: Vec<KdlNode>,
     pub(crate) trailing: Option<String>,
+    #[cfg(feature = "span")]
+    pub(crate) span: SourceSpan,
+}
+
+impl PartialEq for KdlDocument {
+    fn eq(&self, other: &Self) -> bool {
+        self.leading == other.leading
+            && self.nodes == other.nodes
+            && self.trailing == other.trailing
+        // Intentionally omitted: self.span == other.span
+    }
+}
+
+impl Default for KdlDocument {
+    fn default() -> Self {
+        Self {
+            leading: Default::default(),
+            nodes: Default::default(),
+            trailing: Default::default(),
+            #[cfg(feature = "span")]
+            span: SourceSpan::from(0..0),
+        }
+    }
 }
 
 impl KdlDocument {
     /// Creates a new Document.
     pub fn new() -> Self {
         Default::default()
+    }
+
+    /// Gets this document's span.
+    ///
+    /// This value will be properly initialized when created via [`KdlDocument::parse`]
+    /// but may become invalidated if the document is mutated. We do not currently
+    /// guarantee this to yield any particularly consistent results at that point.
+    #[cfg(feature = "span")]
+    pub fn span(&self) -> &SourceSpan {
+        &self.span
+    }
+
+    /// Gets a mutable reference to this document's span.
+    #[cfg(feature = "span")]
+    pub fn span_mut(&mut self) -> &mut SourceSpan {
+        &mut self.span
+    }
+
+    /// Sets this document's span.
+    #[cfg(feature = "span")]
+    pub fn set_span(&mut self, span: impl Into<SourceSpan>) {
+        self.span = span.into();
     }
 
     /// Gets the first child node with a matching name.
@@ -266,12 +313,15 @@ impl FromStr for KdlDocument {
     type Err = KdlError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        parser::parse(input, parser::document)
+        let kdl_parser = parser::KdlParser::new(input);
+        kdl_parser.parse(parser::document(&kdl_parser))
     }
 }
 
 #[cfg(test)]
 mod test {
+    #[cfg(feature = "span")]
+    use crate::KdlIdentifier;
     use crate::{KdlEntry, KdlValue};
 
     use super::*;
@@ -496,6 +546,79 @@ foo 1 bar=0xdeadbeef {
 }
 "#
         );
+        Ok(())
+    }
+
+    #[cfg(feature = "span")]
+    fn check_spans_for_doc(doc: &KdlDocument, source: &impl miette::SourceCode) {
+        for node in doc.nodes() {
+            check_spans_for_node(node, source);
+        }
+    }
+
+    #[cfg(feature = "span")]
+    fn check_spans_for_node(node: &KdlNode, source: &impl miette::SourceCode) {
+        check_span_for_ident(node.name(), source);
+        if let Some(ty) = node.ty() {
+            check_span_for_ident(ty, source);
+        }
+
+        for entry in node.entries() {
+            if let Some(name) = entry.name() {
+                check_span_for_ident(name, source);
+            }
+            if let Some(ty) = entry.ty() {
+                check_span_for_ident(ty, source);
+            }
+            if let Some(repr) = entry.value_repr() {
+                if entry.name().is_none() && entry.ty().is_none() {
+                    check_span(repr, entry.span(), source);
+                }
+            }
+        }
+        if let Some(children) = node.children() {
+            check_spans_for_doc(children, source);
+        }
+    }
+
+    #[cfg(feature = "span")]
+    #[track_caller]
+    fn check_span_for_ident(ident: &KdlIdentifier, source: &impl miette::SourceCode) {
+        if let Some(repr) = ident.repr() {
+            check_span(repr, ident.span(), source);
+        } else {
+            check_span(ident.value(), ident.span(), source);
+        }
+    }
+
+    #[cfg(feature = "span")]
+    #[track_caller]
+    fn check_span(expected: &str, span: &SourceSpan, source: &impl miette::SourceCode) {
+        let span = source.read_span(span, 0, 0).unwrap();
+        let span = std::str::from_utf8(span.data()).unwrap();
+        assert_eq!(span, expected);
+    }
+
+    #[cfg(feature = "span")]
+    #[test]
+    fn span_test() -> miette::Result<()> {
+        let input = r####"
+this {
+    is (a)"cool" document="to" read=5 10.1
+    and x="" {
+        "it" /*shh*/ "has"="💯" r##"the"##
+        Best🎊est
+        "syntax ever"
+    }
+    "yknow?" 0x10
+}
+// that's
+nice
+"####;
+
+        let doc: KdlDocument = input.parse().unwrap();
+        check_spans_for_doc(&doc, &input);
+
         Ok(())
     }
 

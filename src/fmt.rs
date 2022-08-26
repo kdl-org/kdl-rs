@@ -6,7 +6,10 @@ pub(crate) fn fmt_leading(leading: &mut String, indent: usize, no_comments: bool
     }
     let mut result = String::new();
     if !no_comments {
-        let comments = crate::parser::parse(leading.trim(), crate::parser::leading_comments)
+        let input = leading.trim();
+        let kdl_parser = crate::parser::KdlParser { full_input: input };
+        let comments = kdl_parser
+            .parse(crate::parser::leading_comments(&kdl_parser))
             .expect("invalid leading text");
         for line in comments {
             let trimmed = line.trim();
@@ -26,7 +29,10 @@ pub(crate) fn fmt_trailing(decor: &mut String, no_comments: bool) {
     *decor = decor.trim().to_string();
     let mut result = String::new();
     if !no_comments {
-        let comments = crate::parser::parse(decor, crate::parser::trailing_comments)
+        let input = &*decor;
+        let kdl_parser = crate::parser::KdlParser { full_input: input };
+        let comments = kdl_parser
+            .parse(crate::parser::trailing_comments(&kdl_parser))
             .expect("invalid trailing text");
         for comment in comments {
             result.push_str(comment);

@@ -1,6 +1,12 @@
+// A bunch of random variables/functions become dead when you disable
+// span support and rather than turning the code into complete cfg
+// swiss-cheese, it's simpler to just hush the compiler about it
+#![cfg_attr(not(feature = "span"), allow(dead_code, unused_variables))]
+
 use std::ops::RangeTo;
 
 use crate::nom_compat::{many0, many1, many_till};
+use miette::SourceSpan;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until, take_while, take_while_m_n};
 use nom::character::complete::{anychar, char, none_of, one_of};
@@ -13,29 +19,87 @@ use crate::{
     KdlDocument, KdlEntry, KdlError, KdlErrorKind, KdlIdentifier, KdlNode, KdlParseError, KdlValue,
 };
 
-pub(crate) fn parse<'a, T, P>(input: &'a str, parser: P) -> Result<T, KdlError>
-where
-    P: Parser<&'a str, T, KdlParseError<&'a str>>,
-{
-    all_consuming(parser)(input)
-        .finish()
-        .map(|(_, arg)| arg)
-        .map_err(|e| {
-            let prefix = &input[..(input.len() - e.input.len())];
-            KdlError {
-                input: input.into(),
-                span: (prefix.chars().count(), e.len).into(),
-                help: e.help,
-                label: e.label,
-                kind: if let Some(kind) = e.kind {
-                    kind
-                } else if let Some(ctx) = e.context {
-                    KdlErrorKind::Context(ctx)
-                } else {
-                    KdlErrorKind::Other
-                },
-            }
-        })
+/// The parser for the entire input.
+///
+/// All of our parsing subroutines want to hold onto some global information
+/// to generate things like spans, so instead of making them simple free
+/// functions, we wrap their bodies in closures that take in a kdl_parser.
+/// The free functions then becoming constructors that return those closures.
+/// This is basically the same idea behind nom combinators like many0 which
+/// take an input to configure the combinator and then return a function.
+pub(crate) struct KdlParser<'a> {
+    pub(crate) full_input: &'a str,
+}
+
+impl<'a> KdlParser<'a> {
+    pub(crate) fn new(full_input: &'a str) -> Self {
+        Self { full_input }
+    }
+
+    pub(crate) fn parse<T, P>(&self, parser: P) -> Result<T, KdlError>
+    where
+        P: Parser<&'a str, T, KdlParseError<&'a str>>,
+    {
+        all_consuming(parser)(self.full_input)
+            .finish()
+            .map(|(_, arg)| arg)
+            .map_err(|e| {
+                let span_substr = &e.input[..e.len];
+                KdlError {
+                    input: self.full_input.into(),
+                    span: self.span_from_substr(span_substr),
+                    help: e.help,
+                    label: e.label,
+                    kind: if let Some(kind) = e.kind {
+                        kind
+                    } else if let Some(ctx) = e.context {
+                        KdlErrorKind::Context(ctx)
+                    } else {
+                        KdlErrorKind::Other
+                    },
+                }
+            })
+    }
+
+    /// Creates a span for an item using two substrings of self.full_input:
+    ///
+    /// * before: the remainder of the input before parsing the item
+    /// * after: the remainder input after parsing the item
+    ///
+    /// All we really care about are the addresses of the strings, the lengths don't matter
+    fn span_from_before_and_after(&self, before: &str, after: &str) -> SourceSpan {
+        let base_addr = self.full_input.as_ptr() as usize;
+        let before_addr = before.as_ptr() as usize;
+        let after_addr = after.as_ptr() as usize;
+        assert!(
+            before_addr >= base_addr,
+            "tried to get the span of a non-substring!"
+        );
+        assert!(
+            after_addr >= before_addr,
+            "subslices were in wrong order for spanning!"
+        );
+
+        let start = before_addr - base_addr;
+        let end = after_addr - base_addr;
+        SourceSpan::from(start..end)
+    }
+
+    /// Creates a span for an item using a substring of self.full_input
+    ///
+    /// Note that substr must be a literal substring, as in it must be
+    /// a pointer into the same string!
+    fn span_from_substr(&self, substr: &str) -> SourceSpan {
+        let base_addr = self.full_input.as_ptr() as usize;
+        let substr_addr = substr.as_ptr() as usize;
+        assert!(
+            substr_addr >= base_addr,
+            "tried to get the span of a non-substring!"
+        );
+        let start = substr_addr - base_addr;
+        let end = start + substr.len();
+        SourceSpan::from(start..end)
+    }
 }
 
 fn set_details<'a>(
@@ -59,168 +123,237 @@ fn set_details<'a>(
     err
 }
 
-pub(crate) fn document(input: &str) -> IResult<&str, KdlDocument, KdlParseError<&str>> {
-    let (input, nodes) = many0(node)(input)?;
-    let (input, trailing) = all_whitespace(input)?;
-    let mut doc = KdlDocument::new();
-    doc.set_leading("");
-    doc.set_trailing(trailing);
-    *doc.nodes_mut() = nodes;
-    Ok((input, doc))
+pub(crate) fn document<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, KdlDocument, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        let start = input;
+        let (input, nodes) = many0(node(kdl_parser))(input)?;
+        let (input, trailing) = all_whitespace(kdl_parser)(input)?;
+        let mut doc = KdlDocument::new();
+        doc.set_leading("");
+        doc.set_trailing(trailing);
+        *doc.nodes_mut() = nodes;
+        #[cfg(feature = "span")]
+        doc.set_span(kdl_parser.span_from_before_and_after(start, trailing));
+        Ok((input, doc))
+    }
 }
 
-pub(crate) fn node(input: &str) -> IResult<&str, KdlNode, KdlParseError<&str>> {
-    let (input, leading) = all_whitespace(input)?;
-    let start = input;
-    let (input, ty) = opt(context("valid node type annotation", annotation))(input)?;
-    let (input, name) = context("valid node name", identifier)(input)?;
-    let (input, entries) = many0(context("valid node entry", entry))(input)?;
-    let (input, children) = opt(context("valid node children block", children))(input)?;
-    let (input, trailing) = context(
-        "valid node terminator",
-        cut(recognize(preceded(
-            many0(node_space),
-            alt((
-                terminated(recognize(tag(";")), opt(alt((linespace, eof)))),
-                alt((newline, single_line_comment, eof)),
+pub(crate) fn node<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, KdlNode, KdlParseError<&'a str>> + 'b {
+    |input| {
+        let (input, leading) = all_whitespace(kdl_parser)(input)?;
+        let start = input;
+        let (input, ty) = opt(context(
+            "valid node type annotation",
+            annotation(kdl_parser),
+        ))(input)?;
+        let (input, name) = context("valid node name", identifier(kdl_parser))(input)?;
+        let (input, entries) = many0(context("valid node entry", entry(kdl_parser)))(input)?;
+        let (input, children) =
+            opt(context("valid node children block", children(kdl_parser)))(input)?;
+        let (input, trailing) = context(
+            "valid node terminator",
+            cut(recognize(preceded(
+                many0(node_space(kdl_parser)),
+                alt((
+                    terminated(recognize(tag(";")), opt(alt((linespace, eof)))),
+                    alt((newline, single_line_comment, eof)),
+                )),
+            ))),
+        )(input)
+        .map_err(|e| {
+            set_details(
+                e,
+                start,
+                Some("parsed node"),
+                Some("Nodes can only be terminated by `;` or a valid line ending."),
+            )
+        })?;
+        let mut node = KdlNode::new(name);
+        node.set_leading(leading);
+        node.set_trailing(trailing);
+        #[cfg(feature = "span")]
+        node.set_span(kdl_parser.span_from_before_and_after(start, trailing));
+        node.ty = ty;
+        let ents = node.entries_mut();
+        *ents = entries;
+        if let Some((before, children)) = children {
+            let childs = node.children_mut();
+            *childs = Some(children);
+            node.set_before_children(before);
+        }
+        Ok((input, node))
+    }
+}
+
+pub(crate) fn identifier<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, KdlIdentifier, KdlParseError<&'a str>> + 'b {
+    move |input| alt((quoted_identifier(kdl_parser), plain_identifier(kdl_parser)))(input)
+}
+
+pub(crate) fn leading_comments<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, Vec<&'a str>, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        terminated(
+            many0(preceded(
+                opt(many0(alt((newline, unicode_space)))),
+                comment(kdl_parser),
             )),
-        ))),
-    )(input)
-    .map_err(|e| {
-        set_details(
-            e,
-            start,
-            Some("parsed node"),
-            Some("Nodes can only be terminated by `;` or a valid line ending."),
-        )
-    })?;
-    let mut node = KdlNode::new(name);
-    node.set_leading(leading);
-    node.set_trailing(trailing);
-    node.ty = ty;
-    let ents = node.entries_mut();
-    *ents = entries;
-    if let Some((before, children)) = children {
-        let childs = node.children_mut();
-        *childs = Some(children);
-        node.set_before_children(before);
-    }
-    Ok((input, node))
-}
-
-pub(crate) fn identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
-    alt((quoted_identifier, plain_identifier))(input)
-}
-
-pub(crate) fn leading_comments(input: &str) -> IResult<&str, Vec<&str>, KdlParseError<&str>> {
-    terminated(
-        many0(preceded(opt(many0(alt((newline, unicode_space)))), comment)),
-        opt(many0(alt((newline, unicode_space, eof)))),
-    )(input)
-}
-
-pub(crate) fn trailing_comments(mut input: &str) -> IResult<&str, Vec<&str>, KdlParseError<&str>> {
-    let mut comments = vec![];
-    loop {
-        let (inp, _) = opt(many0(alt((newline, unicode_space, tag("\\")))))(input)?;
-        let (inp, comment) = opt(comment)(inp)?;
-        if let Some(comment) = comment {
-            comments.push(comment);
-        }
-        let (inp, _) = opt(many0(alt((newline, unicode_space, tag("\\"), tag(";")))))(inp)?;
-        let (inp, end) = opt(eof)(inp)?;
-        if end.is_some() {
-            return Ok((inp, comments));
-        }
-        if input == inp {
-            panic!("invalid trailing text");
-        }
-        input = inp;
+            opt(many0(alt((newline, unicode_space, eof)))),
+        )(input)
     }
 }
 
-fn plain_identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
-    let start = input;
-    let (input, name) = recognize(preceded(
-        take_while_m_n(1, 1, KdlIdentifier::is_initial_char),
-        cut(take_while(KdlIdentifier::is_identifier_char)),
-    ))(input).map_err(|e| set_details(e, start, Some("invalid identifier character"), Some("See https://github.com/kdl-org/kdl/blob/main/SPEC.md#identifier for an explanation of valid KDL identifiers.")))?;
-    match name {
-        "false" | "true" | "null" => {
-            return Err(nom::Err::Error(KdlParseError {
-                input,
-                context: Some("non-keyword identifier"),
-                len: name.len(),
-                label: Some("reserved keyword"),
-                help: Some("Reserved keywords cannot be used as identifiers."),
-                kind: None,
-                touched: false,
-            }))
+pub(crate) fn trailing_comments<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, Vec<&'a str>, KdlParseError<&'a str>> + 'b {
+    move |mut input| {
+        let mut comments = vec![];
+        loop {
+            let (inp, _) = opt(many0(alt((newline, unicode_space, tag("\\")))))(input)?;
+            let (inp, comment) = opt(comment(kdl_parser))(inp)?;
+            if let Some(comment) = comment {
+                comments.push(comment);
+            }
+            let (inp, _) = opt(many0(alt((newline, unicode_space, tag("\\"), tag(";")))))(inp)?;
+            let (inp, end) = opt(eof)(inp)?;
+            if end.is_some() {
+                return Ok((inp, comments));
+            }
+            if input == inp {
+                panic!("invalid trailing text");
+            }
+            input = inp;
         }
-        _ => {}
     }
-    let mut ident = KdlIdentifier::from(name);
-    ident.set_repr(name);
-    Ok((input, ident))
 }
 
-fn quoted_identifier(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
-    let (input, (raw, val)) = alt((string, raw_string))(input)?;
-    let mut ident = KdlIdentifier::from(val.as_string().unwrap());
-    ident.set_repr(raw);
-    Ok((input, ident))
+fn plain_identifier<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, KdlIdentifier, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        let start = input;
+        let (input, name) = recognize(preceded(
+            take_while_m_n(1, 1, KdlIdentifier::is_initial_char),
+            cut(take_while(KdlIdentifier::is_identifier_char)),
+        ))(input).map_err(|e| set_details(e, start, Some("invalid identifier character"), Some("See https://github.com/kdl-org/kdl/blob/main/SPEC.md#identifier for an explanation of valid KDL identifiers.")))?;
+        match name {
+            "false" | "true" | "null" => {
+                return Err(nom::Err::Error(KdlParseError {
+                    input,
+                    context: Some("non-keyword identifier"),
+                    len: name.len(),
+                    label: Some("reserved keyword"),
+                    help: Some("Reserved keywords cannot be used as identifiers."),
+                    kind: None,
+                    touched: false,
+                }))
+            }
+            _ => {}
+        }
+        let mut ident = KdlIdentifier::from(name);
+        ident.set_repr(name);
+        #[cfg(feature = "span")]
+        ident.set_span(kdl_parser.span_from_before_and_after(start, input));
+        Ok((input, ident))
+    }
 }
 
-pub(crate) fn entry_with_trailing(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
-    let (input, mut leading) = recognize(many0(node_space))(input)?;
-    if leading.is_empty() {
-        leading = " ";
-    };
-    let (input, mut entry) = alt((property, argument))(input)?;
-    let (input, trailing) = recognize(many0(node_space))(input)?;
-    entry.set_leading(leading);
-    entry.set_trailing(trailing);
-    Ok((input, entry))
+fn quoted_identifier<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> + 'b {
+    move |input| {
+        let start = input;
+        let (input, (raw, val)) = alt((string, raw_string))(input)?;
+        let mut ident = KdlIdentifier::from(val.as_string().unwrap());
+        ident.set_repr(raw);
+        #[cfg(feature = "span")]
+        ident.set_span(kdl_parser.span_from_before_and_after(start, input));
+        Ok((input, ident))
+    }
 }
 
-fn entry(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
-    let (input, leading) = recognize(many1(node_space))(input)?;
-    let (input, mut entry) = alt((property, argument))(input)?;
-    entry.set_leading(leading);
-    Ok((input, entry))
+pub(crate) fn entry_with_trailing<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, KdlEntry, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        let (input, mut leading) = recognize(many0(node_space(kdl_parser)))(input)?;
+        if leading.is_empty() {
+            leading = " ";
+        };
+        let (input, mut entry) = alt((property(kdl_parser), argument(kdl_parser)))(input)?;
+        let (input, trailing) = recognize(many0(node_space(kdl_parser)))(input)?;
+        entry.set_leading(leading);
+        entry.set_trailing(trailing);
+        Ok((input, entry))
+    }
 }
 
-fn entry_maybe_space(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
-    let (input, leading) = recognize(many0(node_space))(input)?;
-    let (input, mut entry) = alt((property, argument))(input)?;
-    entry.set_leading(leading);
-    Ok((input, entry))
+fn entry<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, KdlEntry, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        let (input, leading) = recognize(many1(node_space(kdl_parser)))(input)?;
+        let (input, mut entry) = alt((property(kdl_parser), argument(kdl_parser)))(input)?;
+        entry.set_leading(leading);
+        Ok((input, entry))
+    }
 }
 
-fn property(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
-    let (input, name) = identifier(input)?;
-    let (input, _) = context("'=' after property name", tag("="))(input)?;
-    let (input, ty) = opt(annotation)(input)?;
-    let (input, (raw, value)) = context("property value", cut(value))(input).map_err(|e| set_details(e, input, Some("invalid value"), Some("Please refer to https://github.com/kdl-org/kdl/blob/main/SPEC.md#value for valid KDL value syntaxes.")))?;
-    let mut entry = KdlEntry::new_prop(name, value);
-    entry.ty = ty;
-    entry.set_trailing("");
-    entry.set_value_repr(raw);
-    Ok((input, entry))
+fn entry_maybe_space<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, KdlEntry, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        let (input, leading) = recognize(many0(node_space(kdl_parser)))(input)?;
+        let (input, mut entry) = alt((property(kdl_parser), argument(kdl_parser)))(input)?;
+        entry.set_leading(leading);
+        Ok((input, entry))
+    }
 }
 
-fn argument(input: &str) -> IResult<&str, KdlEntry, KdlParseError<&str>> {
-    let (input, ty) = opt(annotation)(input)?;
-    let (input, (raw, value)) = if ty.is_some() {
-        context("valid value", cut(value))(input)
-    } else {
-        context("valid value", value)(input)
-    }?;
-    let mut entry = KdlEntry::new(value);
-    entry.ty = ty;
-    entry.set_trailing("");
-    entry.set_value_repr(raw);
-    Ok((input, entry))
+fn property<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, KdlEntry, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        let start = input;
+        let (input, name) = identifier(kdl_parser)(input)?;
+        let (input, _) = context("'=' after property name", tag("="))(input)?;
+        let (input, ty) = opt(annotation(kdl_parser))(input)?;
+        let (input, (raw, value)) = context("property value", cut(value))(input).map_err(|e| set_details(e, input, Some("invalid value"), Some("Please refer to https://github.com/kdl-org/kdl/blob/main/SPEC.md#value for valid KDL value syntaxes.")))?;
+        let mut entry = KdlEntry::new_prop(name, value);
+        entry.ty = ty;
+        entry.set_trailing("");
+        entry.set_value_repr(raw);
+        #[cfg(feature = "span")]
+        entry.set_span(kdl_parser.span_from_before_and_after(start, input));
+        Ok((input, entry))
+    }
+}
+
+fn argument<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, KdlEntry, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        let start = input;
+        let (input, ty) = opt(annotation(kdl_parser))(input)?;
+        let (input, (raw, value)) = if ty.is_some() {
+            context("valid value", cut(value))(input)
+        } else {
+            context("valid value", value)(input)
+        }?;
+        let mut entry = KdlEntry::new(value);
+        entry.ty = ty;
+        entry.set_trailing("");
+        entry.set_value_repr(raw);
+        #[cfg(feature = "span")]
+        entry.set_span(kdl_parser.span_from_before_and_after(start, input));
+        Ok((input, entry))
+    }
 }
 
 fn value(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> {
@@ -237,27 +370,37 @@ fn value(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> 
     ))(input)
 }
 
-fn children(input: &str) -> IResult<&str, (&str, KdlDocument), KdlParseError<&str>> {
-    let (input, before) = recognize(many0(node_space))(input)?;
-    let start = input;
-    let (input, _) = tag("{")(input)?;
-    let (input, children) = document(input)?;
-    let (input, _) = cut(context("closing '}' in node children block", tag("}")))(input)
-        .map_err(|e| set_details(e, start, Some("children block body"), None))?;
-    Ok((input, (before, children)))
+fn children<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, (&'a str, KdlDocument), KdlParseError<&'a str>> + 'b {
+    move |input| {
+        let (input, before) = recognize(many0(node_space(kdl_parser)))(input)?;
+        let start = input;
+        let (input, _) = tag("{")(input)?;
+        let (input, children) = document(kdl_parser)(input)?;
+        let (input, _) = cut(context("closing '}' in node children block", tag("}")))(input)
+            .map_err(|e| set_details(e, start, Some("children block body"), None))?;
+        Ok((input, (before, children)))
+    }
 }
 
-fn annotation(input: &str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> {
-    let start = input;
-    let (input, _) = tag("(")(input)?;
-    let (input, ty) = cut(identifier)(input)?;
-    let (input, _) = context("closing ')' for type annotation", cut(tag(")")))(input)
-        .map_err(|e| set_details(e, start, Some("annotation"), Some("annotations can only be KDL identifiers (including string identifiers), and can't have any space inside the parentheses.")))?;
-    Ok((input, ty))
+fn annotation<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, KdlIdentifier, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        let start = input;
+        let (input, _) = tag("(")(input)?;
+        let (input, ty) = cut(identifier(kdl_parser))(input)?;
+        let (input, _) = context("closing ')' for type annotation", cut(tag(")")))(input)
+            .map_err(|e| set_details(e, start, Some("annotation"), Some("annotations can only be KDL identifiers (including string identifiers), and can't have any space inside the parentheses.")))?;
+        Ok((input, ty))
+    }
 }
 
-fn all_whitespace(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
-    recognize(many0(alt((comment, unicode_space, newline))))(input)
+fn all_whitespace<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, &'a str, KdlParseError<&'a str>> + 'b {
+    move |input| recognize(many0(alt((comment(kdl_parser), unicode_space, newline))))(input)
 }
 
 fn whitespace(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
@@ -268,15 +411,19 @@ fn linespace(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
     recognize(alt((unicode_space, newline, single_line_comment)))(input)
 }
 
-fn node_space(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
-    context(
-        "node space",
-        recognize(alt((
-            delimited(many0(whitespace), escline, many0(whitespace)),
-            recognize(many1(whitespace)),
-            node_slashdash,
-        ))),
-    )(input)
+fn node_space<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, &'a str, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        context(
+            "node space",
+            recognize(alt((
+                delimited(many0(whitespace), escline, many0(whitespace)),
+                recognize(many1(whitespace)),
+                node_slashdash(kdl_parser),
+            ))),
+        )(input)
+    }
 }
 
 fn escline(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
@@ -329,8 +476,16 @@ pub(crate) fn newline(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
     ))(input)
 }
 
-fn comment(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
-    alt((single_line_comment, multi_line_comment, slashdash_comment))(input)
+fn comment<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, &'a str, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        alt((
+            single_line_comment,
+            multi_line_comment,
+            slashdash_comment(kdl_parser),
+        ))(input)
+    }
 }
 
 /// `single-line-comment := '//' ('\r' [^\n] | [^\r\n])* (newline | eof)`
@@ -370,20 +525,31 @@ fn commented_block(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
     ))(input)
 }
 
-fn node_slashdash(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
-    recognize(preceded(
-        tag("/-"),
-        context(
-            "node following a slashdash",
-            cut(alt((recognize(entry_maybe_space), recognize(children)))),
-        ),
-    ))(input)
-    .map_err(|e| set_details(e, input, Some("slashdash"), None))
+fn node_slashdash<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, &'a str, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        recognize(preceded(
+            tag("/-"),
+            context(
+                "node following a slashdash",
+                cut(alt((
+                    recognize(entry_maybe_space(kdl_parser)),
+                    recognize(children(kdl_parser)),
+                ))),
+            ),
+        ))(input)
+        .map_err(|e| set_details(e, input, Some("slashdash"), None))
+    }
 }
 
-fn slashdash_comment(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
-    recognize(preceded(tag("/-"), cut(node)))(input)
-        .map_err(|e| set_details(e, input, Some("slashdash"), None))
+fn slashdash_comment<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, &'a str, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        recognize(preceded(tag("/-"), cut(node(kdl_parser))))(input)
+            .map_err(|e| set_details(e, input, Some("slashdash"), None))
+    }
 }
 
 fn boolean(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> {
@@ -641,7 +807,9 @@ mod node_tests {
 
     #[test]
     fn basic() {
-        match node("foo 1 \"bar\"=false") {
+        let input = "foo 1 \"bar\"=false";
+        let kdl_parser = crate::parser::KdlParser::new(input);
+        match node(&kdl_parser)(input) {
             Ok(("", parsed)) => {
                 let mut ident = KdlIdentifier::from("foo");
                 ident.set_repr("foo");
@@ -667,7 +835,7 @@ mod node_tests {
             Err(e) => {
                 panic!("failed to parse: {:?}", e);
             }
-        }
+        };
     }
 }
 
@@ -677,7 +845,9 @@ mod whitespace_tests {
     fn basic() {
         use super::all_whitespace;
 
-        assert_eq!(all_whitespace(" \t\n\r"), Ok(("", " \t\n\r")));
+        let input = " \t\n\r";
+        let kdl_parser = crate::parser::KdlParser::new(input);
+        assert_eq!(all_whitespace(&kdl_parser)(input), Ok(("", " \t\n\r")));
     }
 }
 
@@ -687,21 +857,30 @@ mod comment_tests {
 
     #[test]
     fn single_line() {
-        assert_eq!(comment("// Hello world"), Ok(("", "// Hello world")));
+        let input = "// Hello world";
+        let kdl_parser = crate::parser::KdlParser::new(input);
+        assert_eq!(comment(&kdl_parser)(input), Ok(("", "// Hello world")));
     }
 
     #[test]
     fn multi_line() {
-        assert_eq!(comment("/* Hello world */"), Ok(("", "/* Hello world */")));
+        let input = "/* Hello world */";
+        let kdl_parser = crate::parser::KdlParser::new(input);
+        assert_eq!(comment(&kdl_parser)(input), Ok(("", "/* Hello world */")));
+
+        let input = "/* Hello /* world */ blah */";
+        let kdl_parser = crate::parser::KdlParser::new(input);
         assert_eq!(
-            comment("/* Hello /* world */ blah */"),
+            comment(&kdl_parser)(input),
             Ok(("", "/* Hello /* world */ blah */"))
         );
     }
 
     #[test]
     fn slashdash() {
-        assert_eq!(comment("/-foo 1 2"), Ok(("", "/-foo 1 2")));
+        let input = "/-foo 1 2";
+        let kdl_parser = crate::parser::KdlParser::new(input);
+        assert_eq!(comment(&kdl_parser)(input), Ok(("", "/-foo 1 2")));
     }
 
     #[test]
@@ -785,7 +964,9 @@ mod value_tests {
                 )
             ))
         );
-        let (_, n) = node("node 0x0123_4567_89ab_cdef").expect("failed to parse node");
+        let input = "node 0x0123_4567_89ab_cdef";
+        let kdl_parser = crate::parser::KdlParser::new(input);
+        let (_, n) = node(&kdl_parser)(input).expect("failed to parse node");
         assert_eq!(&n[0], &KdlValue::Base16(0x0123456789abcdef));
         assert_eq!(
             value("0x123_4567"),

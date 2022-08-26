@@ -1,13 +1,32 @@
+#[cfg(feature = "span")]
+use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
 use crate::{parser, KdlError};
 
 /// Represents a KDL
 /// [Identifier](https://github.com/kdl-org/kdl/blob/main/SPEC.md#identifier).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Eq)]
 pub struct KdlIdentifier {
     pub(crate) value: String,
     pub(crate) repr: Option<String>,
+    #[cfg(feature = "span")]
+    pub(crate) span: SourceSpan,
+}
+
+impl PartialEq for KdlIdentifier {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value && self.repr == other.repr
+        // intentionally omitted: self.span == other.span
+    }
+}
+
+impl std::hash::Hash for KdlIdentifier {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.value.hash(state);
+        self.repr.hash(state);
+        // Intentionally omitted: self.span.hash(state);
+    }
 }
 
 impl KdlIdentifier {
@@ -19,6 +38,28 @@ impl KdlIdentifier {
     /// Sets the string value for this identifier.
     pub fn set_value(&mut self, value: impl Into<String>) {
         self.value = value.into();
+    }
+
+    /// Gets this identifier's span.
+    ///
+    /// This value will be properly initialized when created via [`KdlDocument::parse`]
+    /// but may become invalidated if the document is mutated. We do not currently
+    /// guarantee this to yield any particularly consistent results at that point.
+    #[cfg(feature = "span")]
+    pub fn span(&self) -> &SourceSpan {
+        &self.span
+    }
+
+    /// Gets a mutable reference to this identifier's span.
+    #[cfg(feature = "span")]
+    pub fn span_mut(&mut self) -> &mut SourceSpan {
+        &mut self.span
+    }
+
+    /// Sets this identifier's span.
+    #[cfg(feature = "span")]
+    pub fn set_span(&mut self, span: impl Into<SourceSpan>) {
+        self.span = span.into();
     }
 
     /// Gets the custom string representation for this identifier, if any.
@@ -142,13 +183,20 @@ impl From<&str> for KdlIdentifier {
         KdlIdentifier {
             value: value.to_string(),
             repr: None,
+            #[cfg(feature = "span")]
+            span: SourceSpan::from(0..0),
         }
     }
 }
 
 impl From<String> for KdlIdentifier {
     fn from(value: String) -> Self {
-        KdlIdentifier { value, repr: None }
+        KdlIdentifier {
+            value,
+            repr: None,
+            #[cfg(feature = "span")]
+            span: SourceSpan::from(0..0),
+        }
     }
 }
 
@@ -162,7 +210,8 @@ impl FromStr for KdlIdentifier {
     type Err = KdlError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        parser::parse(s, parser::identifier)
+        let kdl_parser = crate::parser::KdlParser::new(s);
+        kdl_parser.parse(parser::identifier(&kdl_parser))
     }
 }
 
@@ -178,6 +227,8 @@ mod test {
             KdlIdentifier {
                 value: plain.to_string(),
                 repr: Some(plain.to_string()),
+                #[cfg(feature = "span")]
+                span: SourceSpan::from(0..3),
             }
         );
 
@@ -187,6 +238,8 @@ mod test {
             KdlIdentifier {
                 value: "foo\"bar".to_string(),
                 repr: Some(quoted.to_string()),
+                #[cfg(feature = "span")]
+                span: SourceSpan::from(0..0),
             }
         );
 
