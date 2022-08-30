@@ -604,7 +604,7 @@ foo 1 bar=0xdeadbeef {
     fn span_test() -> miette::Result<()> {
         let input = r####"
 this {
-    is (a)"cool" document="to" read=5 10.1
+    is (a)"cool" document="to" read=(int)5 10.1 (u32)0x45
     and x="" {
         "it" /*shh*/ "has"="💯" r##"the"##
         Best🎊est
@@ -614,10 +614,112 @@ this {
 }
 // that's
 nice
+inline { time; to; live "our" "dreams"; "y;all"; }
 "####;
 
         let doc: KdlDocument = input.parse().unwrap();
+
+        // First check that all the identity-spans are correct
         check_spans_for_doc(&doc, &input);
+
+        // Now check some more interesting concrete spans
+
+        // The whole document should presumably be "the input" again?
+        check_span(input, doc.span(), &input);
+
+        // This one-liner node should be the whole line without leading whitespace
+        let is_node = doc
+            .get("this")
+            .unwrap()
+            .children()
+            .unwrap()
+            .get("is")
+            .unwrap();
+        check_span(
+            r##"is (a)"cool" document="to" read=(int)5 10.1 (u32)0x45"##,
+            is_node.span(),
+            &input,
+        );
+
+        // Some simple with/without type hints
+        check_span(r#"(a)"cool""#, is_node.get(0).unwrap().span(), &input);
+        check_span(
+            r#"read=(int)5"#,
+            is_node.get("read").unwrap().span(),
+            &input,
+        );
+        check_span(r#"10.1"#, is_node.get(1).unwrap().span(), &input);
+        check_span(r#"(u32)0x45"#, is_node.get(2).unwrap().span(), &input);
+
+        // Now let's look at some messed up parts of that "and" node
+        let and_node = doc
+            .get("this")
+            .unwrap()
+            .children()
+            .unwrap()
+            .get("and")
+            .unwrap();
+
+        // The node is what you expect, the whole line and its two braces
+        check_span(
+            r####"and x="" {
+        "it" /*shh*/ "has"="💯" r##"the"##
+        Best🎊est
+        "syntax ever"
+    }"####,
+            and_node.span(),
+            &input,
+        );
+
+        // The child document is a little weird, it's the contents *inside* the braces
+        // with extra newlines on both ends.
+        check_span(
+            r####"
+        "it" /*shh*/ "has"="💯" r##"the"##
+        Best🎊est
+        "syntax ever"
+"####,
+            and_node.children().unwrap().span(),
+            &input,
+        );
+
+        // Oh hey don't forget to check that "x" entry
+        check_span(r#"x="""#, and_node.get("x").unwrap().span(), &input);
+
+        // Now the "it" node, more straightforward
+        let it_node = and_node.children().unwrap().get("it").unwrap();
+        check_span(
+            r####""it" /*shh*/ "has"="💯" r##"the"##"####,
+            it_node.span(),
+            &input,
+        );
+        check_span(r#""has"="💯""#, it_node.get("has").unwrap().span(), &input);
+        check_span(
+            r####"r##"the"##"####,
+            it_node.get(0).unwrap().span(),
+            &input,
+        );
+
+        // Make sure inline nodes work ok
+        let inline_node = doc.get("inline").unwrap();
+        check_span(
+            r#"inline { time; to; live "our" "dreams"; "y;all"; }"#,
+            inline_node.span(),
+            &input,
+        );
+
+        let inline_children = inline_node.children().unwrap();
+        check_span(
+            r#" time; to; live "our" "dreams"; "y;all"; "#,
+            inline_children.span(),
+            &input,
+        );
+
+        let inline_nodes = inline_children.nodes();
+        check_span("time", inline_nodes[0].span(), &input);
+        check_span("to", inline_nodes[1].span(), &input);
+        check_span(r#"live "our" "dreams""#, inline_nodes[2].span(), &input);
+        check_span(r#""y;all""#, inline_nodes[3].span(), &input);
 
         Ok(())
     }
