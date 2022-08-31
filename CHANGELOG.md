@@ -1,5 +1,12 @@
 # `kdl` Release Changelog
 
+<a name="4.5.0"></a>
+## 4.5.0 (2022-08-31)
+
+### Features
+
+* **spans:** add spans to most elements (#57) ([b17ef8e2](https://github.com/kdl-org/kdl-rs/commit/b17ef8e2c61b67cdc632f1772e18f6c7521dcfd8))
+
 <a name="4.4.0"></a>
 ## 4.4.0 (2022-08-18)
 
