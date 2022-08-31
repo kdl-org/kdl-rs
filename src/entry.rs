@@ -1,3 +1,5 @@
+#[cfg(feature = "span")]
+use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
 use crate::{parser, KdlError, KdlIdentifier, KdlValue};
@@ -6,7 +8,7 @@ use crate::{parser, KdlError, KdlIdentifier, KdlValue};
 /// [`Argument`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#argument) or
 /// a (key/value)
 /// [`Property`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#property)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct KdlEntry {
     pub(crate) leading: Option<String>,
     pub(crate) ty: Option<KdlIdentifier>,
@@ -14,6 +16,20 @@ pub struct KdlEntry {
     pub(crate) value_repr: Option<String>,
     pub(crate) name: Option<KdlIdentifier>,
     pub(crate) trailing: Option<String>,
+    #[cfg(feature = "span")]
+    pub(crate) span: SourceSpan,
+}
+
+impl PartialEq for KdlEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.leading == other.leading
+            && self.ty == other.ty
+            && self.value == other.value
+            && self.value_repr == other.value_repr
+            && self.name == other.name
+            && self.trailing == other.trailing
+        // intentionally omitted: self.span == other.span
+    }
 }
 
 impl KdlEntry {
@@ -26,6 +42,8 @@ impl KdlEntry {
             value_repr: None,
             name: None,
             trailing: None,
+            #[cfg(feature = "span")]
+            span: SourceSpan::from(0..0),
         }
     }
 
@@ -47,6 +65,28 @@ impl KdlEntry {
     /// Sets the entry's value.
     pub fn set_value(&mut self, value: impl Into<KdlValue>) {
         self.value = value.into();
+    }
+
+    /// Gets this entry's span.
+    ///
+    /// This value will be properly initialized when created via [`KdlDocument::parse`]
+    /// but may become invalidated if the document is mutated. We do not currently
+    /// guarantee this to yield any particularly consistent results at that point.
+    #[cfg(feature = "span")]
+    pub fn span(&self) -> &SourceSpan {
+        &self.span
+    }
+
+    /// Gets a mutable reference to this entry's span.
+    #[cfg(feature = "span")]
+    pub fn span_mut(&mut self) -> &mut SourceSpan {
+        &mut self.span
+    }
+
+    /// Sets this entry's span.
+    #[cfg(feature = "span")]
+    pub fn set_span(&mut self, span: impl Into<SourceSpan>) {
+        self.span = span.into();
     }
 
     /// Gets the entry's type.
@@ -73,6 +113,8 @@ impl KdlEntry {
             value_repr: None,
             name: Some(key.into()),
             trailing: None,
+            #[cfg(feature = "span")]
+            span: SourceSpan::from(0..0),
         }
     }
 
@@ -187,7 +229,8 @@ impl FromStr for KdlEntry {
     type Err = KdlError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        parser::parse(s, parser::entry_with_trailing)
+        let kdl_parser = parser::KdlParser::new(s);
+        kdl_parser.parse(parser::entry_with_trailing(&kdl_parser))
     }
 }
 
@@ -218,6 +261,8 @@ mod test {
                 value_repr: None,
                 name: None,
                 trailing: None,
+                #[cfg(feature = "span")]
+                span: SourceSpan::from(0..0),
             }
         );
 
@@ -231,6 +276,8 @@ mod test {
                 value_repr: None,
                 name: Some("name".into()),
                 trailing: None,
+                #[cfg(feature = "span")]
+                span: SourceSpan::from(0..0),
             }
         );
     }
@@ -247,6 +294,8 @@ mod test {
                 value_repr: Some("0xDEADbeef".into()),
                 name: None,
                 trailing: Some("\t\\\n".into()),
+                #[cfg(feature = "span")]
+                span: SourceSpan::from(0..0),
             }
         );
 
@@ -260,6 +309,8 @@ mod test {
                 value_repr: Some("0xDEADbeef".into()),
                 name: Some("\"foo\"".parse()?),
                 trailing: Some("\t\\\n".into()),
+                #[cfg(feature = "span")]
+                span: SourceSpan::from(0..0),
             }
         );
 

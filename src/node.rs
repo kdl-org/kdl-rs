@@ -4,12 +4,15 @@ use std::{
     str::FromStr,
 };
 
+#[cfg(feature = "span")]
+use miette::SourceSpan;
+
 use crate::{parser, KdlDocument, KdlEntry, KdlError, KdlIdentifier, KdlValue};
 
 /// Represents an individual KDL
 /// [`Node`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#node) inside a
 /// KDL Document.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct KdlNode {
     pub(crate) leading: Option<String>,
     pub(crate) ty: Option<KdlIdentifier>,
@@ -19,6 +22,21 @@ pub struct KdlNode {
     pub(crate) before_children: Option<String>,
     pub(crate) children: Option<KdlDocument>,
     pub(crate) trailing: Option<String>,
+    #[cfg(feature = "span")]
+    pub(crate) span: SourceSpan,
+}
+
+impl PartialEq for KdlNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.leading == other.leading
+            && self.ty == other.ty
+            && self.name == other.name
+            && self.entries == other.entries
+            && self.before_children == other.before_children
+            && self.children == other.children
+            && self.trailing == other.trailing
+        // intentionally omitted: self.span == other.span
+    }
 }
 
 impl KdlNode {
@@ -32,6 +50,8 @@ impl KdlNode {
             before_children: None,
             children: None,
             trailing: None,
+            #[cfg(feature = "span")]
+            span: SourceSpan::from(0..0),
         }
     }
 
@@ -48,6 +68,28 @@ impl KdlNode {
     /// Sets this node's name.
     pub fn set_name(&mut self, name: impl Into<KdlIdentifier>) {
         self.name = name.into();
+    }
+
+    /// Gets this node's span.
+    ///
+    /// This value will be properly initialized when created via [`KdlDocument::parse`]
+    /// but may become invalidated if the document is mutated. We do not currently
+    /// guarantee this to yield any particularly consistent results at that point.
+    #[cfg(feature = "span")]
+    pub fn span(&self) -> &SourceSpan {
+        &self.span
+    }
+
+    /// Gets a mutable reference to this node's span.
+    #[cfg(feature = "span")]
+    pub fn span_mut(&mut self) -> &mut SourceSpan {
+        &mut self.span
+    }
+
+    /// Sets this node's span.
+    #[cfg(feature = "span")]
+    pub fn set_span(&mut self, span: impl Into<SourceSpan>) {
+        self.span = span.into();
     }
 
     /// Gets the node's type identifier, if any.
@@ -434,7 +476,8 @@ impl FromStr for KdlNode {
     type Err = KdlError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        parser::parse(input, parser::node)
+        let kdl_parser = crate::parser::KdlParser::new(input);
+        kdl_parser.parse(parser::node(&kdl_parser))
     }
 }
 

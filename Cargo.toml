@@ -10,6 +10,10 @@ repository = "https://github.com/kdl-org/kdl-rs"
 keywords = ["kdl", "document", "serialization", "config"]
 edition = "2021"
 
+[features]
+default = ["span"]
+span = []
+
 [dependencies]
 miette = "5.3.0"
 nom = { version = "7.1.1", default-features = false }
