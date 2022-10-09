@@ -233,6 +233,26 @@ pub(crate) fn trailing_comments<'a: 'b, 'b>(
     }
 }
 
+/// A "fake" parser to provide better diagnostics when a bare identifier
+/// is used in places it shouldn't.
+fn errant_plain_identifier<'a: 'b, 'b>(
+    kdl_parser: &'b KdlParser<'a>,
+) -> impl Fn(&'a str) -> IResult<&'a str, KdlEntry, KdlParseError<&'a str>> + 'b {
+    move |input| {
+        let start = input;
+        let (_input, name) = plain_identifier(kdl_parser)(input)?;
+        Err(nom::Err::Failure(KdlParseError {
+            input: start,
+            context: Some("a valid node entry"),
+            len: name.len(),
+            label: Some("plain identifiers can't be used here"),
+            help: Some("If this was supposed to be a string, wrap it in quotes.\nIf this was supposed to be a new node, terminate the previous node with `;` or a newline."),
+            kind: None,
+            touched: false,
+        }))
+    }
+}
+
 fn plain_identifier<'a: 'b, 'b>(
     kdl_parser: &'b KdlParser<'a>,
 ) -> impl Fn(&'a str) -> IResult<&'a str, KdlIdentifier, KdlParseError<&'a str>> + 'b {
@@ -286,7 +306,11 @@ pub(crate) fn entry_with_trailing<'a: 'b, 'b>(
         if leading.is_empty() {
             leading = " ";
         };
-        let (input, mut entry) = alt((property(kdl_parser), argument(kdl_parser)))(input)?;
+        let (input, mut entry) = alt((
+            property(kdl_parser),
+            argument(kdl_parser),
+            errant_plain_identifier(kdl_parser),
+        ))(input)?;
         let (input, trailing) = recognize(many0(node_space(kdl_parser)))(input)?;
         entry.set_leading(leading);
         entry.set_trailing(trailing);
@@ -299,7 +323,11 @@ fn entry<'a: 'b, 'b>(
 ) -> impl Fn(&'a str) -> IResult<&'a str, KdlEntry, KdlParseError<&'a str>> + 'b {
     move |input| {
         let (input, leading) = recognize(many1(node_space(kdl_parser)))(input)?;
-        let (input, mut entry) = alt((property(kdl_parser), argument(kdl_parser)))(input)?;
+        let (input, mut entry) = alt((
+            property(kdl_parser),
+            argument(kdl_parser),
+            errant_plain_identifier(kdl_parser),
+        ))(input)?;
         entry.set_leading(leading);
         Ok((input, entry))
     }
@@ -310,7 +338,11 @@ fn entry_maybe_space<'a: 'b, 'b>(
 ) -> impl Fn(&'a str) -> IResult<&'a str, KdlEntry, KdlParseError<&'a str>> + 'b {
     move |input| {
         let (input, leading) = recognize(many0(node_space(kdl_parser)))(input)?;
-        let (input, mut entry) = alt((property(kdl_parser), argument(kdl_parser)))(input)?;
+        let (input, mut entry) = alt((
+            property(kdl_parser),
+            argument(kdl_parser),
+            errant_plain_identifier(kdl_parser),
+        ))(input)?;
         entry.set_leading(leading);
         Ok((input, entry))
     }
@@ -836,6 +868,80 @@ mod node_tests {
                 panic!("failed to parse: {:?}", e);
             }
         };
+    }
+
+    #[test]
+    fn errant_ident1() {
+        let input = "struct Vec { }";
+        let kdl_parser = crate::parser::KdlParser::new(input);
+        let res = kdl_parser.parse(document(&kdl_parser));
+        let e = res.unwrap_err();
+        check_span("Vec", &e.span, &input);
+        assert_eq!(e.label, Some("plain identifiers can't be used here"));
+    }
+
+    #[test]
+    fn errant_ident2() {
+        let input = r##"
+    some_node
+    bad evil"##;
+        let kdl_parser = crate::parser::KdlParser::new(input);
+        let res = kdl_parser.parse(document(&kdl_parser));
+        let e = res.unwrap_err();
+        check_span("evil", &e.span, &input);
+        assert_eq!(e.label, Some("plain identifiers can't be used here"));
+    }
+
+    #[test]
+    fn errant_ident3() {
+        let input = r##"node "ok" wait "fine""##;
+        let kdl_parser = crate::parser::KdlParser::new(input);
+        let res = kdl_parser.parse(document(&kdl_parser));
+        let e = res.unwrap_err();
+        check_span("wait", &e.span, &input);
+        assert_eq!(e.label, Some("plain identifiers can't be used here"));
+    }
+
+    #[test]
+    fn errant_ident4() {
+        let input = r##"node x="ok" oof z="5"##;
+        let kdl_parser = crate::parser::KdlParser::new(input);
+        let res = kdl_parser.parse(document(&kdl_parser));
+        let e = res.unwrap_err();
+        check_span("oof", &e.span, &input);
+        assert_eq!(e.label, Some("plain identifiers can't be used here"));
+    }
+
+    #[test]
+    fn errant_ident5() {
+        // NOTE: this one is a different situation and doesn't provide as good help still!
+        // But at least it's clear that the value is bad, which is ok!
+        let input = r##"node x=bad"##;
+        let kdl_parser = crate::parser::KdlParser::new(input);
+        let res = kdl_parser.parse(document(&kdl_parser));
+        let e = res.unwrap_err();
+        check_span("", &e.span, &input);
+        assert_eq!(e.label, Some("invalid value"));
+    }
+
+    #[test]
+    fn errant_ident6() {
+        // NOTE: this one is a different situation and doesn't provide as good help still!
+        // But at least it's clear that the value is bad, which is ok!
+        let input = r##"node (int)bad"##;
+        let kdl_parser = crate::parser::KdlParser::new(input);
+        let res = kdl_parser.parse(document(&kdl_parser));
+        let e = res.unwrap_err();
+        check_span("", &e.span, &input);
+        assert_eq!(e.label, None);
+    }
+
+    #[cfg(feature = "span")]
+    #[track_caller]
+    fn check_span(expected: &str, span: &SourceSpan, source: &impl miette::SourceCode) {
+        let span = source.read_span(span, 0, 0).unwrap();
+        let span = std::str::from_utf8(span.data()).unwrap();
+        assert_eq!(span, expected);
     }
 }
 
