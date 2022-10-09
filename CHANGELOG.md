@@ -1,5 +1,12 @@
 # `kdl` Release Changelog
 
+<a name="4.6.0"></a>
+## 4.6.0 (2022-10-09)
+
+### Features
+
+* **errors:** Add better diagnostics for errant plain identifiers in nodes (#59) ([3ddbfec8](https://github.com/kdl-org/kdl-rs/commit/3ddbfec80ec18bc97d9df4004ad262dcdcf79e9b))
+
 <a name="4.5.0"></a>
 ## 4.5.0 (2022-08-31)
 
