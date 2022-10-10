@@ -60,14 +60,8 @@ impl KdlDocument {
     /// but may become invalidated if the document is mutated. We do not currently
     /// guarantee this to yield any particularly consistent results at that point.
     #[cfg(feature = "span")]
-    pub fn span(&self) -> &SourceSpan {
-        &self.span
-    }
-
-    /// Gets a mutable reference to this document's span.
-    #[cfg(feature = "span")]
-    pub fn span_mut(&mut self) -> &mut SourceSpan {
-        &mut self.span
+    pub fn span(&self) -> SourceSpan {
+        self.span
     }
 
     /// Sets this document's span.
@@ -593,8 +587,8 @@ foo 1 bar=0xdeadbeef {
 
     #[cfg(feature = "span")]
     #[track_caller]
-    fn check_span(expected: &str, span: &SourceSpan, source: &impl miette::SourceCode) {
-        let span = source.read_span(span, 0, 0).unwrap();
+    fn check_span(expected: &str, span: SourceSpan, source: &impl miette::SourceCode) {
+        let span = source.read_span(&span, 0, 0).unwrap();
         let span = std::str::from_utf8(span.data()).unwrap();
         assert_eq!(span, expected);
     }

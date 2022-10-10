@@ -76,14 +76,8 @@ impl KdlNode {
     /// but may become invalidated if the document is mutated. We do not currently
     /// guarantee this to yield any particularly consistent results at that point.
     #[cfg(feature = "span")]
-    pub fn span(&self) -> &SourceSpan {
-        &self.span
-    }
-
-    /// Gets a mutable reference to this node's span.
-    #[cfg(feature = "span")]
-    pub fn span_mut(&mut self) -> &mut SourceSpan {
-        &mut self.span
+    pub fn span(&self) -> SourceSpan {
+        self.span
     }
 
     /// Sets this node's span.
