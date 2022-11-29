@@ -12,7 +12,7 @@ use crate::{parser, KdlDocument, KdlEntry, KdlError, KdlIdentifier, KdlValue};
 /// Represents an individual KDL
 /// [`Node`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#node) inside a
 /// KDL Document.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct KdlNode {
     pub(crate) leading: Option<String>,
     pub(crate) ty: Option<KdlIdentifier>,
@@ -36,6 +36,19 @@ impl PartialEq for KdlNode {
             && self.children == other.children
             && self.trailing == other.trailing
         // intentionally omitted: self.span == other.span
+    }
+}
+
+impl std::hash::Hash for KdlNode {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.leading.hash(state);
+        self.ty.hash(state);
+        self.name.hash(state);
+        self.entries.hash(state);
+        self.before_children.hash(state);
+        self.children.hash(state);
+        self.trailing.hash(state);
+        // Intentionally omitted: self.span.hash(state);
     }
 }
 
@@ -419,6 +432,26 @@ impl KdlNode {
     /// Auto-formats this node and its contents, stripping comments.
     pub fn fmt_no_comments(&mut self) {
         self.fmt_impl(0, true);
+    }
+
+    /// Queries this Node's children according to the KQL query language,
+    /// returning all matching nodes.
+    pub fn query_all(&self, query: impl AsRef<str>) -> Result<Vec<&KdlNode>, KdlError> {
+        if let Some(children) = self.children() {
+            Ok(children.query_all(query)?)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Queries this Document's children according to the KQL query language,
+    /// returning the first match, if any.
+    pub fn query(&self, query: impl AsRef<str>) -> Result<Option<&KdlNode>, KdlError> {
+        if let Some(children) = self.children() {
+            Ok(children.query(query)?)
+        } else {
+            Ok(None)
+        }
     }
 }
 

@@ -146,4 +146,6 @@ mod identifier;
 mod node;
 mod nom_compat;
 mod parser;
+mod query;
+mod query_parser;
 mod value;

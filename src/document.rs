@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{parser, KdlError, KdlNode, KdlValue};
+use crate::{parser, query::KdlQuery, KdlError, KdlNode, KdlValue};
 
 /// Represents a KDL
 /// [`Document`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#document).
@@ -18,7 +18,7 @@ use crate::{parser, KdlError, KdlNode, KdlValue};
 /// # use kdl::KdlDocument;
 /// let kdl: KdlDocument = "foo 1 2 3\nbar 4 5 6".parse().expect("parse failed");
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct KdlDocument {
     pub(crate) leading: Option<String>,
     pub(crate) nodes: Vec<KdlNode>,
@@ -33,6 +33,15 @@ impl PartialEq for KdlDocument {
             && self.nodes == other.nodes
             && self.trailing == other.trailing
         // Intentionally omitted: self.span == other.span
+    }
+}
+
+impl std::hash::Hash for KdlDocument {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.leading.hash(state);
+        self.nodes.hash(state);
+        self.trailing.hash(state);
+        // Intentionally omitted: self.span.hash(state)
     }
 }
 
@@ -246,6 +255,20 @@ impl KdlDocument {
     /// Formats the document and removes all comments from the document.
     pub fn fmt_no_comments(&mut self) {
         self.fmt_impl(0, true);
+    }
+
+    /// Queries this Document's children according to the KQL query language,
+    /// returning all matching nodes.
+    pub fn query_all(&self, query: impl AsRef<str>) -> Result<Vec<&KdlNode>, KdlError> {
+        let parsed: KdlQuery = query.as_ref().parse()?;
+        Ok(parsed.run(self, false))
+    }
+
+    /// Queries this Document's children according to the KQL query language,
+    /// returning the first match, if any.
+    pub fn query(&self, query: impl AsRef<str>) -> Result<Option<&KdlNode>, KdlError> {
+        let parsed: KdlQuery = query.as_ref().parse()?;
+        Ok(parsed.run(self, true).first().copied())
     }
 }
 

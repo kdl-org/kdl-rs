@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 /// A specific [KDL Value](https://github.com/kdl-org/kdl/blob/main/SPEC.md#value).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum KdlValue {
     /// A [KDL Raw String](https://github.com/kdl-org/kdl/blob/main/SPEC.md#raw-string).
     RawString(String),
@@ -39,6 +39,27 @@ pub enum KdlValue {
 
     /// The [KDL Null Value](https://github.com/kdl-org/kdl/blob/main/SPEC.md#null).
     Null,
+}
+
+impl Eq for KdlValue {}
+
+// NOTE: I know, I know. This is terrible and I shouldn't do it, but it's
+// better than not being able to hash KdlValue at all.
+#[allow(clippy::derive_hash_xor_eq)]
+impl std::hash::Hash for KdlValue {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            KdlValue::RawString(val) => val.hash(state),
+            KdlValue::String(val) => val.hash(state),
+            KdlValue::Base2(val) => val.hash(state),
+            KdlValue::Base8(val) => val.hash(state),
+            KdlValue::Base10(val) => val.hash(state),
+            KdlValue::Base10Float(val) => format!("{}", val).hash(state),
+            KdlValue::Base16(val) => val.hash(state),
+            KdlValue::Bool(val) => val.hash(state),
+            KdlValue::Null => core::mem::discriminant(self).hash(state),
+        }
+    }
 }
 
 impl KdlValue {

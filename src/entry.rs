@@ -8,7 +8,7 @@ use crate::{parser, KdlError, KdlIdentifier, KdlValue};
 /// [`Argument`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#argument) or
 /// a (key/value)
 /// [`Property`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#property)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct KdlEntry {
     pub(crate) leading: Option<String>,
     pub(crate) ty: Option<KdlIdentifier>,
@@ -29,6 +29,18 @@ impl PartialEq for KdlEntry {
             && self.name == other.name
             && self.trailing == other.trailing
         // intentionally omitted: self.span == other.span
+    }
+}
+
+impl std::hash::Hash for KdlEntry {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.leading.hash(state);
+        self.ty.hash(state);
+        self.value.hash(state);
+        self.value_repr.hash(state);
+        self.name.hash(state);
+        self.trailing.hash(state);
+        // intentionally omitted: self.span.hash(state)
     }
 }
 

@@ -89,7 +89,7 @@ impl<'a> KdlParser<'a> {
     ///
     /// Note that substr must be a literal substring, as in it must be
     /// a pointer into the same string!
-    fn span_from_substr(&self, substr: &str) -> SourceSpan {
+    pub(crate) fn span_from_substr(&self, substr: &str) -> SourceSpan {
         let base_addr = self.full_input.as_ptr() as usize;
         let substr_addr = substr.as_ptr() as usize;
         assert!(
@@ -388,7 +388,7 @@ fn argument<'a: 'b, 'b>(
     }
 }
 
-fn value(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> {
+pub(crate) fn value(input: &str) -> IResult<&str, (String, KdlValue), KdlParseError<&str>> {
     alt((
         null,
         boolean,
@@ -416,7 +416,7 @@ fn children<'a: 'b, 'b>(
     }
 }
 
-fn annotation<'a: 'b, 'b>(
+pub(crate) fn annotation<'a: 'b, 'b>(
     kdl_parser: &'b KdlParser<'a>,
 ) -> impl Fn(&'a str) -> IResult<&'a str, KdlIdentifier, KdlParseError<&'a str>> + 'b {
     move |input| {
@@ -471,7 +471,7 @@ fn escline(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
     ))(input).map_err(|e| set_details(e, input, Some("line escape starts here"), Some("line escapes can only be followed by whitespace plus a newline (or single-line comment).")))
 }
 
-fn unicode_space(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
+pub(crate) fn unicode_space(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
     alt((
         tag(" "),
         tag("\t"),
