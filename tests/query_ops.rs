@@ -261,3 +261,43 @@ fn multiple_selectors() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn all_combined() -> Result<()> {
+    let doc: KdlDocument = r#"
+            foo {
+                bar {
+                    baz {
+                        foo {
+                            bar {
+                                bar
+                            }
+                        }
+                        bar
+                        baz
+                        quux
+                        other
+                    }
+                }
+            }
+            bar
+            baz
+            "#
+    .parse()?;
+
+    let results = doc.query_all("foo >> baz > foo + bar ++ other")?;
+
+    assert_eq!(
+        results,
+        vec![
+            &doc.nodes()[0].children().unwrap().nodes()[0]
+                .children()
+                .unwrap()
+                .nodes()[0]
+                .children()
+                .unwrap()
+                .nodes()[4]
+        ]
+    );
+    Ok(())
+}

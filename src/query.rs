@@ -124,6 +124,9 @@ pub(crate) enum KdlQueryMatcherAccessor {
 
 impl KdlQuery {
     pub(crate) fn run<'a>(&self, scopedoc: &'a KdlDocument, single: bool) -> Vec<&'a KdlNode> {
+        // TODO: Rewrite this so maybe it doesn't allocate, and/or move the
+        // stack part to live on the call stack instead of a VecDequeue?
+        // Either way, benchmark first :)
         let scope = KdlQuerySelectorSegment {
             op: None,
             matcher: KdlQueryMatcher(vec![KdlQueryMatcherDetails {
@@ -132,22 +135,23 @@ impl KdlQuery {
                 value: None,
             }]),
         };
-        let mut nodes = VecDeque::new();
-        let mut nodes_hash = HashSet::new();
+        let mut collected = VecDeque::new();
+        let mut seen = HashSet::new();
         let mut add_node = |node| {
-            if !nodes_hash.contains(node) {
-                nodes_hash.insert(node);
-                nodes.push_front(node);
+            if !seen.contains(node) {
+                seen.insert(node);
+                collected.push_front(node);
             }
         };
         let mut q = VecDeque::new();
         for selector in &self.0 {
-            // (selectors, current_doc, parent_doc, target_node)
+            // (selectors, current_doc, parent_doc, node_index)
             q.push_back((&selector.0[..], scopedoc, None, None));
         }
         while let Some((selector, doc, parent, node_idx)) = q.pop_back() {
-            // Check for scope() special case
+            // Check for scope() on its own.
             if selector.first() == Some(&scope) && selector.len() == 1 {
+                // `scope()` means "give me all the toplevel children" in KQL.
                 for node in doc.nodes().iter().rev() {
                     if single {
                         return vec![node];
@@ -155,9 +159,16 @@ impl KdlQuery {
                         add_node(node);
                     }
                 }
+            // Check for scope() as first selector.
             } else if selector.first() == Some(&scope) {
                 q.push_back((&selector[1..], scopedoc, None, None));
             } else if selector.is_empty() {
+                // If we got &[], then we're at the end of a matching
+                // selector. The intention is that we add the current node at
+                // node_idx to the collected bucket.
+                //
+                // The reason for this indirect way of adding things is so we
+                // return results in depth-first order.
                 if let Some(idx) = node_idx {
                     let val = &doc.nodes()[idx];
                     if single {
@@ -219,7 +230,7 @@ impl KdlQuery {
             }
         }
 
-        nodes.into_iter().collect()
+        collected.into_iter().collect()
     }
 }
 
