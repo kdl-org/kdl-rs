@@ -122,6 +122,16 @@ pub(crate) enum KdlQueryMatcherAccessor {
     Prop(String),
 }
 
+#[repr(transparent)]
+#[derive(Hash, Eq)]
+struct NodeWrapper<'a>(&'a KdlNode);
+
+impl PartialEq for NodeWrapper<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self.0, other.0)
+    }
+}
+
 impl KdlQuery {
     pub(crate) fn run<'a>(&self, scopedoc: &'a KdlDocument, single: bool) -> Vec<&'a KdlNode> {
         // TODO: Rewrite this so maybe it doesn't allocate, and/or move the
@@ -138,8 +148,13 @@ impl KdlQuery {
         let mut collected = VecDeque::new();
         let mut seen = HashSet::new();
         let mut add_node = |node| {
-            if !seen.contains(node) {
-                seen.insert(node);
+            // NOTE: We have to do a "pointer" comparison here, because we
+            // might get multiple nodes that look the same, even if they're in
+            // different parts of the tree. In those cases, we still want to
+            // add the apparent copies multiple times.
+            let wrapped = NodeWrapper(node);
+            if !seen.contains(&wrapped) {
+                seen.insert(wrapped);
                 collected.push_front(node);
             }
         };
