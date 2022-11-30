@@ -184,13 +184,19 @@ impl KdlNode {
         }
     }
 
-    /// Fetches an entry by key. Number keys will look up arguments, strings
-    /// will look up properties.
-    pub fn get(&self, key: impl Into<NodeKey>) -> Option<&KdlEntry> {
-        self.get_impl(key.into())
+    /// Gets a value by key. Number keys will look up arguments, strings will
+    /// look up properties.
+    pub fn get(&self, key: impl Into<NodeKey>) -> Option<&KdlValue> {
+        self.entry_impl(key.into()).map(|e| &e.value)
     }
 
-    fn get_impl(&self, key: NodeKey) -> Option<&KdlEntry> {
+    /// Fetches an entry by key. Number keys will look up arguments, strings
+    /// will look up properties.
+    pub fn entry(&self, key: impl Into<NodeKey>) -> Option<&KdlEntry> {
+        self.entry_impl(key.into())
+    }
+
+    fn entry_impl(&self, key: NodeKey) -> Option<&KdlEntry> {
         match key {
             NodeKey::Key(key) => {
                 let mut current = None;
@@ -221,13 +227,19 @@ impl KdlNode {
         }
     }
 
-    /// Fetches a mutable referene to an entry by key. Number keys will look
+    /// Fetches a mutable referene to an value by key. Number keys will look
     /// up arguments, strings will look up properties.
-    pub fn get_mut(&mut self, key: impl Into<NodeKey>) -> Option<&mut KdlEntry> {
-        self.get_mut_impl(key.into())
+    pub fn get_mut(&mut self, key: impl Into<NodeKey>) -> Option<&mut KdlValue> {
+        self.entry_mut_impl(key.into()).map(|e| &mut e.value)
     }
 
-    fn get_mut_impl(&mut self, key: NodeKey) -> Option<&mut KdlEntry> {
+    /// Fetches a mutable referene to an entry by key. Number keys will look
+    /// up arguments, strings will look up properties.
+    pub fn entry_mut(&mut self, key: impl Into<NodeKey>) -> Option<&mut KdlEntry> {
+        self.entry_mut_impl(key.into())
+    }
+
+    fn entry_mut_impl(&mut self, key: NodeKey) -> Option<&mut KdlEntry> {
         match key {
             NodeKey::Key(key) => {
                 let mut current = None;
@@ -280,7 +292,7 @@ impl KdlNode {
                 if entry.name.as_ref().map(|i| i.value()) != Some(key_val.value()) {
                     panic!("Property name mismatch");
                 }
-                if let Some(existing) = self.get_mut(key) {
+                if let Some(existing) = self.entry_mut(key) {
                     std::mem::swap(existing, &mut entry);
                     Some(entry)
                 } else {
@@ -292,7 +304,7 @@ impl KdlNode {
                 if entry.name.is_some() {
                     panic!("Cannot insert property with name under a numerical key");
                 }
-                if let Some(existing) = self.get_mut(key) {
+                if let Some(existing) = self.entry_mut(key) {
                     std::mem::swap(existing, &mut entry);
                     Some(entry)
                 } else {
@@ -441,15 +453,13 @@ impl Index<usize> for KdlNode {
     type Output = KdlValue;
 
     fn index(&self, index: usize) -> &Self::Output {
-        self.get(index).expect("Argument out of range.").value()
+        self.get(index).expect("Argument out of range.")
     }
 }
 
 impl IndexMut<usize> for KdlNode {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        self.get_mut(index)
-            .expect("Argument out of range.")
-            .value_mut()
+        self.get_mut(index).expect("Argument out of range.")
     }
 }
 
@@ -457,7 +467,7 @@ impl Index<&str> for KdlNode {
     type Output = KdlValue;
 
     fn index(&self, key: &str) -> &Self::Output {
-        self.get(key).expect("No such property.").value()
+        self.get(key).expect("No such property.")
     }
 }
 
@@ -466,9 +476,7 @@ impl IndexMut<&str> for KdlNode {
         if self.get(key).is_none() {
             self.push((key, KdlValue::Null));
         }
-        self.get_mut(key)
-            .expect("Something went wrong.")
-            .value_mut()
+        self.get_mut(key).expect("Something went wrong.")
     }
 }
 
@@ -594,7 +602,7 @@ mod test {
         assert_eq!(node.trailing(), Some(";\n"));
         assert_eq!(node.ty(), Some(&"\"ty\"".parse()?));
         assert_eq!(node.name(), &"\"node\"".parse()?);
-        assert_eq!(node.get(0), Some(&"0xDEADbeef".parse()?));
+        assert_eq!(node.entry(0), Some(&"0xDEADbeef".parse()?));
 
         r#"
         node "test" {

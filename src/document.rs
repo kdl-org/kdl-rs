@@ -107,9 +107,7 @@ impl KdlDocument {
     /// assert_eq!(doc.get_arg("foo"), Some(&1.into()));
     /// ```
     pub fn get_arg(&self, name: &str) -> Option<&KdlValue> {
-        self.get(name)
-            .and_then(|node| node.get(0))
-            .map(|e| e.value())
+        self.get(name).and_then(|node| node.get(0))
     }
 
     /// Gets the all node arguments (value) of the first child node with a
@@ -147,9 +145,7 @@ impl KdlDocument {
     /// child node with a matching name. This is a shorthand utility for cases
     /// where a document is being used as a key/value store.
     pub fn get_arg_mut(&mut self, name: &str) -> Option<&mut KdlValue> {
-        self.get_mut(name)
-            .and_then(|node| node.get_mut(0))
-            .map(|e| e.value_mut())
+        self.get_mut(name).and_then(|node| node.get_mut(0))
     }
 
     /// This utility makes it easy to interact with a KDL convention where
@@ -170,18 +166,16 @@ impl KdlDocument {
     /// ```rust
     /// # use kdl::{KdlDocument, KdlValue};
     /// # let doc: KdlDocument = "foo {\n - 1\n - 2\n - false\n}".parse().unwrap();
-    /// assert_eq!(doc.get_dash_vals("foo"), vec![&1.into(), &2.into(), &false.into()]);
+    /// assert_eq!(doc.get_dash_args("foo"), vec![&1.into(), &2.into(), &false.into()]);
     /// ```
-    pub fn get_dash_vals(&self, name: &str) -> Vec<&KdlValue> {
+    pub fn get_dash_args(&self, name: &str) -> Vec<&KdlValue> {
         self.get(name)
             .and_then(|n| n.children())
             .map(|doc| doc.nodes())
             .unwrap_or_default()
             .iter()
             .filter(|e| e.name().value() == "-")
-            .map(|e| e.get(0))
-            .filter(|v| v.is_some())
-            .map(|v| v.unwrap().value())
+            .filter_map(|e| e.get(0))
             .collect()
     }
 
@@ -386,7 +380,7 @@ final;";
         assert_eq!(doc.leading, Some("".into()));
         assert_eq!(doc.get_arg("foo"), Some(&1.into()));
         assert_eq!(
-            doc.get_dash_vals("foo"),
+            doc.get_dash_args("foo"),
             vec![&1.into(), &2.into(), &"three".into()]
         );
 
@@ -642,14 +636,14 @@ inline { time; to; live "our" "dreams"; "y;all"; }
         );
 
         // Some simple with/without type hints
-        check_span(r#"(a)"cool""#, is_node.get(0).unwrap().span(), &input);
+        check_span(r#"(a)"cool""#, is_node.entry(0).unwrap().span(), &input);
         check_span(
             r#"read=(int)5"#,
-            is_node.get("read").unwrap().span(),
+            is_node.entry("read").unwrap().span(),
             &input,
         );
-        check_span(r#"10.1"#, is_node.get(1).unwrap().span(), &input);
-        check_span(r#"(u32)0x45"#, is_node.get(2).unwrap().span(), &input);
+        check_span(r#"10.1"#, is_node.entry(1).unwrap().span(), &input);
+        check_span(r#"(u32)0x45"#, is_node.entry(2).unwrap().span(), &input);
 
         // Now let's look at some messed up parts of that "and" node
         let and_node = doc
@@ -684,7 +678,7 @@ inline { time; to; live "our" "dreams"; "y;all"; }
         );
 
         // Oh hey don't forget to check that "x" entry
-        check_span(r#"x="""#, and_node.get("x").unwrap().span(), &input);
+        check_span(r#"x="""#, and_node.entry("x").unwrap().span(), &input);
 
         // Now the "it" node, more straightforward
         let it_node = and_node.children().unwrap().get("it").unwrap();
@@ -693,10 +687,14 @@ inline { time; to; live "our" "dreams"; "y;all"; }
             it_node.span(),
             &input,
         );
-        check_span(r#""has"="💯""#, it_node.get("has").unwrap().span(), &input);
+        check_span(
+            r#""has"="💯""#,
+            it_node.entry("has").unwrap().span(),
+            &input,
+        );
         check_span(
             r####"r##"the"##"####,
-            it_node.get(0).unwrap().span(),
+            it_node.entry(0).unwrap().span(),
             &input,
         );
 
