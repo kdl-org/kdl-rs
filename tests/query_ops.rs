@@ -177,93 +177,68 @@ fn node_children() -> Result<()> {
 }
 
 #[test]
-fn prop_matcher() -> Result<()> {
+fn node_neighbor() -> Result<()> {
     let doc: KdlDocument = r#"
             foo {
-                bar p=1
+                bar
                 baz
             }
-            bar p=1
-            baz p=2 {
-                foo {
-                    bar p=1 {
-                        bar p=2
-                    }
-                }
-            }
+            bar
+            baz
             "#
     .parse()?;
 
-    let results = doc.query_all("[p = 2]")?;
+    let results = doc.query_all("foo + bar")?;
 
-    assert_eq!(
-        results,
-        vec![
-            &doc.nodes()[2],
-            &doc.nodes()[2].children().unwrap().nodes()[0]
-                .children()
-                .unwrap()
-                .nodes()[0]
-                .children()
-                .unwrap()
-                .nodes()[0]
-        ]
-    );
+    assert_eq!(results, vec![&doc.nodes()[1]]);
 
-    let results = doc.query_all("[p = 1]")?;
+    let results = doc.query_all("foo + bar + baz")?;
 
-    assert_eq!(
-        results,
-        vec![
-            &doc.nodes()[0].children().unwrap().nodes()[0],
-            &doc.nodes()[1],
-            &doc.nodes()[2].children().unwrap().nodes()[0]
-                .children()
-                .unwrap()
-                .nodes()[0]
-        ]
-    );
-
-    assert_eq!(doc.query_all("[prop(p) = 1]")?, results);
-
-    let results = doc.query_all("[p]")?;
-
-    assert_eq!(
-        results,
-        vec![
-            &doc.nodes()[0].children().unwrap().nodes()[0],
-            &doc.nodes()[1],
-            &doc.nodes()[2],
-            &doc.nodes()[2].children().unwrap().nodes()[0]
-                .children()
-                .unwrap()
-                .nodes()[0],
-            &doc.nodes()[2].children().unwrap().nodes()[0]
-                .children()
-                .unwrap()
-                .nodes()[0]
-                .children()
-                .unwrap()
-                .nodes()[0]
-        ]
-    );
-
-    assert_eq!(doc.query_all("[prop(p)]")?, results);
+    assert_eq!(results, vec![&doc.nodes()[2]]);
 
     Ok(())
 }
 
 #[test]
-fn empty_arg_matcher() -> Result<()> {
+fn node_sibling() -> Result<()> {
     let doc: KdlDocument = r#"
             foo {
-                bar 1
+                bar
                 baz
             }
-            bar 2
+            bar
+            baz
+            quux
+            other
+            "#
+    .parse()?;
+
+    let results = doc.query_all("foo ++ bar")?;
+
+    assert_eq!(results, vec![&doc.nodes()[1]]);
+
+    let results = doc.query_all("foo ++ baz")?;
+
+    assert_eq!(results, vec![&doc.nodes()[2]]);
+
+    let results = doc.query_all("foo ++ bar ++ other")?;
+
+    assert_eq!(results, vec![&doc.nodes()[4]]);
+
+    Ok(())
+}
+
+#[test]
+fn multiple_selectors() -> Result<()> {
+    let doc: KdlDocument = r#"
+            foo {
+                bar
+                baz
+            }
+            bar
             baz {
                 foo {
-                    bar 1 {
+                    bar {
                         bar
                     }
                 }
@@ -271,80 +246,17 @@ fn empty_arg_matcher() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("[arg() = 1]")?;
+    let results = doc.query_all("foo, baz")?;
 
     assert_eq!(
         results,
         vec![
-            &doc.nodes()[0].children().unwrap().nodes()[0],
-            &doc.nodes()[2].children().unwrap().nodes()[0]
-                .children()
-                .unwrap()
-                .nodes()[0]
-        ]
-    );
-
-    let results = doc.query_all("[arg()]")?;
-
-    assert_eq!(
-        results,
-        vec![
-            &doc.nodes()[0].children().unwrap().nodes()[0],
-            &doc.nodes()[1],
-            &doc.nodes()[2].children().unwrap().nodes()[0]
-                .children()
-                .unwrap()
-                .nodes()[0]
-        ]
-    );
-
-    Ok(())
-}
-
-#[test]
-fn indexed_arg_matcher() -> Result<()> {
-    let doc: KdlDocument = r#"
-            foo {
-                bar 1 2
-                baz
-            }
-            bar 2 1
-            baz {
-                foo {
-                    bar 1 2 {
-                        bar 1 3 2
-                    }
-                }
-            }
-            "#
-    .parse()?;
-
-    let results = doc.query_all("[arg(1) = 2]")?;
-
-    assert_eq!(
-        results,
-        vec![
-            &doc.nodes()[0].children().unwrap().nodes()[0],
-            &doc.nodes()[2].children().unwrap().nodes()[0]
-                .children()
-                .unwrap()
-                .nodes()[0]
-        ]
-    );
-
-    let results = doc.query_all("[arg(2) = 2]")?;
-
-    assert_eq!(
-        results,
-        vec![
-            &doc.nodes()[2].children().unwrap().nodes()[0]
-                .children()
-                .unwrap()
-                .nodes()[0]
-                .children()
-                .unwrap()
-                .nodes()[0]
-        ]
+            &doc.nodes()[0],
+            &doc.nodes()[2].children().unwrap().nodes()[0],
+            &doc.nodes()[0].children().unwrap().nodes()[1],
+            &doc.nodes()[2]
+        ],
+        "First match all the `foo`s, then all the `baz`s."
     );
 
     Ok(())

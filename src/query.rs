@@ -145,7 +145,7 @@ impl KdlQuery {
             // (selectors, current_doc, parent_doc, target_node)
             q.push_back((&selector.0[..], scopedoc, None, None));
         }
-        while let Some((selector, doc, _parent, node_idx)) = q.pop_back() {
+        while let Some((selector, doc, parent, node_idx)) = q.pop_back() {
             // Check for scope() special case
             if selector.first() == Some(&scope) && selector.len() == 1 {
                 for node in doc.nodes().iter().rev() {
@@ -191,7 +191,29 @@ impl KdlQuery {
                         }
                     }
                     Some(Neighbor) | Some(Sibling) => {
-                        todo!()
+                        if let Some(node_idx) = node_idx {
+                            if let Some(parent) = parent {
+                                for (idx, neighbor) in
+                                    parent.nodes().iter().enumerate().skip(node_idx + 1)
+                                {
+                                    if segment.matcher.matches(neighbor) {
+                                        if is_last {
+                                            q.push_back((&selector[1..], parent, None, Some(idx)));
+                                        } else {
+                                            q.push_back((
+                                                &selector[1..],
+                                                parent,
+                                                Some(parent),
+                                                Some(idx),
+                                            ));
+                                        }
+                                    }
+                                    if segment.op == Some(Neighbor) {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
