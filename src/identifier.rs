@@ -46,14 +46,8 @@ impl KdlIdentifier {
     /// but may become invalidated if the document is mutated. We do not currently
     /// guarantee this to yield any particularly consistent results at that point.
     #[cfg(feature = "span")]
-    pub fn span(&self) -> &SourceSpan {
-        &self.span
-    }
-
-    /// Gets a mutable reference to this identifier's span.
-    #[cfg(feature = "span")]
-    pub fn span_mut(&mut self) -> &mut SourceSpan {
-        &mut self.span
+    pub fn span(&self) -> SourceSpan {
+        self.span
     }
 
     /// Sets this identifier's span.
