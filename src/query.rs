@@ -18,14 +18,7 @@ impl FromStr for KdlQuery {
 pub(crate) struct KdlQuerySelector(pub(crate) Vec<KdlQuerySelectorSegment>);
 
 impl KdlQuerySelector {
-    fn matches(&self, crumb: Arc<Breadcrumb<'_>>, scope: &KdlDocument) -> bool {
-        let scoped = self.0.first().map(|s| s.is_scope()).unwrap_or(false);
-
-        if self.0.len() == 1 && scoped {
-            // `scope()` matches if our node's immediate parent is the scope.
-            return std::ptr::eq(scope, crumb.parent_doc);
-        }
-
+    fn matches(&self, crumb: Arc<Breadcrumb<'_>>, scope: Option<&KdlNode>) -> bool {
         if self.0.is_empty() {
             // I don't think this is possible, but just in case.
             return false;
@@ -36,14 +29,20 @@ impl KdlQuerySelector {
             .next()
             .expect("This should've had at least one item.");
 
+        if end.is_scope() {
+            if let Some(scope) = &scope {
+                if crumb.node == *scope {
+                    return true;
+                }
+            } else if crumb.next.is_none() && scope.is_none() {
+                return true;
+            }
+        }
+
         if !end.matcher.matches(crumb.node) {
             // If the final segment doesn't even match the node, don't bother
             // looking any further.
             return false;
-        } else if end.is_scope() && std::ptr::eq(scope, crumb.parent_doc) {
-            // If the final segment is `scope()`, we're already at the top,
-            // just see if this node's direct parent is the scope.
-            return true;
         }
 
         let mut node = crumb.node;
@@ -51,6 +50,15 @@ impl KdlQuerySelector {
         let mut parent_doc = crumb.parent_doc;
         'segments: for segment in segments {
             use KdlSegmentCombinator::*;
+            if segment.is_scope() {
+                if let Some(scope) = &scope {
+                    if node == *scope {
+                        return true;
+                    }
+                } else if next.is_none() && scope.is_none() {
+                    return true;
+                }
+            }
             match segment.op.as_ref().expect("This should've had an op.") {
                 Child | Descendant => {
                     while let Some(crumb) = next.clone() {
@@ -71,29 +79,36 @@ impl KdlQuerySelector {
                         parent_doc = crumb.parent_doc;
                     }
 
-                    if segment.is_scope() && std::ptr::eq(scope, parent_doc) {
-                        return true;
+                    if next.is_none() && segment.is_scope() {
+                        if let Some(scope) = &scope {
+                            if node == *scope {
+                                return true;
+                            }
+                        } else if scope.is_none() {
+                            return true;
+                        }
                     }
 
                     return false;
                 }
                 Neighbor | Sibling => {
-                    for n in parent_doc
-                        .nodes()
-                        .iter()
-                        .rev()
-                        .skip_while(|n| !std::ptr::eq(*n, node))
-                        .skip(1)
-                    {
-                        if segment.matcher.matches(n) {
-                            node = n;
-                            continue 'segments;
-                        }
-                        if segment.op == Some(Neighbor) {
-                            break;
+                    if let Some(parent) = &parent_doc {
+                        for n in parent
+                            .nodes()
+                            .iter()
+                            .rev()
+                            .skip_while(|n| !std::ptr::eq(*n, node))
+                            .skip(1)
+                        {
+                            if segment.matcher.matches(n) {
+                                node = n;
+                                continue 'segments;
+                            }
+                            if segment.op == Some(Neighbor) {
+                                break;
+                            }
                         }
                     }
-
                     return false;
                 }
             }
@@ -222,26 +237,36 @@ pub(crate) enum KdlQueryMatcherAccessor {
 #[derive(Debug, Clone)]
 struct Breadcrumb<'a> {
     node: &'a KdlNode,
-    parent_doc: &'a KdlDocument,
+    parent_doc: Option<&'a KdlDocument>,
     next: Option<Arc<Breadcrumb<'a>>>,
 }
 
 /// Iterator for results of a KDL query over a [`KdlDocument`].
 #[derive(Debug, Clone)]
 pub struct KdlQueryIterator<'a> {
-    scope: Option<&'a KdlDocument>,
+    scope: Option<&'a KdlNode>,
     query: KdlQuery,
     q: VecDeque<Arc<Breadcrumb<'a>>>,
 }
 
 impl<'a> KdlQueryIterator<'a> {
-    pub(crate) fn new(scope: Option<&'a KdlDocument>, query: KdlQuery) -> Self {
+    pub(crate) fn new(
+        scope: Option<&'a KdlNode>,
+        ctx_doc: Option<&'a KdlDocument>,
+        query: KdlQuery,
+    ) -> Self {
         let mut q = VecDeque::new();
         if let Some(scope) = scope {
-            for node in scope.nodes() {
+            q.push_back(Arc::new(Breadcrumb {
+                node: scope,
+                parent_doc: None,
+                next: None,
+            }));
+        } else if let Some(doc) = ctx_doc {
+            for node in doc.nodes() {
                 q.push_front(Arc::new(Breadcrumb {
                     node,
-                    parent_doc: scope,
+                    parent_doc: Some(doc),
                     next: None,
                 }));
             }
@@ -254,20 +279,18 @@ impl<'a> Iterator for KdlQueryIterator<'a> {
     type Item = &'a KdlNode;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let scope = self.scope?;
-
         while let Some(crumb) = self.q.pop_back() {
             if let Some(children) = crumb.node.children() {
                 for node in children.nodes().iter().rev() {
                     self.q.push_back(Arc::new(Breadcrumb {
                         node,
-                        parent_doc: children,
+                        parent_doc: Some(children),
                         next: Some(crumb.clone()),
                     }));
                 }
             }
             for selector in &self.query.0 {
-                if selector.matches(crumb.clone(), scope) {
+                if selector.matches(crumb.clone(), self.scope) {
                     return Some(crumb.node);
                 }
             }

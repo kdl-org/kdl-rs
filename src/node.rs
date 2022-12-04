@@ -438,7 +438,7 @@ impl KdlNode {
     /// returning an iterator over all matching nodes.
     pub fn query_all(&self, query: impl AsRef<str>) -> Result<KdlQueryIterator<'_>, KdlError> {
         let q = query.as_ref().parse()?;
-        Ok(KdlQueryIterator::new(self.children(), q))
+        Ok(KdlQueryIterator::new(Some(self), None, q))
     }
 
     /// Queries this Document's children according to the KQL query language,

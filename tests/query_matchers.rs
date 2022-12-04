@@ -14,9 +14,16 @@ fn scope_alone() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("scope()")?.collect::<Vec<&KdlNode>>();
+    // let results = doc.query_all("scope()")?.collect::<Vec<&KdlNode>>();
 
-    assert_eq!(&results, &doc.nodes().iter().collect::<Vec<&KdlNode>>()[..]);
+    // assert_eq!(results, Vec::<&KdlNode>::new());
+
+    let results = doc.nodes()[0]
+        .query_all("scope()")?
+        .collect::<Vec<&KdlNode>>();
+
+    assert_eq!(results, vec![&doc.nodes()[0]]);
+
     Ok(())
 }
 
