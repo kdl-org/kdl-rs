@@ -129,13 +129,23 @@ fn node_matchers<'a: 'b, 'b>(
             }
         }
 
-        let (input, tag) = opt(crate::parser::annotation(&kdl_parser.0))(input)?;
-        if let Some(tag) = tag {
+        let (mut input, typed) = opt(delimited(tag("("), whitespace, tag(")")))(input)?;
+        if typed.is_some() {
             matchers.push(KdlQueryMatcherDetails {
                 op: KdlQueryAttributeOp::Equal,
-                value: Some(KdlValue::String(tag.value().to_owned())),
-                accessor: KdlQueryMatcherAccessor::Tag,
+                value: None,
+                accessor: KdlQueryMatcherAccessor::Annotation,
             });
+        } else {
+            let (inp, ty) = opt(crate::parser::annotation(&kdl_parser.0))(input)?;
+            input = inp;
+            if let Some(tag) = ty {
+                matchers.push(KdlQueryMatcherDetails {
+                    op: KdlQueryAttributeOp::Equal,
+                    value: Some(KdlValue::String(tag.value().to_owned())),
+                    accessor: KdlQueryMatcherAccessor::Annotation,
+                });
+            }
         }
 
         let (input, node) = opt(crate::parser::identifier(&kdl_parser.0))(input)?;
@@ -272,7 +282,7 @@ fn accessor<'a: 'b, 'b>(
 ) -> impl Fn(&'a str) -> IResult<&'a str, KdlQueryMatcherAccessor, KdlParseError<&'a str>> + 'b {
     move |input| {
         let (input, accessor) = alt((
-            map(tag("tag()"), |_| KdlQueryMatcherAccessor::Tag),
+            map(tag("type()"), |_| KdlQueryMatcherAccessor::Annotation),
             arg_accessor,
             prop_accessor(kdl_parser),
             prop_name_accessor(kdl_parser),

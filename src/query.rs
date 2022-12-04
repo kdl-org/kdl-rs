@@ -161,9 +161,9 @@ impl KdlQueryMatcherDetails {
 
         match (&self.accessor, &self.op, &self.value) {
             (Scope, _, _) => false,
-            (Tag | Node, op, Some(KdlValue::String(s) | KdlValue::RawString(s))) => {
+            (Annotation | Node, op, Some(KdlValue::String(s) | KdlValue::RawString(s))) => {
                 let lhs = match &self.accessor {
-                    Tag => node.ty().map(|ty| ty.value()),
+                    Annotation => node.ty().map(|ty| ty.value()),
                     Node => Some(node.name().value()),
                     _ => unreachable!(),
                 };
@@ -180,9 +180,11 @@ impl KdlQueryMatcherDetails {
                     Contains => lhs.map(|lhs| lhs.contains(s)).unwrap_or(false),
                 }
             }
-            (Tag | Node, _op, Some(_)) => false,
-            // I don't think this ever actually happens, but it should be just fine like this.
-            (Tag | Node, _, None) => true,
+            (Annotation | Node, _op, Some(_)) => false,
+            // This is `()blah`.
+            (Annotation, _, None) => node.ty().is_some(),
+            // This is `[]`.
+            (Node, _, None) => true,
             (Arg(_) | Prop(_), op, val @ Some(_)) => {
                 let val = val.as_ref();
                 let lhs = match &self.accessor {
@@ -230,7 +232,7 @@ pub(crate) enum KdlQueryAttributeOp {
 pub(crate) enum KdlQueryMatcherAccessor {
     Scope,
     Node,
-    Tag,
+    Annotation,
     Arg(Option<usize>),
     Prop(String),
 }

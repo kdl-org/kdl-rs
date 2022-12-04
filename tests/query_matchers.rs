@@ -238,3 +238,77 @@ fn indexed_arg_matcher() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn type_annotation_matcher() -> Result<()> {
+    let doc: KdlDocument = r#"
+            foo {
+                (here)bar
+                baz
+            }
+            bar
+            baz {
+                (here)foo {
+                    bar {
+                        (here)bar
+                    }
+                }
+            }
+            "#
+    .parse()?;
+
+    let results = doc.query_all("(here)")?.collect::<Vec<&KdlNode>>();
+
+    assert_eq!(
+        results,
+        vec![
+            &doc.nodes()[0].children().unwrap().nodes()[0],
+            &doc.nodes()[2].children().unwrap().nodes()[0],
+            &doc.nodes()[2].children().unwrap().nodes()[0]
+                .children()
+                .unwrap()
+                .nodes()[0]
+                .children()
+                .unwrap()
+                .nodes()[0]
+        ]
+    );
+
+    let results = doc
+        .query_all("[type() = \"here\"]")?
+        .collect::<Vec<&KdlNode>>();
+
+    assert_eq!(
+        results,
+        vec![
+            &doc.nodes()[0].children().unwrap().nodes()[0],
+            &doc.nodes()[2].children().unwrap().nodes()[0],
+            &doc.nodes()[2].children().unwrap().nodes()[0]
+                .children()
+                .unwrap()
+                .nodes()[0]
+                .children()
+                .unwrap()
+                .nodes()[0]
+        ]
+    );
+
+    let results = doc.query_all("()")?.collect::<Vec<&KdlNode>>();
+
+    assert_eq!(
+        results,
+        vec![
+            &doc.nodes()[0].children().unwrap().nodes()[0],
+            &doc.nodes()[2].children().unwrap().nodes()[0],
+            &doc.nodes()[2].children().unwrap().nodes()[0]
+                .children()
+                .unwrap()
+                .nodes()[0]
+                .children()
+                .unwrap()
+                .nodes()[0]
+        ]
+    );
+
+    Ok(())
+}
