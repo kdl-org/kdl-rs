@@ -14,7 +14,7 @@ fn scope_alone() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("scope()")?;
+    let results = doc.query_all("scope()")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(&results, &doc.nodes().iter().collect::<Vec<&KdlNode>>()[..]);
     Ok(())
@@ -46,7 +46,7 @@ fn any_descendants() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("bar")?;
+    let results = doc.query_all("bar")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(results, vec![&doc.nodes()[1]]);
     Ok(())
@@ -70,7 +70,7 @@ fn prop_matcher() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("[p = 2]")?;
+    let results = doc.query_all("[p = 2]")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(
         results,
@@ -86,7 +86,7 @@ fn prop_matcher() -> Result<()> {
         ]
     );
 
-    let results = doc.query_all("[p = 1]")?;
+    let results = doc.query_all("[p = 1]")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(
         results,
@@ -100,9 +100,12 @@ fn prop_matcher() -> Result<()> {
         ]
     );
 
-    assert_eq!(doc.query_all("[prop(p) = 1]")?, results);
+    assert_eq!(
+        doc.query_all("[prop(p) = 1]")?.collect::<Vec<&KdlNode>>(),
+        results
+    );
 
-    let results = doc.query_all("[p]")?;
+    let results = doc.query_all("[p]")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(
         results,
@@ -124,7 +127,10 @@ fn prop_matcher() -> Result<()> {
         ]
     );
 
-    assert_eq!(doc.query_all("[prop(p)]")?, results);
+    assert_eq!(
+        doc.query_all("[prop(p)]")?.collect::<Vec<&KdlNode>>(),
+        results
+    );
 
     Ok(())
 }
@@ -147,7 +153,7 @@ fn empty_arg_matcher() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("[arg() = 1]")?;
+    let results = doc.query_all("[arg() = 1]")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(
         results,
@@ -160,7 +166,7 @@ fn empty_arg_matcher() -> Result<()> {
         ]
     );
 
-    let results = doc.query_all("[arg()]")?;
+    let results = doc.query_all("[arg()]")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(
         results,
@@ -195,7 +201,7 @@ fn indexed_arg_matcher() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("[arg(1) = 2]")?;
+    let results = doc.query_all("[arg(1) = 2]")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(
         results,
@@ -208,7 +214,7 @@ fn indexed_arg_matcher() -> Result<()> {
         ]
     );
 
-    let results = doc.query_all("[arg(2) = 2]")?;
+    let results = doc.query_all("[arg(2) = 2]")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(
         results,

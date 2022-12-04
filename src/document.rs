@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{parser, query::KdlQuery, KdlError, KdlNode, KdlValue};
+use crate::{parser, query::KdlQuery, KdlError, KdlNode, KdlQueryIterator, KdlValue};
 
 /// Represents a KDL
 /// [`Document`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#document).
@@ -258,17 +258,17 @@ impl KdlDocument {
     }
 
     /// Queries this Document's children according to the KQL query language,
-    /// returning all matching nodes.
-    pub fn query_all(&self, query: impl AsRef<str>) -> Result<Vec<&KdlNode>, KdlError> {
+    /// returning an iterator over all matching nodes.
+    pub fn query_all(&self, query: impl AsRef<str>) -> Result<KdlQueryIterator<'_>, KdlError> {
         let parsed: KdlQuery = query.as_ref().parse()?;
-        Ok(parsed.run(self, false))
+        Ok(KdlQueryIterator::new(Some(self), parsed))
     }
 
     /// Queries this Document's children according to the KQL query language,
     /// returning the first match, if any.
     pub fn query(&self, query: impl AsRef<str>) -> Result<Option<&KdlNode>, KdlError> {
-        let parsed: KdlQuery = query.as_ref().parse()?;
-        Ok(parsed.run(self, true).first().copied())
+        let mut iter = self.query_all(query)?;
+        Ok(iter.next())
     }
 }
 

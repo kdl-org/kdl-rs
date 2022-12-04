@@ -136,6 +136,7 @@ pub use entry::*;
 pub use error::*;
 pub use identifier::*;
 pub use node::*;
+pub use query::*;
 pub use value::*;
 
 mod document;

@@ -7,7 +7,7 @@ use std::{
 #[cfg(feature = "span")]
 use miette::SourceSpan;
 
-use crate::{parser, KdlDocument, KdlEntry, KdlError, KdlIdentifier, KdlValue};
+use crate::{parser, KdlDocument, KdlEntry, KdlError, KdlIdentifier, KdlQueryIterator, KdlValue};
 
 /// Represents an individual KDL
 /// [`Node`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#node) inside a
@@ -435,23 +435,16 @@ impl KdlNode {
     }
 
     /// Queries this Node's children according to the KQL query language,
-    /// returning all matching nodes.
-    pub fn query_all(&self, query: impl AsRef<str>) -> Result<Vec<&KdlNode>, KdlError> {
-        if let Some(children) = self.children() {
-            Ok(children.query_all(query)?)
-        } else {
-            Ok(Vec::new())
-        }
+    /// returning an iterator over all matching nodes.
+    pub fn query_all(&self, query: impl AsRef<str>) -> Result<KdlQueryIterator<'_>, KdlError> {
+        let q = query.as_ref().parse()?;
+        Ok(KdlQueryIterator::new(self.children(), q))
     }
 
     /// Queries this Document's children according to the KQL query language,
     /// returning the first match, if any.
     pub fn query(&self, query: impl AsRef<str>) -> Result<Option<&KdlNode>, KdlError> {
-        if let Some(children) = self.children() {
-            Ok(children.query(query)?)
-        } else {
-            Ok(None)
-        }
+        Ok(self.query_all(query)?.next())
     }
 }
 

@@ -62,28 +62,28 @@ fn query_selector<'a: 'b, 'b>(
 ) -> impl Fn(&'a str) -> IResult<&'a str, KdlQuerySelector, KdlParseError<&'a str>> + 'b {
     move |input| {
         let mut segments = Vec::new();
-        let (input, matchers) = node_matchers(kdl_parser, true)(input)?;
-        segments.push(KdlQuerySelectorSegment {
-            op: None,
-            matcher: KdlQueryMatcher(matchers),
-        });
+        let mut is_scope = true;
         let mut input = input;
         loop {
             let (inp, _) = whitespace(input)?;
             input = inp;
-            let (inp, comb) = opt(segment_combinator)(input)?;
+            let (inp, matchers) = node_matchers(kdl_parser, is_scope)(input)?;
             input = inp;
-            if let Some(comb) = comb {
-                let (inp, matchers) = node_matchers(kdl_parser, false)(input)?;
-                input = inp;
-                segments.push(KdlQuerySelectorSegment {
-                    op: Some(comb),
-                    matcher: KdlQueryMatcher(matchers),
-                });
-            } else {
+            let (inp, _) = whitespace(input)?;
+            input = inp;
+            let (inp, op) = opt(segment_combinator)(input)?;
+            input = inp;
+            let is_last = op.is_none();
+            segments.push(KdlQuerySelectorSegment {
+                op,
+                matcher: KdlQueryMatcher(matchers),
+            });
+            if is_last {
                 break;
             }
+            is_scope = false;
         }
+        let (input, _) = whitespace(input)?;
         Ok((input, KdlQuerySelector(segments)))
     }
 }

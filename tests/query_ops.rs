@@ -14,9 +14,9 @@ fn scope_with_all_children() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("scope() > []")?;
+    let results = doc.query_all("scope() > []")?.collect::<Vec<&KdlNode>>();
 
-    assert_eq!(&results, &doc.nodes().iter().collect::<Vec<&KdlNode>>()[..]);
+    assert_eq!(&results, &doc.nodes().iter().collect::<Vec<&KdlNode>>());
     Ok(())
 }
 
@@ -32,7 +32,7 @@ fn scope_child_by_name() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("scope() > bar")?;
+    let results = doc.query_all("scope() > bar")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(results, vec![&doc.nodes()[1]]);
     Ok(())
@@ -50,7 +50,7 @@ fn scope_descendants() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("scope() >> bar")?;
+    let results = doc.query_all("scope() >> bar")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(
         results,
@@ -91,7 +91,7 @@ fn any_descendants() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("bar")?;
+    let results = doc.query_all("bar")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(
         results,
@@ -121,7 +121,7 @@ fn node_descendants() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("foo >> bar")?;
+    let results = doc.query_all("foo >> bar")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(
         results,
@@ -161,7 +161,7 @@ fn node_children() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("foo > bar")?;
+    let results = doc.query_all("foo > bar")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(
         results,
@@ -188,11 +188,11 @@ fn node_neighbor() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("foo + bar")?;
+    let results = doc.query_all("foo + bar")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(results, vec![&doc.nodes()[1]]);
 
-    let results = doc.query_all("foo + bar + baz")?;
+    let results = doc.query_all("foo + bar + baz")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(results, vec![&doc.nodes()[2]]);
 
@@ -213,15 +213,17 @@ fn node_sibling() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("foo ++ bar")?;
+    let results = doc.query_all("foo ++ bar")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(results, vec![&doc.nodes()[1]]);
 
-    let results = doc.query_all("foo ++ baz")?;
+    let results = doc.query_all("foo ++ baz")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(results, vec![&doc.nodes()[2]]);
 
-    let results = doc.query_all("foo ++ bar ++ other")?;
+    let results = doc
+        .query_all("foo ++ bar ++ other")?
+        .collect::<Vec<&KdlNode>>();
 
     assert_eq!(results, vec![&doc.nodes()[4]]);
 
@@ -246,15 +248,15 @@ fn multiple_selectors() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("foo, baz")?;
+    let results = doc.query_all("foo, baz")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(
         results,
         vec![
             &doc.nodes()[0],
-            &doc.nodes()[2].children().unwrap().nodes()[0],
             &doc.nodes()[0].children().unwrap().nodes()[1],
-            &doc.nodes()[2]
+            &doc.nodes()[2],
+            &doc.nodes()[2].children().unwrap().nodes()[0]
         ],
         "First match all the `foo`s, then all the `baz`s."
     );
@@ -285,7 +287,9 @@ fn all_combined() -> Result<()> {
             "#
     .parse()?;
 
-    let results = doc.query_all("foo >> baz > foo + bar ++ other")?;
+    let results = doc
+        .query_all("foo >> baz > foo + bar ++ other")?
+        .collect::<Vec<&KdlNode>>();
 
     assert_eq!(
         results,
