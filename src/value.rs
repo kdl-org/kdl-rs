@@ -54,7 +54,7 @@ impl std::hash::Hash for KdlValue {
             KdlValue::Base2(val) => val.hash(state),
             KdlValue::Base8(val) => val.hash(state),
             KdlValue::Base10(val) => val.hash(state),
-            KdlValue::Base10Float(val) => format!("{}", val).hash(state),
+            KdlValue::Base10Float(_) => format!("{}", self).hash(state),
             KdlValue::Base16(val) => val.hash(state),
             KdlValue::Bool(val) => val.hash(state),
             KdlValue::Null => core::mem::discriminant(self).hash(state),
