@@ -35,7 +35,7 @@ impl KdlQuerySelector {
                     return true;
                 }
             } else if crumb.next.is_none() && scope.is_none() {
-                return true;
+                return false;
             }
         }
 
@@ -50,15 +50,6 @@ impl KdlQuerySelector {
         let mut parent_doc = crumb.parent_doc;
         'segments: for segment in segments {
             use KdlSegmentCombinator::*;
-            if segment.is_scope() {
-                if let Some(scope) = &scope {
-                    if node == *scope {
-                        return true;
-                    }
-                } else if next.is_none() && scope.is_none() {
-                    return true;
-                }
-            }
             match segment.op.as_ref().expect("This should've had an op.") {
                 Child | Descendant => {
                     while let Some(crumb) = next.clone() {
