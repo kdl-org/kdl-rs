@@ -54,7 +54,21 @@ impl std::hash::Hash for KdlValue {
             KdlValue::Base2(val) => val.hash(state),
             KdlValue::Base8(val) => val.hash(state),
             KdlValue::Base10(val) => val.hash(state),
-            KdlValue::Base10Float(_) => format!("{}", self).hash(state),
+            KdlValue::Base10Float(val) => {
+                let val = if val == &f64::INFINITY {
+                    f64::MAX
+                } else if val == &f64::NEG_INFINITY {
+                    -f64::MAX
+                } else if val.is_nan() {
+                    // We collapse NaN to 0.0 because we're evil like that.
+                    0.0
+                } else {
+                    *val
+                };
+                // Good enough to be close-ish for our purposes.
+                (val.trunc() as i64).hash(state);
+                (val.fract() as i64).hash(state);
+            }
             KdlValue::Base16(val) => val.hash(state),
             KdlValue::Bool(val) => val.hash(state),
             KdlValue::Null => core::mem::discriminant(self).hash(state),
