@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{parser, query::KdlQuery, KdlError, KdlNode, KdlQueryIterator, KdlValue};
+use crate::{parser, IntoKdlQuery, KdlError, KdlNode, KdlQueryIterator, KdlValue, NodeKey};
 
 /// Represents a KDL
 /// [`Document`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#document).
@@ -259,16 +259,45 @@ impl KdlDocument {
 
     /// Queries this Document's children according to the KQL query language,
     /// returning an iterator over all matching nodes.
-    pub fn query_all(&self, query: impl AsRef<str>) -> Result<KdlQueryIterator<'_>, KdlError> {
-        let parsed: KdlQuery = query.as_ref().parse()?;
+    ///
+    /// # NOTE
+    ///
+    /// Any query selectors that try to select the toplevel `scope()` will
+    /// fail to match when using this method, since there's no [`KdlNode`] to
+    /// return in this case.
+    pub fn query_all(&self, query: impl IntoKdlQuery) -> Result<KdlQueryIterator<'_>, KdlError> {
+        let parsed = query.into_query()?;
         Ok(KdlQueryIterator::new(None, Some(self), parsed))
     }
 
     /// Queries this Document's children according to the KQL query language,
     /// returning the first match, if any.
-    pub fn query(&self, query: impl AsRef<str>) -> Result<Option<&KdlNode>, KdlError> {
+    ///
+    /// # NOTE
+    ///
+    /// Any query selectors that try to select the toplevel `scope()` will
+    /// fail to match when using this method, since there's no [`KdlNode`] to
+    /// return in this case.
+    pub fn query(&self, query: impl IntoKdlQuery) -> Result<Option<&KdlNode>, KdlError> {
         let mut iter = self.query_all(query)?;
         Ok(iter.next())
+    }
+
+    /// Queries this Document's children according to the KQL query language,
+    /// picking the first match, and calling `.get(key)` on it, if the query
+    /// succeeded.
+    ///
+    /// # NOTE
+    ///
+    /// Any query selectors that try to select the toplevel `scope()` will
+    /// fail to match when using this method, since there's no [`KdlNode`] to
+    /// return in this case.
+    pub fn query_get(
+        &self,
+        query: impl IntoKdlQuery,
+        key: impl Into<NodeKey>,
+    ) -> Result<Option<&KdlValue>, KdlError> {
+        Ok(self.query(query)?.and_then(|node| node.get(key)))
     }
 }
 

@@ -27,7 +27,10 @@ fn scope_child_by_name() -> Result<()> {
                 bar
                 baz
             }
-            bar
+            bar {
+                a
+                b
+            }
             baz
             "#
     .parse()?;
@@ -35,6 +38,17 @@ fn scope_child_by_name() -> Result<()> {
     let results = doc.query_all("scope() > bar")?.collect::<Vec<&KdlNode>>();
 
     assert_eq!(results, vec![&doc.nodes()[1]]);
+
+    // Scope from a specific node.
+    let results = results[0]
+        .query_all("scope() > a")?
+        .collect::<Vec<&KdlNode>>();
+
+    assert_eq!(
+        results,
+        vec![&doc.nodes()[1].children().unwrap().nodes()[0]]
+    );
+
     Ok(())
 }
 

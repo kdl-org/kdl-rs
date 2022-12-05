@@ -2,8 +2,10 @@ use std::{collections::VecDeque, str::FromStr, sync::Arc};
 
 use crate::{query_parser::KdlQueryParser, KdlDocument, KdlError, KdlNode, KdlValue};
 
+/// A parsed KQL query. For details on the syntax, see the [KQL
+/// spec](https://github.com/kdl-org/kdl/blob/main/QUERY-SPEC.md).
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct KdlQuery(pub(crate) Vec<KdlQuerySelector>);
+pub struct KdlQuery(pub(crate) Vec<KdlQuerySelector>);
 
 impl FromStr for KdlQuery {
     type Err = KdlError;
@@ -11,6 +13,43 @@ impl FromStr for KdlQuery {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parser = KdlQueryParser::new(s);
         parser.parse(crate::query_parser::query(&parser))
+    }
+}
+
+/// A trait that tries to convert something into a [`KdlQuery`].
+pub trait IntoKdlQuery: IntoQuerySealed {}
+
+impl IntoKdlQuery for KdlQuery {}
+impl IntoKdlQuery for String {}
+impl<'a> IntoKdlQuery for &'a str {}
+impl<'a> IntoKdlQuery for &'a String {}
+
+#[doc(hidden)]
+pub trait IntoQuerySealed {
+    fn into_query(self) -> Result<KdlQuery, KdlError>;
+}
+
+impl IntoQuerySealed for KdlQuery {
+    fn into_query(self) -> Result<KdlQuery, KdlError> {
+        Ok(self)
+    }
+}
+
+impl IntoQuerySealed for &str {
+    fn into_query(self) -> Result<KdlQuery, KdlError> {
+        self.parse()
+    }
+}
+
+impl IntoQuerySealed for String {
+    fn into_query(self) -> Result<KdlQuery, KdlError> {
+        self.parse()
+    }
+}
+
+impl IntoQuerySealed for &String {
+    fn into_query(self) -> Result<KdlQuery, KdlError> {
+        self.parse()
     }
 }
 
@@ -70,14 +109,8 @@ impl KdlQuerySelector {
                         parent_doc = crumb.parent_doc;
                     }
 
-                    if next.is_none() && segment.is_scope() {
-                        if let Some(scope) = &scope {
-                            if node == *scope {
-                                return true;
-                            }
-                        } else if scope.is_none() {
-                            return true;
-                        }
+                    if segment.is_scope() {
+                        return next.map(|crumb| crumb.node) == scope;
                     }
 
                     return false;
