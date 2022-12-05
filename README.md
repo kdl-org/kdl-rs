@@ -11,8 +11,9 @@ You can think of this crate as
 [`toml_edit`](https://crates.io/crates/toml_edit), but for KDL.
 
 If you don't care about formatting or programmatic manipulation, you might
-check out [`knuffel`](https://crates.io/crates/knuffel) instead for serde
-(or serde-like) parsing.
+check out [`knuffel`](https://crates.io/crates/knuffel) or
+[`kaydle`](https://crates.io/crates/kaydle) instead for serde (or
+serde-like) parsing.
 
 ### Example
 
@@ -65,6 +66,38 @@ assert_eq!(&doc.to_string(), node_str);
 [`KdlDocument`], [`KdlNode`], [`KdlEntry`], and [`KdlIdentifier`] can all
 be parsed and managed this way.
 
+#### Query Engine
+
+`kdl` includes a query engine for
+[KQL](https://github.com/kdl-org/kdl/blob/main/QUERY-SPEC.md), which lets you
+pick out nodes from a document using a CSS Selectors-style syntax.
+
+Queries can be done from either a [`KdlDocument`] or a [`KdlNode`], with
+mostly the same semantics.
+
+```rust
+use kdl::KdlDocument;
+
+let doc = r#"
+a {
+    b 1
+    c 2
+    d 3 {
+        e prop="hello"
+    }
+}
+"#.parse::<KdlDocument>().expect("failed to parse KDL");
+
+let results = doc.query("a > b").expect("failed to parse query");
+assert_eq!(results, Some(&doc.nodes()[0].children().unwrap().nodes()[0]));
+
+let results = doc.query_get("e", "prop").expect("failed to parse query");
+assert_eq!(results, Some(&"hello".into()));
+
+let results = doc.query_get_all("a > []", 0).expect("failed to parse query").collect::<Vec<_>>();
+assert_eq!(results, vec![&1.into(), &2.into(), &3.into()]);
+```
+
 ### Error Reporting
 
 [`KdlError`] implements [`miette::Diagnostic`] and can be used to display
@@ -111,14 +144,14 @@ KDL itself does not specify a particular representation for numbers and
 accepts just about anything valid, no matter how large and how small. This
 means a few things:
 
-* Numbers without a decimal point are interpreted as u64.
-* Numbers with a decimal point are interpreted as f64.
-* Floating point numbers that evaluate to f64::INFINITY or
-  f64::NEG_INFINITY or NaN will be represented as such in the values,
+* Numbers without a decimal point are interpreted as [`u64`].
+* Numbers with a decimal point are interpreted as [`f64`].
+* Floating point numbers that evaluate to [`f64::INFINITY`] or
+  [`f64::NEG_INFINITY`] or NaN will be represented as such in the values,
   instead of the original numbers.
-* A similar restriction applies to overflowed u64 values.
+* A similar restriction applies to overflowed [`u64`] values.
 * The original _representation_ of these numbers will be preserved, unless
-  you `doc.fmt()`, in which case the original representation will be
+  you [`KdlDocument::fmt`] in which case the original representation will be
   thrown away and the actual value will be used when serializing.
 
 ### License

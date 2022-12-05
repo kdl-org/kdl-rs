@@ -64,6 +64,38 @@
 //! [`KdlDocument`], [`KdlNode`], [`KdlEntry`], and [`KdlIdentifier`] can all
 //! be parsed and managed this way.
 //!
+//! ### Query Engine
+//!
+//! `kdl` includes a query engine for
+//! [KQL](https://github.com/kdl-org/kdl/blob/main/QUERY-SPEC.md), which lets you
+//! pick out nodes from a document using a CSS Selectors-style syntax.
+//!
+//! Queries can be done from either a [`KdlDocument`] or a [`KdlNode`], with
+//! mostly the same semantics.
+//!
+//! ```rust
+//! use kdl::KdlDocument;
+//!
+//! let doc = r#"
+//! a {
+//!     b 1
+//!     c 2
+//!     d 3 {
+//!         e prop="hello"
+//!     }
+//! }
+//! "#.parse::<KdlDocument>().expect("failed to parse KDL");
+//!
+//! let results = doc.query("a > b").expect("failed to parse query");
+//! assert_eq!(results, Some(&doc.nodes()[0].children().unwrap().nodes()[0]));
+//!
+//! let results = doc.query_get("e", "prop").expect("failed to parse query");
+//! assert_eq!(results, Some(&"hello".into()));
+//!
+//! let results = doc.query_get_all("a > []", 0).expect("failed to parse query").collect::<Vec<_>>();
+//! assert_eq!(results, vec![&1.into(), &2.into(), &3.into()]);
+//! ```
+//!
 //! ## Error Reporting
 //!
 //! [`KdlError`] implements [`miette::Diagnostic`] and can be used to display

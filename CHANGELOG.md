@@ -5,7 +5,7 @@
 
 This release makes some breaking API changes, but most notably, introduces
 support for the [KDL Query
-Language](https://github.com/kdl-org/kdl/blob/kdl-v2/QUERY-SPEC.md).
+Language](https://github.com/kdl-org/kdl/blob/main/QUERY-SPEC.md).
 
 ### Features
 
