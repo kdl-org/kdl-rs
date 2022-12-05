@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{parser, KdlError, KdlNode, KdlValue};
+use crate::{parser, IntoKdlQuery, KdlError, KdlNode, KdlQueryIterator, KdlValue, NodeKey};
 
 /// Represents a KDL
 /// [`Document`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#document).
@@ -18,7 +18,7 @@ use crate::{parser, KdlError, KdlNode, KdlValue};
 /// # use kdl::KdlDocument;
 /// let kdl: KdlDocument = "foo 1 2 3\nbar 4 5 6".parse().expect("parse failed");
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct KdlDocument {
     pub(crate) leading: Option<String>,
     pub(crate) nodes: Vec<KdlNode>,
@@ -33,6 +33,15 @@ impl PartialEq for KdlDocument {
             && self.nodes == other.nodes
             && self.trailing == other.trailing
         // Intentionally omitted: self.span == other.span
+    }
+}
+
+impl std::hash::Hash for KdlDocument {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.leading.hash(state);
+        self.nodes.hash(state);
+        self.trailing.hash(state);
+        // Intentionally omitted: self.span.hash(state)
     }
 }
 
@@ -240,6 +249,70 @@ impl KdlDocument {
     /// Formats the document and removes all comments from the document.
     pub fn fmt_no_comments(&mut self) {
         self.fmt_impl(0, true);
+    }
+
+    /// Queries this Document's children according to the KQL query language,
+    /// returning an iterator over all matching nodes.
+    ///
+    /// # NOTE
+    ///
+    /// Any query selectors that try to select the toplevel `scope()` will
+    /// fail to match when using this method, since there's no [`KdlNode`] to
+    /// return in this case.
+    pub fn query_all(&self, query: impl IntoKdlQuery) -> Result<KdlQueryIterator<'_>, KdlError> {
+        let parsed = query.into_query()?;
+        Ok(KdlQueryIterator::new(None, Some(self), parsed))
+    }
+
+    /// Queries this Document's children according to the KQL query language,
+    /// returning the first match, if any.
+    ///
+    /// # NOTE
+    ///
+    /// Any query selectors that try to select the toplevel `scope()` will
+    /// fail to match when using this method, since there's no [`KdlNode`] to
+    /// return in this case.
+    pub fn query(&self, query: impl IntoKdlQuery) -> Result<Option<&KdlNode>, KdlError> {
+        let mut iter = self.query_all(query)?;
+        Ok(iter.next())
+    }
+
+    /// Queries this Document's children according to the KQL query language,
+    /// picking the first match, and calling `.get(key)` on it, if the query
+    /// succeeded.
+    ///
+    /// # NOTE
+    ///
+    /// Any query selectors that try to select the toplevel `scope()` will
+    /// fail to match when using this method, since there's no [`KdlNode`] to
+    /// return in this case.
+    pub fn query_get(
+        &self,
+        query: impl IntoKdlQuery,
+        key: impl Into<NodeKey>,
+    ) -> Result<Option<&KdlValue>, KdlError> {
+        Ok(self.query(query)?.and_then(|node| node.get(key)))
+    }
+
+    /// Queries this Document's children according to the KQL query language,
+    /// returning an iterator over all matching nodes, returning the requested
+    /// field from each of those nodes and filtering out nodes that don't have
+    /// it.
+    ///
+    /// # NOTE
+    ///
+    /// Any query selectors that try to select the toplevel `scope()` will
+    /// fail to match when using this method, since there's no [`KdlNode`] to
+    /// return in this case.
+    pub fn query_get_all(
+        &self,
+        query: impl IntoKdlQuery,
+        key: impl Into<NodeKey>,
+    ) -> Result<impl Iterator<Item = &KdlValue>, KdlError> {
+        let key: NodeKey = key.into();
+        Ok(self
+            .query_all(query)?
+            .filter_map(move |node| node.get(key.clone())))
     }
 }
 

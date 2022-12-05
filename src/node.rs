@@ -7,12 +7,15 @@ use std::{
 #[cfg(feature = "span")]
 use miette::SourceSpan;
 
-use crate::{parser, KdlDocument, KdlEntry, KdlError, KdlIdentifier, KdlValue};
+use crate::{
+    parser, IntoKdlQuery, KdlDocument, KdlEntry, KdlError, KdlIdentifier, KdlQueryIterator,
+    KdlValue,
+};
 
 /// Represents an individual KDL
 /// [`Node`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#node) inside a
 /// KDL Document.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct KdlNode {
     pub(crate) leading: Option<String>,
     pub(crate) ty: Option<KdlIdentifier>,
@@ -36,6 +39,19 @@ impl PartialEq for KdlNode {
             && self.children == other.children
             && self.trailing == other.trailing
         // intentionally omitted: self.span == other.span
+    }
+}
+
+impl std::hash::Hash for KdlNode {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.leading.hash(state);
+        self.ty.hash(state);
+        self.name.hash(state);
+        self.entries.hash(state);
+        self.before_children.hash(state);
+        self.children.hash(state);
+        self.trailing.hash(state);
+        // Intentionally omitted: self.span.hash(state);
     }
 }
 
@@ -413,6 +429,45 @@ impl KdlNode {
     /// Auto-formats this node and its contents, stripping comments.
     pub fn fmt_no_comments(&mut self) {
         self.fmt_impl(0, true);
+    }
+
+    /// Queries this Node according to the KQL query language,
+    /// returning an iterator over all matching nodes.
+    pub fn query_all(&self, query: impl IntoKdlQuery) -> Result<KdlQueryIterator<'_>, KdlError> {
+        let q = query.into_query()?;
+        Ok(KdlQueryIterator::new(Some(self), None, q))
+    }
+
+    /// Queries this Node according to the KQL query language,
+    /// returning the first match, if any.
+    pub fn query(&self, query: impl IntoKdlQuery) -> Result<Option<&KdlNode>, KdlError> {
+        Ok(self.query_all(query)?.next())
+    }
+
+    /// Queries this Node according to the KQL query language,
+    /// picking the first match, and calling `.get(key)` on it, if the query
+    /// succeeded.
+    pub fn query_get(
+        &self,
+        query: impl IntoKdlQuery,
+        key: impl Into<NodeKey>,
+    ) -> Result<Option<&KdlValue>, KdlError> {
+        Ok(self.query(query)?.and_then(|node| node.get(key)))
+    }
+
+    /// Queries this Node according to the KQL query language,
+    /// returning an iterator over all matching nodes, returning the requested
+    /// field from each of those nodes and filtering out nodes that don't have
+    /// it.
+    pub fn query_get_all(
+        &self,
+        query: impl IntoKdlQuery,
+        key: impl Into<NodeKey>,
+    ) -> Result<impl Iterator<Item = &KdlValue>, KdlError> {
+        let key: NodeKey = key.into();
+        Ok(self
+            .query_all(query)?
+            .filter_map(move |node| node.get(key.clone())))
     }
 }
 
