@@ -68,13 +68,19 @@ impl KdlQuerySelector {
             .next()
             .expect("This should've had at least one item.");
 
-        if end.is_scope() {
-            if let Some(scope) = &scope {
-                if crumb.node == *scope {
-                    return true;
+        // When doing a query from a node, instead of a document, we have to
+        // skip matching on the node itself, unless the query is just
+        // `scope()`.
+        if let Some(scope) = &scope {
+            // We're in node-query mode.
+            if crumb.next.is_none() {
+                // We're almost definitely looking at the scope node itself,
+                // but just check. We'll do no further processing.
+                if end.is_scope() {
+                    return crumb.node == *scope;
+                } else {
+                    return false;
                 }
-            } else if crumb.next.is_none() && scope.is_none() {
-                return false;
             }
         }
 

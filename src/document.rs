@@ -299,6 +299,27 @@ impl KdlDocument {
     ) -> Result<Option<&KdlValue>, KdlError> {
         Ok(self.query(query)?.and_then(|node| node.get(key)))
     }
+
+    /// Queries this Document's children according to the KQL query language,
+    /// returning an iterator over all matching nodes, returning the requested
+    /// field from each of those nodes and filtering out nodes that don't have
+    /// it.
+    ///
+    /// # NOTE
+    ///
+    /// Any query selectors that try to select the toplevel `scope()` will
+    /// fail to match when using this method, since there's no [`KdlNode`] to
+    /// return in this case.
+    pub fn query_get_all(
+        &self,
+        query: impl IntoKdlQuery,
+        key: impl Into<NodeKey>,
+    ) -> Result<impl Iterator<Item = &KdlValue>, KdlError> {
+        let key: NodeKey = key.into();
+        Ok(self
+            .query_all(query)?
+            .filter_map(move |node| node.get(key.clone())))
+    }
 }
 
 impl Display for KdlDocument {

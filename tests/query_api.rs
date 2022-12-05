@@ -53,6 +53,21 @@ fn document_query_get() -> Result<()> {
 }
 
 #[test]
+fn document_query_get_all() -> Result<()> {
+    let doc = "foo\nbar true\nbaz false".parse::<KdlDocument>()?;
+
+    assert_eq!(
+        doc.query_get_all("[]", 0)?.collect::<Vec<_>>(),
+        vec![&true.into(), &false.into()]
+    );
+    assert_eq!(doc.query_get_all(String::from("[]"), 0)?.count(), 2);
+    assert_eq!(doc.query_get_all(&String::from("[]"), 0)?.count(), 2);
+    assert_eq!(doc.query_get_all("[]".parse::<KdlQuery>()?, 0)?.count(), 2);
+
+    Ok(())
+}
+
+#[test]
 fn node_query_all() -> Result<()> {
     let doc = r#"
         foo
@@ -138,5 +153,30 @@ fn node_query_get() -> Result<()> {
     assert_eq!(node.query_get("scope()", 0)?, Some(&1.into()));
     assert_eq!(node.query_get("scope() > a", 0)?, Some(&false.into()));
     assert!(node.query_get("scope() > b", "prop")?.is_none());
+    Ok(())
+}
+
+#[test]
+fn node_query_get_all() -> Result<()> {
+    let doc = r#"
+        foo
+        bar 1 2 3 {
+            a false {
+                b true
+            }
+        }
+        baz
+    "#
+    .parse::<KdlDocument>()?;
+    let node = doc.query("bar")?.unwrap();
+
+    assert_eq!(
+        node.query_get_all("[]", 0)?.collect::<Vec<_>>(),
+        vec![&false.into(), &true.into()]
+    );
+    assert_eq!(node.query_get_all(String::from("[]"), 0)?.count(), 2);
+    assert_eq!(node.query_get_all(&String::from("[]"), 0)?.count(), 2);
+    assert_eq!(node.query_get_all("[]".parse::<KdlQuery>()?, 0)?.count(), 2);
+
     Ok(())
 }

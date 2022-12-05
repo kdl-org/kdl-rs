@@ -437,20 +437,20 @@ impl KdlNode {
         self.fmt_impl(0, true);
     }
 
-    /// Queries this Node's children according to the KQL query language,
+    /// Queries this Node according to the KQL query language,
     /// returning an iterator over all matching nodes.
     pub fn query_all(&self, query: impl IntoKdlQuery) -> Result<KdlQueryIterator<'_>, KdlError> {
         let q = query.into_query()?;
         Ok(KdlQueryIterator::new(Some(self), None, q))
     }
 
-    /// Queries this Node's children according to the KQL query language,
+    /// Queries this Node according to the KQL query language,
     /// returning the first match, if any.
     pub fn query(&self, query: impl IntoKdlQuery) -> Result<Option<&KdlNode>, KdlError> {
         Ok(self.query_all(query)?.next())
     }
 
-    /// Queries this Node's children according to the KQL query language,
+    /// Queries this Node according to the KQL query language,
     /// picking the first match, and calling `.get(key)` on it, if the query
     /// succeeded.
     pub fn query_get(
@@ -459,6 +459,21 @@ impl KdlNode {
         key: impl Into<NodeKey>,
     ) -> Result<Option<&KdlValue>, KdlError> {
         Ok(self.query(query)?.and_then(|node| node.get(key)))
+    }
+
+    /// Queries this Node according to the KQL query language,
+    /// returning an iterator over all matching nodes, returning the requested
+    /// field from each of those nodes and filtering out nodes that don't have
+    /// it.
+    pub fn query_get_all(
+        &self,
+        query: impl IntoKdlQuery,
+        key: impl Into<NodeKey>,
+    ) -> Result<impl Iterator<Item = &KdlValue>, KdlError> {
+        let key: NodeKey = key.into();
+        Ok(self
+            .query_all(query)?
+            .filter_map(move |node| node.get(key.clone())))
     }
 }
 
