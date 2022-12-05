@@ -1,5 +1,20 @@
 # `kdl` Release Changelog
 
+<a name="5.0.0-alpha.0"></a>
+## 5.0.0-alpha.0 (2022-12-05)
+
+This release makes some breaking API changes, but most notably, introduces
+support for the [KDL Query
+Language](https://github.com/kdl-org/kdl/blob/kdl-v2/QUERY-SPEC.md).
+
+### Features
+
+* **kql:** implement KQL query engine (#61) ([6d1a516e](https://github.com/kdl-org/kdl-rs/commit/6d1a516eb92415f99f7a5170ac61ce3252d6a4b5))
+* **api:** Improve .get()/.entry() APIs to be more consistent with Rust conventions ([3d8778a6](https://github.com/kdl-org/kdl-rs/commit/3d8778a610e65720ed5cf25bc612aada93349119))
+    * **BREAKING CHANGE**:
+* **spans:** rework the span API to be strictly by-val (#60) ([04471a53](https://github.com/kdl-org/kdl-rs/commit/04471a537ecf97867e7dc8ee987cce0caba61982))
+    * **BREAKING CHANGE**: this removes all the `.span_mut()` methods and changes the signature for `.span()`.
+
 <a name="4.6.0"></a>
 ## 4.6.0 (2022-10-09)
 
