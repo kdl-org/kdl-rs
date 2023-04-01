@@ -1,5 +1,16 @@
 # `kdl` Release Changelog
 
+<a name="5.0.0-alpha.1"></a>
+## 5.0.0-alpha.1 (2023-04-01)
+
+This release upgrades miette and thiserror in lockstep, bringing in syn2, in
+order to avoid [potential issues with the
+upgrade](https://github.com/yaahc/eyre/pull/92).
+
+### Features
+
+* **deps:** bump miette and thiserror ([db0a395f](https://github.com/kdl-org/kdl-rs/commit/db0a395fb4ecb4b35d67d281903a4ed89b9e9161))
+
 <a name="5.0.0-alpha.0"></a>
 ## 5.0.0-alpha.0 (2022-12-05)
 
