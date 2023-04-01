@@ -15,10 +15,10 @@ default = ["span"]
 span = []
 
 [dependencies]
-miette = "5.5.0"
+miette = "5.7.0"
 nom = "7.1.1"
-thiserror = "1.0.30"
+thiserror = "1.0.40"
 
 [dev-dependencies]
-miette = { version = "5.5.0", features = ["fancy"] }
+miette = { version = "5.7.0", features = ["fancy"] }
 pretty_assertions = "1.3.0"
