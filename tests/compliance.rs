@@ -36,7 +36,7 @@ fn validate_res(res: Result<KdlDocument, KdlError>, path: &Path) -> miette::Resu
         .unwrap()
         .join("expected_kdl");
     let expected_path = expected_dir.join(file_name);
-    let underscored = expected_dir.join(&format!("_{}", PathBuf::from(file_name).display()));
+    let underscored = expected_dir.join(format!("_{}", PathBuf::from(file_name).display()));
     if expected_path.exists() {
         let doc = res?;
         let expected =

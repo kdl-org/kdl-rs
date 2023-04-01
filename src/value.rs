@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 /// A specific [KDL Value](https://github.com/kdl-org/kdl/blob/main/SPEC.md#value).
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialOrd)]
 pub enum KdlValue {
     /// A [KDL Raw String](https://github.com/kdl-org/kdl/blob/main/SPEC.md#raw-string).
     RawString(String),
@@ -43,9 +43,46 @@ pub enum KdlValue {
 
 impl Eq for KdlValue {}
 
+impl PartialEq for KdlValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::RawString(l0), Self::RawString(r0)) => l0 == r0,
+            (Self::String(l0), Self::String(r0)) => l0 == r0,
+            (Self::Base2(l0), Self::Base2(r0)) => l0 == r0,
+            (Self::Base8(l0), Self::Base8(r0)) => l0 == r0,
+            (Self::Base10(l0), Self::Base10(r0)) => l0 == r0,
+            (Self::Base10Float(l0), Self::Base10Float(r0)) => {
+                let l0 = if l0 == &f64::INFINITY {
+                    f64::MAX
+                } else if l0 == &f64::NEG_INFINITY {
+                    -f64::MAX
+                } else if l0.is_nan() {
+                    // We collapse NaN to 0.0 because we're evil like that.
+                    0.0
+                } else {
+                    *l0
+                };
+                let r0 = if r0 == &f64::INFINITY {
+                    f64::MAX
+                } else if r0 == &f64::NEG_INFINITY {
+                    -f64::MAX
+                } else if r0.is_nan() {
+                    // We collapse NaN to 0.0 because we're evil like that.
+                    0.0
+                } else {
+                    *r0
+                };
+                l0 == r0
+            }
+            (Self::Base16(l0), Self::Base16(r0)) => l0 == r0,
+            (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
+}
+
 // NOTE: I know, I know. This is terrible and I shouldn't do it, but it's
 // better than not being able to hash KdlValue at all.
-#[allow(clippy::derive_hash_xor_eq)]
 impl std::hash::Hash for KdlValue {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
