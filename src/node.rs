@@ -365,7 +365,10 @@ impl KdlNode {
                         current_idx += 1;
                     }
                 }
-                None
+                panic!(
+                    "removal index (is {}) should be < number of index entries (is {})",
+                    idx, current_idx
+                );
             }
         }
     }
@@ -698,14 +701,22 @@ mod test {
             node.get("keyword").is_some(),
             "keyword property should not be removed by index removal"
         );
-        node.remove(1);
-        assert_eq!(node.entries().len(), 2, "index removal should not succeed");
         node.remove("not an existing keyword");
         assert_eq!(node.entries().len(), 2, "key removal should not succeed");
         node.remove("keyword");
         assert_eq!(node.entries().len(), 1, "key removal should succeed");
         node.remove(0);
         assert_eq!(node.entries().len(), 0, "index removal should suceed");
-        node.remove(0); // should not panic
+    }
+
+    #[test]
+    #[should_panic(expected = "removal index (is 0) should be < number of index entries (is 0)")]
+    fn remove_panic() {
+        let mut node = KdlNode::new("foo");
+        node.push("pos0");
+        node.insert("keyword", 6.0);
+        node.remove(0);
+        assert_eq!(node.entries().len(), 1, "key removal should succeed");
+        node.remove(0); // should panic here
     }
 }
