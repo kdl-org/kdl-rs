@@ -275,7 +275,8 @@ impl KdlNode {
     }
 
     /// Inserts an entry into this node. If an entry already exists with the
-    /// same key, it will be replaced and the previous entry will be returned.
+    /// same string key, it will be replaced and the previous entry will be
+    /// returned.
     ///
     /// Numerical keys will insert arguments, string keys will insert
     /// properties.
@@ -308,29 +309,24 @@ impl KdlNode {
                 if entry.name.is_some() {
                     panic!("Cannot insert property with name under a numerical key");
                 }
-                if let Some(existing) = self.entry_mut(key) {
-                    std::mem::swap(existing, &mut entry);
-                    Some(entry)
-                } else {
-                    let mut current_idx = 0;
-                    for existing in &mut self.entries {
-                        if existing.name.is_none() {
-                            if current_idx == idx {
-                                std::mem::swap(existing, &mut entry);
-                                return Some(entry);
-                            }
-                            current_idx += 1;
+                let mut current_idx = 0;
+                for (idx_existing, existing) in self.entries.iter().enumerate() {
+                    if existing.name.is_none() {
+                        if current_idx == idx {
+                            self.entries.insert(idx_existing, entry);
+                            return None;
                         }
+                        current_idx += 1;
                     }
-                    if idx > current_idx {
-                        panic!(
-                            "Insertion index (is {}) should be <= len (is {})",
-                            idx, current_idx
-                        );
-                    } else {
-                        self.entries.push(entry);
-                        None
-                    }
+                }
+                if idx > current_idx {
+                    panic!(
+                        "Insertion index (is {}) should be <= len (is {})",
+                        idx, current_idx
+                    );
+                } else {
+                    self.entries.push(entry);
+                    None
                 }
             }
         }
@@ -681,10 +677,12 @@ mod test {
         assert_eq!(node.entries().len(), 3);
 
         node.insert(0, "inserted0");
-        node.insert(1, "inserted1");
-        assert_eq!(node.entries().len(), 3);
+        node.insert(2, "inserted1");
+        assert_eq!(node.entries().len(), 5);
         assert_eq!(node[0], "inserted0".into());
-        assert_eq!(node[1], "inserted1".into());
+        assert_eq!(node[1], "pos0".into());
+        assert_eq!(node[2], "inserted1".into());
+        assert_eq!(node[3], "pos1".into());
     }
 
     #[test]
