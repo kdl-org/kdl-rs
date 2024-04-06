@@ -356,7 +356,7 @@ impl KdlDocument {
         }
         for node in &self.nodes {
             node.stringify(f, indent)?;
-            if node.trailing.is_none() {
+            if node.format().is_none() {
                 writeln!(f)?;
             }
         }
@@ -449,7 +449,10 @@ final;";
         );
 
         let foo = doc.get("foo").expect("expected a foo node");
-        assert_eq!(foo.leading, Some("\n// This is the first node\n".into()));
+        assert_eq!(
+            foo.format().map(|f| &f.leading[..]),
+            Some("\n// This is the first node\n")
+        );
         assert_eq!(&foo[2], &"three".into());
         assert_eq!(&foo["bar"], &"baz".into());
         assert_eq!(

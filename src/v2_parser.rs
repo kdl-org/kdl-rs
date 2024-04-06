@@ -20,7 +20,7 @@ use winnow::{
 
 use crate::{
     KdlDiagnostic, KdlDocument, KdlEntry, KdlEntryFormat, KdlErrorKind, KdlIdentifier, KdlNode,
-    KdlParseFailure, KdlValue,
+    KdlNodeFormat, KdlParseFailure, KdlValue,
 };
 
 type Input<'a> = Recoverable<Located<&'a str>, KdlParseError>;
@@ -251,15 +251,16 @@ fn base_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
     };
     Ok(KdlNode {
         ty,
-        after_ty: Some(after_ty.into()),
-        before_ty_name: Some(before_inner_ty.into()),
-        after_ty_name: Some(after_inner_ty.into()),
         name,
         entries,
         children,
-        before_children: Some(before_children.into()),
-        leading: None,
-        trailing: None,
+        format: Some(KdlNodeFormat {
+            after_ty: after_ty.into(),
+            before_ty_name: before_inner_ty.into(),
+            after_ty_name: after_inner_ty.into(),
+            before_children: before_children.into(),
+            ..Default::default()
+        }),
         #[cfg(feature = "span")]
         span: _span.into(),
     })
@@ -276,8 +277,10 @@ fn node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
         .context("node")
         .with_span()
         .parse_next(input)?;
-    node.leading = Some(leading.into());
-    node.trailing = Some(format!("{trailing}{terminator}"));
+    if let Some(fmt) = node.format_mut() {
+        fmt.leading = leading.into();
+        fmt.trailing = format!("{trailing}{terminator}");
+    }
     #[cfg(feature = "span")]
     {
         node.span = _span.into();
@@ -292,7 +295,9 @@ pub(crate) fn padded_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
     )
         .with_span()
         .parse_next(input)?;
-    node.trailing = node.trailing.map(|t| format!("{t}{trailing}"));
+    if let Some(fmt) = node.format_mut() {
+        fmt.trailing = format!("{}{trailing}", fmt.trailing);
+    }
     #[cfg(feature = "span")]
     {
         node.span = _span.into();

@@ -7,52 +7,41 @@ use std::{
 #[cfg(feature = "span")]
 use miette::SourceSpan;
 
-use crate::{
-    v2_parser, KdlDocument, KdlEntry, KdlEntryFormat, KdlIdentifier, KdlParseFailure, KdlValue,
-};
+use crate::{v2_parser, KdlDocument, KdlEntry, KdlIdentifier, KdlParseFailure, KdlValue};
 
 /// Represents an individual KDL
 /// [`Node`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#node) inside a
 /// KDL Document.
 #[derive(Debug, Clone, Eq)]
 pub struct KdlNode {
-    pub(crate) leading: Option<String>,
     pub(crate) ty: Option<KdlIdentifier>,
     pub(crate) name: KdlIdentifier,
     // TODO: consider using `hashlink` for this instead, later.
     pub(crate) entries: Vec<KdlEntry>,
-    pub(crate) before_ty_name: Option<String>,
-    pub(crate) after_ty_name: Option<String>,
-    pub(crate) after_ty: Option<String>,
-    pub(crate) before_children: Option<String>,
     pub(crate) children: Option<KdlDocument>,
-    pub(crate) trailing: Option<String>,
+    pub(crate) format: Option<KdlNodeFormat>,
     #[cfg(feature = "span")]
     pub(crate) span: SourceSpan,
 }
 
 impl PartialEq for KdlNode {
     fn eq(&self, other: &Self) -> bool {
-        self.leading == other.leading
-            && self.ty == other.ty
+        self.ty == other.ty
             && self.name == other.name
             && self.entries == other.entries
-            && self.before_children == other.before_children
             && self.children == other.children
-            && self.trailing == other.trailing
+            && self.format == other.format
         // intentionally omitted: self.span == other.span
     }
 }
 
 impl std::hash::Hash for KdlNode {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.leading.hash(state);
         self.ty.hash(state);
         self.name.hash(state);
         self.entries.hash(state);
-        self.before_children.hash(state);
         self.children.hash(state);
-        self.trailing.hash(state);
+        self.format.hash(state);
         // Intentionally omitted: self.span.hash(state);
     }
 }
@@ -62,15 +51,10 @@ impl KdlNode {
     pub fn new(name: impl Into<KdlIdentifier>) -> Self {
         Self {
             name: name.into(),
-            leading: None,
             ty: None,
             entries: Vec::new(),
-            before_ty_name: None,
-            after_ty_name: None,
-            after_ty: None,
-            before_children: None,
             children: None,
-            trailing: None,
+            format: None,
             #[cfg(feature = "span")]
             span: SourceSpan::from(0..0),
         }
@@ -133,66 +117,6 @@ impl KdlNode {
         &mut self.entries
     }
 
-    /// Gets leading text (whitespace, comments) for this node.
-    pub fn leading(&self) -> Option<&str> {
-        self.leading.as_deref()
-    }
-
-    /// Sets leading text (whitespace, comments) for this node.
-    pub fn set_leading(&mut self, leading: impl Into<String>) {
-        self.leading = Some(leading.into());
-    }
-
-    /// Gets text (whitespace, comments) right before the children block's starting `{`.
-    pub fn before_children(&self) -> Option<&str> {
-        self.before_children.as_deref()
-    }
-
-    /// Gets text (whitespace, comments) between the type annotation and the node name.
-    pub fn after_ty(&self) -> Option<&str> {
-        self.after_ty.as_deref()
-    }
-
-    /// Gets text (whitespace, comments) between the opening `(` and the type annotation name.
-    pub fn before_ty_name(&self) -> Option<&str> {
-        self.before_ty_name.as_deref()
-    }
-
-    /// Gets text (whitespace, comments) between the type annotation name and the closing `)`.
-    pub fn after_ty_name(&self) -> Option<&str> {
-        self.after_ty_name.as_deref()
-    }
-
-    /// Gets text (whitespace, comments) right before the children block's starting `{`.
-    pub fn set_before_children(&mut self, before: impl Into<String>) {
-        self.before_children = Some(before.into());
-    }
-
-    /// Sets text (whitespace, comments) between the type annotation and the node name.
-    pub fn set_after_ty(&mut self, after_ty: impl Into<String>) {
-        self.after_ty = Some(after_ty.into());
-    }
-
-    /// Sets text (whitespace, comments) between the opening `(` and the type annotation name.
-    pub fn set_before_ty_name(&mut self, before_ty_name: impl Into<String>) {
-        self.after_ty_name = Some(before_ty_name.into());
-    }
-
-    /// Sets text (whitespace, comments) between the type annotation name and the closing `)`.
-    pub fn set_after_ty_name(&mut self, after_ty_name: impl Into<String>) {
-        self.after_ty_name = Some(after_ty_name.into());
-    }
-
-    /// Gets trailing text (whitespace, comments) for this node.
-    pub fn trailing(&self) -> Option<&str> {
-        self.trailing.as_deref()
-    }
-
-    /// Sets trailing text (whitespace, comments) for this node.
-    pub fn set_trailing(&mut self, trailing: impl Into<String>) {
-        self.trailing = Some(trailing.into());
-    }
-
     /// Length of this node when rendered as a string.
     pub fn len(&self) -> usize {
         format!("{}", self).len()
@@ -210,9 +134,7 @@ impl KdlNode {
     /// If you want to clear formatting on all children and entries as well,
     /// use [`Self::clear_fmt_recursive`].
     pub fn clear_fmt(&mut self) {
-        self.leading = None;
-        self.trailing = None;
-        self.before_children = None;
+        self.format = None;
     }
 
     /// Clears leading and trailing text (whitespace, comments), as well as
@@ -443,6 +365,20 @@ impl KdlNode {
         self.children_mut().as_mut().unwrap()
     }
 
+    /// Gets the formatting details for this node.
+    pub fn format(&self) -> Option<&KdlNodeFormat> {
+        self.format.as_ref()
+    }
+
+    /// Gets a mutable reference to this node's formatting details.
+    pub fn format_mut(&mut self) -> Option<&mut KdlNodeFormat> {
+        self.format.as_mut()
+    }
+
+    /// Sets the formatting details for this node.
+    pub fn set_format(&mut self, format: KdlNodeFormat) {
+        self.format = Some(format);
+    }
     /// Auto-formats this node and its contents.
     pub fn fmt(&mut self) {
         self.fmt_impl(0, false);
@@ -575,22 +511,27 @@ impl Display for KdlNode {
 
 impl KdlNode {
     pub(crate) fn fmt_impl(&mut self, indent: usize, no_comments: bool) {
-        if let Some(s) = self.leading.as_mut() {
-            crate::fmt::fmt_leading(s, indent, no_comments);
-        }
-        if let Some(s) = self.trailing.as_mut() {
-            crate::fmt::fmt_trailing(s, no_comments);
-            if s.starts_with(';') {
-                s.remove(0);
+        if let Some(KdlNodeFormat {
+            leading,
+            trailing,
+            before_children,
+            ..
+        }) = self.format_mut()
+        {
+            crate::fmt::fmt_leading(leading, indent, no_comments);
+            crate::fmt::fmt_trailing(trailing, no_comments);
+            if trailing.starts_with(';') {
+                trailing.remove(0);
             }
-            if let Some(c) = s.chars().next() {
+            if let Some(c) = trailing.chars().next() {
                 if !c.is_whitespace() {
-                    s.insert(0, ' ');
+                    trailing.insert(0, ' ');
                 }
             }
-            s.push('\n');
+            trailing.push('\n');
+
+            *before_children = "".into();
         }
-        self.before_children = None;
         self.name.clear_fmt();
         if let Some(ty) = self.ty.as_mut() {
             ty.clear_fmt()
@@ -614,7 +555,7 @@ impl KdlNode {
         f: &mut std::fmt::Formatter<'_>,
         indent: usize,
     ) -> std::fmt::Result {
-        if let Some(leading) = &self.leading {
+        if let Some(KdlNodeFormat { leading, .. }) = self.format() {
             write!(f, "{}", leading)?;
         } else {
             write!(f, "{:indent$}", "", indent = indent)?;
@@ -625,23 +566,18 @@ impl KdlNode {
         write!(f, "{}", self.name)?;
         let mut space_before_children = true;
         for entry in &self.entries {
-            if let Some(KdlEntryFormat { leading, .. }) = entry.format() {
-                if leading.is_empty() {
-                    write!(f, " ")?;
-                }
-            } else {
+            if entry.format().is_none() {
                 write!(f, " ")?;
             }
             write!(f, "{}", entry)?;
-            space_before_children = if let Some(KdlEntryFormat { trailing, .. }) = entry.format() {
-                trailing.is_empty()
-            } else {
-                true
-            };
+            space_before_children = entry.format().is_none();
         }
         if let Some(children) = &self.children {
-            if let Some(before) = self.before_children() {
-                write!(f, "{}", before)?;
+            if let Some(KdlNodeFormat {
+                before_children, ..
+            }) = self.format()
+            {
+                write!(f, "{before_children}")?;
             } else if space_before_children {
                 write!(f, " ")?;
             }
@@ -655,11 +591,29 @@ impl KdlNode {
             }
             write!(f, "}}")?;
         }
-        if let Some(trailing) = &self.trailing {
+        if let Some(KdlNodeFormat { trailing, .. }) = self.format() {
             write!(f, "{}", trailing)?;
         }
         Ok(())
     }
+}
+
+/// Formatting details for [`KdlNode`].
+#[derive(Debug, Clone, Default, Hash, Eq, PartialEq)]
+pub struct KdlNodeFormat {
+    /// Whitespace and comments preceding the node itself.
+    pub leading: String,
+    /// Whitespace and comments between the opening `(` of a type annotation and the actual annotation name.
+    pub before_ty_name: String,
+    /// Whitespace and comments between the annotation name and the closing `)`.
+    pub after_ty_name: String,
+    /// Whitespace and comments after a node's type annotation.
+    pub after_ty: String,
+    /// Whitespace and comments preceding the node's children block.
+    pub before_children: String,
+    /// Whitespace and comments following the node itself, including the
+    /// optional semicolon.
+    pub trailing: String,
 }
 
 #[cfg(test)]
@@ -684,11 +638,20 @@ mod test {
     #[test]
     fn parsing() -> miette::Result<()> {
         let node: KdlNode = "\n\t  (\"ty\")\"node\" 0xDEADbeef;\n".parse()?;
-        assert_eq!(node.leading(), Some("\n\t  "));
-        assert_eq!(node.trailing(), Some(";\n"));
         assert_eq!(node.ty(), Some(&"\"ty\"".parse()?));
         assert_eq!(node.name(), &"\"node\"".parse()?);
         assert_eq!(node.entry(0), Some(&"0xDEADbeef".parse()?));
+        assert_eq!(
+            node.format(),
+            Some(&KdlNodeFormat {
+                leading: "\n\t  ".into(),
+                trailing: ";\n".into(),
+                before_ty_name: "".into(),
+                after_ty_name: "".into(),
+                after_ty: "".into(),
+                before_children: "".into(),
+            })
+        );
 
         r#"
         node "test" {
