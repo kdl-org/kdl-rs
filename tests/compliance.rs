@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use kdl::{KdlDocument, KdlError, KdlIdentifier, KdlValue};
+use kdl::{KdlDocument, KdlIdentifier, KdlParseFailure, KdlValue};
 use miette::IntoDiagnostic;
 
 #[test]
@@ -21,13 +21,13 @@ fn spec_compliance() -> miette::Result<()> {
         );
         let src = normalize_line_endings(fs::read_to_string(&test_path).into_diagnostic()?);
         println!("src: {}", src);
-        let res: Result<KdlDocument, KdlError> = src.parse();
+        let res: Result<KdlDocument, KdlParseFailure> = src.parse();
         validate_res(res, &test_path)?;
     }
     Ok(())
 }
 
-fn validate_res(res: Result<KdlDocument, KdlError>, path: &Path) -> miette::Result<()> {
+fn validate_res(res: Result<KdlDocument, KdlParseFailure>, path: &Path) -> miette::Result<()> {
     let file_name = path.file_name().unwrap();
     let expected_dir = path
         .parent()

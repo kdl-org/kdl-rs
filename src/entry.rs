@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{parser, KdlError, KdlIdentifier, KdlValue};
+use crate::{v2_parser, KdlIdentifier, KdlParseFailure, KdlValue};
 
 /// KDL Entries are the "arguments" to KDL nodes: either a (positional)
 /// [`Argument`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#argument) or
@@ -10,36 +10,30 @@ use crate::{parser, KdlError, KdlIdentifier, KdlValue};
 /// [`Property`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#property)
 #[derive(Debug, Clone, Eq)]
 pub struct KdlEntry {
-    pub(crate) leading: Option<String>,
     pub(crate) ty: Option<KdlIdentifier>,
     pub(crate) value: KdlValue,
-    pub(crate) value_repr: Option<String>,
     pub(crate) name: Option<KdlIdentifier>,
-    pub(crate) trailing: Option<String>,
+    pub(crate) format: Option<KdlEntryFormat>,
     #[cfg(feature = "span")]
     pub(crate) span: SourceSpan,
 }
 
 impl PartialEq for KdlEntry {
     fn eq(&self, other: &Self) -> bool {
-        self.leading == other.leading
-            && self.ty == other.ty
+        self.ty == other.ty
             && self.value == other.value
-            && self.value_repr == other.value_repr
             && self.name == other.name
-            && self.trailing == other.trailing
+            && self.format == other.format
         // intentionally omitted: self.span == other.span
     }
 }
 
 impl std::hash::Hash for KdlEntry {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.leading.hash(state);
         self.ty.hash(state);
         self.value.hash(state);
-        self.value_repr.hash(state);
         self.name.hash(state);
-        self.trailing.hash(state);
+        self.format.hash(state);
         // intentionally omitted: self.span.hash(state)
     }
 }
@@ -48,14 +42,12 @@ impl KdlEntry {
     /// Creates a new Argument (positional) KdlEntry.
     pub fn new(value: impl Into<KdlValue>) -> Self {
         KdlEntry {
-            leading: None,
             ty: None,
             value: value.into(),
-            value_repr: None,
             name: None,
-            trailing: None,
+            format: None,
             #[cfg(feature = "span")]
-            span: SourceSpan::from(0..0),
+            span: (0..0).into(),
         }
     }
 
@@ -110,62 +102,43 @@ impl KdlEntry {
         self.ty = Some(ty.into());
     }
 
+    /// Gets the formatting details for this entry.
+    pub fn format(&self) -> Option<&KdlEntryFormat> {
+        self.format.as_ref()
+    }
+
+    /// Gets a mutable reference to this entry's formatting details.
+    pub fn format_mut(&mut self) -> Option<&mut KdlEntryFormat> {
+        self.format.as_mut()
+    }
+
+    /// Sets the formatting details for this entry.
+    pub fn set_format(&mut self, format: KdlEntryFormat) {
+        self.format = Some(format);
+    }
+
     /// Creates a new Property (key/value) KdlEntry.
     pub fn new_prop(key: impl Into<KdlIdentifier>, value: impl Into<KdlValue>) -> Self {
         KdlEntry {
-            leading: None,
             ty: None,
             value: value.into(),
-            value_repr: None,
             name: Some(key.into()),
-            trailing: None,
+            format: None,
             #[cfg(feature = "span")]
             span: SourceSpan::from(0..0),
         }
     }
 
-    /// Gets leading text (whitespace, comments) for this KdlEntry.
-    pub fn leading(&self) -> Option<&str> {
-        self.leading.as_deref()
-    }
-
-    /// Sets leading text (whitespace, comments) for this KdlEntry.
-    pub fn set_leading(&mut self, leading: impl Into<String>) {
-        self.leading = Some(leading.into());
-    }
-
-    /// Gets trailing text (whitespace, comments) for this KdlEntry.
-    pub fn trailing(&self) -> Option<&str> {
-        self.trailing.as_deref()
-    }
-
-    /// Sets trailing text (whitespace, comments) for this KdlEntry.
-    pub fn set_trailing(&mut self, trailing: impl Into<String>) {
-        self.trailing = Some(trailing.into());
-    }
-
     /// Clears leading and trailing text (whitespace, comments), as well as
     /// resetting this entry's value to its default representation.
     pub fn clear_fmt(&mut self) {
-        self.leading = None;
-        self.trailing = None;
-        self.value_repr = None;
+        self.format = None;
         if let Some(ty) = &mut self.ty {
             ty.clear_fmt();
         }
         if let Some(name) = &mut self.name {
             name.clear_fmt();
         }
-    }
-
-    /// Gets the custom string representation for this KdlEntry's [`KdlValue`].
-    pub fn value_repr(&self) -> Option<&str> {
-        self.value_repr.as_deref()
-    }
-
-    /// Sets a custom string representation for this KdlEntry's [`KdlValue`].
-    pub fn set_value_repr(&mut self, repr: impl Into<String>) {
-        self.value_repr = Some(repr.into());
     }
 
     /// Length of this entry when rendered as a string.
@@ -180,9 +153,7 @@ impl KdlEntry {
 
     /// Auto-formats this entry.
     pub fn fmt(&mut self) {
-        self.leading = None;
-        self.trailing = None;
-        self.value_repr = None;
+        self.format = None;
         if let Some(name) = &mut self.name {
             name.fmt();
         }
@@ -191,21 +162,45 @@ impl KdlEntry {
 
 impl Display for KdlEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(leading) = &self.leading {
+        if let Some(KdlEntryFormat { leading, .. }) = &self.format {
             write!(f, "{}", leading)?;
         }
         if let Some(name) = &self.name {
-            write!(f, "{}=", name)?;
+            write!(f, "{}", name)?;
+            if let Some(KdlEntryFormat {
+                after_key,
+                eq,
+                after_eq,
+                ..
+            }) = &self.format
+            {
+                write!(f, "{}{}{}", after_key, eq, after_eq)?;
+            } else {
+                write!(f, "=")?;
+            }
         }
         if let Some(ty) = &self.ty {
-            write!(f, "({})", ty)?;
+            write!(f, "(")?;
+            if let Some(KdlEntryFormat { before_ty_name, .. }) = &self.format {
+                write!(f, "{}", before_ty_name)?;
+            }
+            write!(f, "{}", ty)?;
+            if let Some(KdlEntryFormat { after_ty_name, .. }) = &self.format {
+                write!(f, "{}", after_ty_name)?;
+            }
+            write!(f, ")")?;
         }
-        if let Some(repr) = &self.value_repr {
-            write!(f, "{}", repr)?;
+        if let Some(KdlEntryFormat {
+            after_ty,
+            value_repr,
+            ..
+        }) = &self.format
+        {
+            write!(f, "{}{}", after_ty, value_repr)?;
         } else {
             write!(f, "{}", self.value)?;
         }
-        if let Some(trailing) = &self.trailing {
+        if let Some(KdlEntryFormat { trailing, .. }) = &self.format {
             write!(f, "{}", trailing)?;
         }
         Ok(())
@@ -232,12 +227,42 @@ where
 }
 
 impl FromStr for KdlEntry {
-    type Err = KdlError;
+    type Err = KdlParseFailure;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let kdl_parser = parser::KdlParser::new(s);
-        kdl_parser.parse(parser::entry_with_trailing(&kdl_parser))
+        let (maybe_val, errs) = v2_parser::try_parse(v2_parser::padded_node_entry, s);
+        if let Some(Some(v)) = maybe_val {
+            Ok(v)
+        } else {
+            Err(v2_parser::failure_from_errs(errs, s))
+        }
     }
+}
+
+/// Formatting details for [`KdlEntry`]s.
+#[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
+pub struct KdlEntryFormat {
+    /// The actual text representation of the entry's value.
+    pub value_repr: String,
+    /// Whitespace and comments preceding the entry itself.
+    pub leading: String,
+    /// Whitespace and comments following the entry itself.
+    pub trailing: String,
+    /// Whitespace and comments after the entry's type annotation's closing
+    /// `)`, before its value.
+    pub after_ty: String,
+    /// Whitespace and comments between the opening `(` of an entry's type
+    /// annotation and its actual type name.
+    pub before_ty_name: String,
+    /// Whitespace and comments between the actual type name and the closing
+    /// `)` in an entry's type annotation.
+    pub after_ty_name: String,
+    /// Whitespace and comments between an entry's key name and its equals sign.
+    pub after_key: String,
+    /// Whitespace and comments between an entry's equals sign and its value.
+    pub after_eq: String,
+    /// Actual text used as an entry's equals sign.
+    pub eq: String,
 }
 
 #[cfg(test)]
@@ -261,12 +286,10 @@ mod test {
         assert_eq!(
             entry,
             KdlEntry {
-                leading: None,
                 ty: None,
                 value: KdlValue::Base10(42),
-                value_repr: None,
                 name: None,
-                trailing: None,
+                format: None,
                 #[cfg(feature = "span")]
                 span: SourceSpan::from(0..0),
             }
@@ -276,12 +299,10 @@ mod test {
         assert_eq!(
             entry,
             KdlEntry {
-                leading: None,
                 ty: None,
                 value: KdlValue::Base10(42),
-                value_repr: None,
                 name: Some("name".into()),
-                trailing: None,
+                format: None,
                 #[cfg(feature = "span")]
                 span: SourceSpan::from(0..0),
             }
@@ -294,12 +315,20 @@ mod test {
         assert_eq!(
             entry,
             KdlEntry {
-                leading: Some(" \\\n ".into()),
                 ty: Some("\"m\\\"eh\"".parse()?),
                 value: KdlValue::Base16(0xdeadbeef),
-                value_repr: Some("0xDEADbeef".into()),
                 name: None,
-                trailing: Some("\t\\\n".into()),
+                format: Some(KdlEntryFormat {
+                    leading: " \\\n ".into(),
+                    trailing: "\t\\\n".into(),
+                    value_repr: "0xDEADbeef".into(),
+                    before_ty_name: "".into(),
+                    after_ty_name: "".into(),
+                    after_ty: "".into(),
+                    after_key: "".into(),
+                    after_eq: "".into(),
+                    eq: "=".into(),
+                }),
                 #[cfg(feature = "span")]
                 span: SourceSpan::from(0..0),
             }
@@ -309,12 +338,20 @@ mod test {
         assert_eq!(
             entry,
             KdlEntry {
-                leading: Some(" \\\n ".into()),
+                format: Some(KdlEntryFormat {
+                    leading: " \\\n ".into(),
+                    trailing: "\t\\\n".into(),
+                    value_repr: "0xDEADbeef".into(),
+                    before_ty_name: "".into(),
+                    after_ty_name: "".into(),
+                    after_ty: "".into(),
+                    after_key: "".into(),
+                    after_eq: "".into(),
+                    eq: "=".into(),
+                }),
                 ty: Some("\"m\\\"eh\"".parse()?),
                 value: KdlValue::Base16(0xdeadbeef),
-                value_repr: Some("0xDEADbeef".into()),
                 name: Some("\"foo\"".parse()?),
-                trailing: Some("\t\\\n".into()),
                 #[cfg(feature = "span")]
                 span: SourceSpan::from(0..0),
             }

@@ -8,8 +8,7 @@ use std::{
 use miette::SourceSpan;
 
 use crate::{
-    parser, IntoKdlQuery, KdlDocument, KdlEntry, KdlError, KdlIdentifier, KdlQueryIterator,
-    KdlValue,
+    v2_parser, KdlDocument, KdlEntry, KdlEntryFormat, KdlIdentifier, KdlParseFailure, KdlValue,
 };
 
 /// Represents an individual KDL
@@ -22,6 +21,9 @@ pub struct KdlNode {
     pub(crate) name: KdlIdentifier,
     // TODO: consider using `hashlink` for this instead, later.
     pub(crate) entries: Vec<KdlEntry>,
+    pub(crate) before_ty_name: Option<String>,
+    pub(crate) after_ty_name: Option<String>,
+    pub(crate) after_ty: Option<String>,
     pub(crate) before_children: Option<String>,
     pub(crate) children: Option<KdlDocument>,
     pub(crate) trailing: Option<String>,
@@ -63,6 +65,9 @@ impl KdlNode {
             leading: None,
             ty: None,
             entries: Vec::new(),
+            before_ty_name: None,
+            after_ty_name: None,
+            after_ty: None,
             before_children: None,
             children: None,
             trailing: None,
@@ -143,9 +148,39 @@ impl KdlNode {
         self.before_children.as_deref()
     }
 
+    /// Gets text (whitespace, comments) between the type annotation and the node name.
+    pub fn after_ty(&self) -> Option<&str> {
+        self.after_ty.as_deref()
+    }
+
+    /// Gets text (whitespace, comments) between the opening `(` and the type annotation name.
+    pub fn before_ty_name(&self) -> Option<&str> {
+        self.before_ty_name.as_deref()
+    }
+
+    /// Gets text (whitespace, comments) between the type annotation name and the closing `)`.
+    pub fn after_ty_name(&self) -> Option<&str> {
+        self.after_ty_name.as_deref()
+    }
+
     /// Gets text (whitespace, comments) right before the children block's starting `{`.
     pub fn set_before_children(&mut self, before: impl Into<String>) {
         self.before_children = Some(before.into());
+    }
+
+    /// Sets text (whitespace, comments) between the type annotation and the node name.
+    pub fn set_after_ty(&mut self, after_ty: impl Into<String>) {
+        self.after_ty = Some(after_ty.into());
+    }
+
+    /// Sets text (whitespace, comments) between the opening `(` and the type annotation name.
+    pub fn set_before_ty_name(&mut self, before_ty_name: impl Into<String>) {
+        self.after_ty_name = Some(before_ty_name.into());
+    }
+
+    /// Sets text (whitespace, comments) between the type annotation name and the closing `)`.
+    pub fn set_after_ty_name(&mut self, after_ty_name: impl Into<String>) {
+        self.after_ty_name = Some(after_ty_name.into());
     }
 
     /// Gets trailing text (whitespace, comments) for this node.
@@ -418,44 +453,47 @@ impl KdlNode {
         self.fmt_impl(0, true);
     }
 
-    /// Queries this Node according to the KQL query language,
-    /// returning an iterator over all matching nodes.
-    pub fn query_all(&self, query: impl IntoKdlQuery) -> Result<KdlQueryIterator<'_>, KdlError> {
-        let q = query.into_query()?;
-        Ok(KdlQueryIterator::new(Some(self), None, q))
-    }
+    // TODO(@zkat): These should all be moved into the query module, instead
+    // of being model methods.
+    //
+    // /// Queries this Node according to the KQL
+    // query language, /// returning an iterator over all matching nodes. pub
+    // fn query_all( &self, query: impl IntoKdlQuery, ) ->
+    //     Result<KdlQueryIterator<'_>, KdlDiagnostic> { let q =
+    //     query.into_query()?; Ok(KdlQueryIterator::new(Some(self), None, q))
+    // }
 
-    /// Queries this Node according to the KQL query language,
-    /// returning the first match, if any.
-    pub fn query(&self, query: impl IntoKdlQuery) -> Result<Option<&KdlNode>, KdlError> {
-        Ok(self.query_all(query)?.next())
-    }
+    // /// Queries this Node according to the KQL query language,
+    // /// returning the first match, if any.
+    // pub fn query(&self, query: impl IntoKdlQuery) -> Result<Option<&KdlNode>, KdlDiagnostic> {
+    //     Ok(self.query_all(query)?.next())
+    // }
 
-    /// Queries this Node according to the KQL query language,
-    /// picking the first match, and calling `.get(key)` on it, if the query
-    /// succeeded.
-    pub fn query_get(
-        &self,
-        query: impl IntoKdlQuery,
-        key: impl Into<NodeKey>,
-    ) -> Result<Option<&KdlValue>, KdlError> {
-        Ok(self.query(query)?.and_then(|node| node.get(key)))
-    }
+    // /// Queries this Node according to the KQL query language,
+    // /// picking the first match, and calling `.get(key)` on it, if the query
+    // /// succeeded.
+    // pub fn query_get(
+    //     &self,
+    //     query: impl IntoKdlQuery,
+    //     key: impl Into<NodeKey>,
+    // ) -> Result<Option<&KdlValue>, KdlDiagnostic> {
+    //     Ok(self.query(query)?.and_then(|node| node.get(key)))
+    // }
 
-    /// Queries this Node according to the KQL query language,
-    /// returning an iterator over all matching nodes, returning the requested
-    /// field from each of those nodes and filtering out nodes that don't have
-    /// it.
-    pub fn query_get_all(
-        &self,
-        query: impl IntoKdlQuery,
-        key: impl Into<NodeKey>,
-    ) -> Result<impl Iterator<Item = &KdlValue>, KdlError> {
-        let key: NodeKey = key.into();
-        Ok(self
-            .query_all(query)?
-            .filter_map(move |node| node.get(key.clone())))
-    }
+    // /// Queries this Node according to the KQL query language,
+    // /// returning an iterator over all matching nodes, returning the requested
+    // /// field from each of those nodes and filtering out nodes that don't have
+    // /// it.
+    // pub fn query_get_all(
+    //     &self,
+    //     query: impl IntoKdlQuery,
+    //     key: impl Into<NodeKey>,
+    // ) -> Result<impl Iterator<Item = &KdlValue>, KdlDiagnostic> {
+    //     let key: NodeKey = key.into();
+    //     Ok(self
+    //         .query_all(query)?
+    //         .filter_map(move |node| node.get(key.clone())))
+    // }
 }
 
 /// Represents a [`KdlNode`]'s entry key.
@@ -517,11 +555,15 @@ impl IndexMut<&str> for KdlNode {
 }
 
 impl FromStr for KdlNode {
-    type Err = KdlError;
+    type Err = KdlParseFailure;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        let kdl_parser = crate::parser::KdlParser::new(input);
-        kdl_parser.parse(parser::node(&kdl_parser))
+        let (maybe_val, errs) = v2_parser::try_parse(v2_parser::padded_node, input);
+        if let Some(v) = maybe_val {
+            Ok(v)
+        } else {
+            Err(v2_parser::failure_from_errs(errs, input))
+        }
     }
 }
 
@@ -583,11 +625,19 @@ impl KdlNode {
         write!(f, "{}", self.name)?;
         let mut space_before_children = true;
         for entry in &self.entries {
-            if entry.leading.is_none() {
+            if let Some(KdlEntryFormat { leading, .. }) = entry.format() {
+                if leading.is_empty() {
+                    write!(f, " ")?;
+                }
+            } else {
                 write!(f, " ")?;
             }
             write!(f, "{}", entry)?;
-            space_before_children = entry.trailing.is_none();
+            space_before_children = if let Some(KdlEntryFormat { trailing, .. }) = entry.format() {
+                trailing.is_empty()
+            } else {
+                true
+            };
         }
         if let Some(children) = &self.children {
             if let Some(before) = self.before_children() {

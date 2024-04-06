@@ -159,7 +159,7 @@
 
 #![deny(missing_debug_implementations, nonstandard_style)]
 #![warn(missing_docs, unreachable_pub, rust_2018_idioms, unreachable_pub)]
-#![cfg_attr(test, deny(warnings))]
+// #![cfg_attr(test, deny(warnings))]
 #![doc(html_favicon_url = "https://kdl.dev/favicon.ico")]
 #![doc(html_logo_url = "https://kdl.dev/logo.svg")]
 
@@ -168,7 +168,7 @@ pub use entry::*;
 pub use error::*;
 pub use identifier::*;
 pub use node::*;
-pub use query::*;
+// pub use query::*;
 pub use value::*;
 
 mod document;
@@ -177,8 +177,10 @@ mod error;
 mod fmt;
 mod identifier;
 mod node;
-mod nom_compat;
-mod parser;
-mod query;
-mod query_parser;
+// mod nom_compat;
+// mod query;
+// mod query_parser;
+// mod v1_parser;
 mod value;
+
+mod v2_parser;

@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{parser, KdlError};
+use crate::{v2_parser, KdlParseFailure};
 
 /// Represents a KDL
 /// [Identifier](https://github.com/kdl-org/kdl/blob/main/SPEC.md#identifier).
@@ -201,11 +201,15 @@ impl From<KdlIdentifier> for String {
 }
 
 impl FromStr for KdlIdentifier {
-    type Err = KdlError;
+    type Err = KdlParseFailure;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let kdl_parser = crate::parser::KdlParser::new(s);
-        kdl_parser.parse(parser::identifier(&kdl_parser))
+        let (maybe_val, errs) = v2_parser::try_parse(v2_parser::identifier, s);
+        if let Some(v) = maybe_val {
+            Ok(v)
+        } else {
+            Err(v2_parser::failure_from_errs(errs, s))
+        }
     }
 }
 
@@ -226,7 +230,7 @@ mod test {
             }
         );
 
-        let quoted = "\"foo\\\"bar\"";
+        let quoted = r#""foo\"bar""#;
         assert_eq!(
             quoted.parse::<KdlIdentifier>()?,
             KdlIdentifier {

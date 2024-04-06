@@ -1,10 +1,11 @@
 use crate::nom_compat::many0;
-use crate::parser::{value, KdlParser};
 use crate::query::{
     KdlQuery, KdlQueryAttributeOp, KdlQueryMatcher, KdlQueryMatcherAccessor,
     KdlQueryMatcherDetails, KdlQuerySelector, KdlQuerySelectorSegment, KdlSegmentCombinator,
 };
-use crate::{KdlError, KdlErrorKind, KdlParseError, KdlValue};
+use crate::v1_parser::{value, KdlParser};
+use crate::{KdlDiagnostic, KdlErrorKind, KdlParseError, KdlValue};
+use miette::Severity;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::combinator::{all_consuming, cut, map, opt, recognize};
@@ -20,7 +21,7 @@ impl<'a> KdlQueryParser<'a> {
         Self(KdlParser::new(full_input))
     }
 
-    pub(crate) fn parse<T, P>(&self, parser: P) -> Result<T, KdlError>
+    pub(crate) fn parse<T, P>(&self, parser: P) -> Result<T, KdlDiagnostic>
     where
         P: Parser<&'a str, T, KdlParseError<&'a str>>,
     {
@@ -29,7 +30,7 @@ impl<'a> KdlQueryParser<'a> {
             .map(|(_, arg)| arg)
             .map_err(|e| {
                 let span_substr = &e.input[..e.len];
-                KdlError {
+                KdlDiagnostic {
                     input: self.0.full_input.into(),
                     span: self.0.span_from_substr(span_substr),
                     help: if let Some(help) = e.help {
@@ -47,6 +48,7 @@ impl<'a> KdlQueryParser<'a> {
                     } else {
                         KdlErrorKind::Context("a valid KQL query")
                     },
+                    severity: Severity::Error,
                 }
             })
     }
@@ -176,7 +178,7 @@ fn node_matchers<'a: 'b, 'b>(
             }
         }
 
-        let (input, node) = opt(crate::parser::identifier(&kdl_parser.0))(input)?;
+        let (input, node) = opt(crate::v1_parser::identifier(&kdl_parser.0))(input)?;
         if let Some(node) = node {
             matchers.push(KdlQueryMatcherDetails {
                 op: KdlQueryAttributeOp::Equal,
@@ -230,7 +232,7 @@ fn node_matchers<'a: 'b, 'b>(
             }
 
             // Check for trailing node name matcher.
-            let (end, ident) = opt(crate::parser::identifier(&kdl_parser.0))(input)?;
+            let (end, ident) = opt(crate::v1_parser::identifier(&kdl_parser.0))(input)?;
             if ident.is_some() {
                 return Err(nom::Err::Error(KdlParseError {
                     input: start,
@@ -275,7 +277,7 @@ fn attribute_matcher_inner<'a: 'b, 'b>(
             let (input, _) = whitespace(input)?;
             if let Some(op) = op {
                 let prev = input;
-                let (input, val) = opt(crate::parser::value)(input)?;
+                let (input, val) = opt(crate::v1_parser::value)(input)?;
                 // Make sure it's a syntax error to try and use string
                 // operators with non-string arguments.
                 if let Some((_, value)) = val {
@@ -370,7 +372,7 @@ fn annotation_matcher<'a: 'b, 'b>(
         let start = input;
         let (input, _) = tag("(")(input)?;
         let (input, _) = whitespace(input)?;
-        let (input, ty) = opt(crate::parser::identifier(&kdl_parser.0))(input)?;
+        let (input, ty) = opt(crate::v1_parser::identifier(&kdl_parser.0))(input)?;
         let (input, _) = context("closing ')' for type annotation", cut(tag(")")))(input)
             .map_err(|e| set_details(e, start, Some("annotation"), Some("annotations can only be KDL identifiers (including string identifiers), and can't have any space inside the parentheses.")))?;
         Ok((
@@ -464,7 +466,7 @@ fn prop_name_accessor<'a: 'b, 'b>(
 ) -> impl Fn(&'a str) -> IResult<&'a str, KdlQueryMatcherAccessor, KdlParseError<&'a str>> + 'b {
     move |input| {
         let start = input;
-        let (input, prop_name) = crate::parser::identifier(&kdl_parser.0)(input)?;
+        let (input, prop_name) = crate::v1_parser::identifier(&kdl_parser.0)(input)?;
         let (_, paren) = opt(preceded(whitespace, tag("(")))(input)?;
         if paren.is_some() {
             Err(nom::Err::Error(KdlParseError {
@@ -512,7 +514,7 @@ fn parenthesized_prop<'a: 'b, 'b>(
 ) -> impl Fn(&'a str) -> IResult<&'a str, String, KdlParseError<&'a str>> + 'b {
     move |input| {
         let (input, _) = tag("(")(input)?;
-        let (input, prop) = crate::parser::identifier(&kdl_parser.0)(input)?;
+        let (input, prop) = crate::v1_parser::identifier(&kdl_parser.0)(input)?;
         let (input, _) = tag(")")(input)?;
         Ok((input, prop.value().to_owned()))
     }
@@ -547,7 +549,7 @@ fn bad_accessor<'a: 'b, 'b>(
         }
 
         let (input, ident) = opt(terminated(
-            crate::parser::identifier(&kdl_parser.0),
+            crate::v1_parser::identifier(&kdl_parser.0),
             preceded(
                 whitespace,
                 terminated(tag("("), opt(preceded(whitespace, tag(")")))),
@@ -585,7 +587,7 @@ fn bad_accessor<'a: 'b, 'b>(
 
 fn whitespace(input: &str) -> IResult<&str, &str, KdlParseError<&str>> {
     recognize(many0(alt((
-        crate::parser::unicode_space,
-        crate::parser::newline,
+        crate::v1_parser::unicode_space,
+        crate::v1_parser::newline,
     ))))(input)
 }

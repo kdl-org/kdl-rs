@@ -4,6 +4,8 @@ use std::fmt::Display;
 #[derive(Debug, Clone, PartialOrd)]
 pub enum KdlValue {
     /// A [KDL Raw String](https://github.com/kdl-org/kdl/blob/main/SPEC.md#raw-string).
+    // TODO: remove this and use `String` for all strings. We can use the repr
+    // to keep track of whether it's raw or not.
     RawString(String),
 
     /// A [KDL String](https://github.com/kdl-org/kdl/blob/main/SPEC.md#string).
