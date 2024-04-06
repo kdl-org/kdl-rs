@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-pub(crate) fn fmt_leading(leading: &mut String, indent: usize, _no_comments: bool) {
+pub(crate) fn autoformat_leading(leading: &mut String, indent: usize, _no_comments: bool) {
     if leading.is_empty() {
         return;
     }
@@ -23,7 +23,7 @@ pub(crate) fn fmt_leading(leading: &mut String, indent: usize, _no_comments: boo
     *leading = result;
 }
 
-pub(crate) fn fmt_trailing(decor: &mut String, _no_comments: bool) {
+pub(crate) fn autoformat_trailing(decor: &mut String, _no_comments: bool) {
     if decor.is_empty() {
         return;
     }

@@ -19,8 +19,8 @@ use winnow::{
 };
 
 use crate::{
-    KdlDiagnostic, KdlDocument, KdlEntry, KdlEntryFormat, KdlErrorKind, KdlIdentifier, KdlNode,
-    KdlNodeFormat, KdlParseFailure, KdlValue,
+    KdlDiagnostic, KdlDocument, KdlDocumentFormat, KdlEntry, KdlEntryFormat, KdlErrorKind,
+    KdlIdentifier, KdlNode, KdlNodeFormat, KdlParseFailure, KdlValue,
 };
 
 type Input<'a> = Recoverable<Located<&'a str>, KdlParseError>;
@@ -201,11 +201,9 @@ fn document<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
     let bom = opt(bom.recognize()).parse_next(input)?;
     let mut doc = nodes.parse_next(input)?;
     if let Some(bom) = bom {
-        doc.leading = Some(if let Some(leading) = doc.leading {
-            format!("{bom}{leading}")
-        } else {
-            bom.into()
-        });
+        if let Some(fmt) = doc.format_mut() {
+            fmt.leading = format!("{bom}{}", fmt.leading);
+        }
     }
     Ok(doc)
 }
@@ -220,9 +218,11 @@ fn nodes<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
         .with_span()
         .parse_next(input)?;
     Ok(KdlDocument {
-        leading: Some(leading.into()),
         nodes,
-        trailing: Some(trailing.into()),
+        format: Some(KdlDocumentFormat {
+            leading: leading.into(),
+            trailing: trailing.into(),
+        }),
         #[cfg(feature = "span")]
         span: _span.into(),
     })

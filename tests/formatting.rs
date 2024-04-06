@@ -11,7 +11,7 @@ fn build_and_format() {
 
     let mut doc = KdlDocument::new();
     doc.nodes_mut().push(a);
-    doc.fmt();
+    doc.autoformat();
     let fmt = doc.to_string();
     println!("{}", fmt);
     assert_eq!(

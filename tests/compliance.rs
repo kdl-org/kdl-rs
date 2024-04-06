@@ -61,7 +61,7 @@ fn normalize_line_endings(src: String) -> String {
 }
 
 fn stringify_to_expected(mut doc: KdlDocument) -> String {
-    doc.fmt_no_comments();
+    doc.autoformat_no_comments();
     normalize_numbers(&mut doc);
     normalize_strings(&mut doc);
     dedupe_props(&mut doc);

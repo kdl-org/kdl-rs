@@ -20,27 +20,23 @@ use crate::{KdlNode, KdlValue};
 /// ```
 #[derive(Debug, Clone, Eq)]
 pub struct KdlDocument {
-    pub(crate) leading: Option<String>,
     pub(crate) nodes: Vec<KdlNode>,
-    pub(crate) trailing: Option<String>,
+    pub(crate) format: Option<KdlDocumentFormat>,
     #[cfg(feature = "span")]
     pub(crate) span: SourceSpan,
 }
 
 impl PartialEq for KdlDocument {
     fn eq(&self, other: &Self) -> bool {
-        self.leading == other.leading
-            && self.nodes == other.nodes
-            && self.trailing == other.trailing
+        self.nodes == other.nodes && self.format == other.format
         // Intentionally omitted: self.span == other.span
     }
 }
 
 impl std::hash::Hash for KdlDocument {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.leading.hash(state);
         self.nodes.hash(state);
-        self.trailing.hash(state);
+        self.format.hash(state);
         // Intentionally omitted: self.span.hash(state)
     }
 }
@@ -48,9 +44,8 @@ impl std::hash::Hash for KdlDocument {
 impl Default for KdlDocument {
     fn default() -> Self {
         Self {
-            leading: Default::default(),
             nodes: Default::default(),
-            trailing: Default::default(),
+            format: Default::default(),
             #[cfg(feature = "span")]
             span: SourceSpan::from(0..0),
         }
@@ -192,24 +187,19 @@ impl KdlDocument {
         &mut self.nodes
     }
 
-    /// Gets leading text (whitespace, comments) for this KdlDocument.
-    pub fn leading(&self) -> Option<&str> {
-        self.leading.as_deref()
+    /// Gets the formatting details for this entry.
+    pub fn format(&self) -> Option<&KdlDocumentFormat> {
+        self.format.as_ref()
     }
 
-    /// Sets leading text (whitespace, comments) for this KdlDocument.
-    pub fn set_leading(&mut self, leading: impl Into<String>) {
-        self.leading = Some(leading.into());
+    /// Gets a mutable reference to this entry's formatting details.
+    pub fn format_mut(&mut self) -> Option<&mut KdlDocumentFormat> {
+        self.format.as_mut()
     }
 
-    /// Gets trailing text (whitespace, comments) for this KdlDocument.
-    pub fn trailing(&self) -> Option<&str> {
-        self.trailing.as_deref()
-    }
-
-    /// Sets trailing text (whitespace, comments) for this KdlDocument.
-    pub fn set_trailing(&mut self, trailing: impl Into<String>) {
-        self.trailing = Some(trailing.into());
+    /// Sets the formatting details for this entry.
+    pub fn set_format(&mut self, format: KdlDocumentFormat) {
+        self.format = Some(format);
     }
 
     /// Length of this document when rendered as a string.
@@ -226,29 +216,28 @@ impl KdlDocument {
     /// this document will be unaffected.
     ///
     /// If you need to clear the `KdlNode`s, use [`Self::clear_fmt_recursive`].
-    pub fn clear_fmt(&mut self) {
-        self.leading = None;
-        self.trailing = None;
+    pub fn clear_format(&mut self) {
+        self.format = None;
     }
 
     /// Clears leading and trailing text (whitespace, comments), also clearing
     /// all the `KdlNode`s in the document.
-    pub fn clear_fmt_recursive(&mut self) {
-        self.clear_fmt();
+    pub fn clear_format_recursive(&mut self) {
+        self.clear_format();
         for node in self.nodes.iter_mut() {
-            node.clear_fmt_recursive();
+            node.clear_format_recursive();
         }
     }
 
     /// Auto-formats this Document, making everything nice while preserving
     /// comments.
-    pub fn fmt(&mut self) {
-        self.fmt_impl(0, false);
+    pub fn autoformat(&mut self) {
+        self.autoformat_impl(0, false);
     }
 
     /// Formats the document and removes all comments from the document.
-    pub fn fmt_no_comments(&mut self) {
-        self.fmt_impl(0, true);
+    pub fn autoformat_no_comments(&mut self) {
+        self.autoformat_impl(0, true);
     }
 
     // TODO(@zkat): These should all be moved into the query module itself,
@@ -329,19 +318,19 @@ impl Display for KdlDocument {
 }
 
 impl KdlDocument {
-    pub(crate) fn fmt_impl(&mut self, indent: usize, no_comments: bool) {
-        if let Some(s) = self.leading.as_mut() {
-            crate::fmt::fmt_leading(s, indent, no_comments);
+    pub(crate) fn autoformat_impl(&mut self, indent: usize, no_comments: bool) {
+        if let Some(KdlDocumentFormat { leading, .. }) = self.format_mut() {
+            crate::fmt::autoformat_leading(leading, indent, no_comments);
         }
         let mut has_nodes = false;
         for node in &mut self.nodes {
             has_nodes = true;
-            node.fmt_impl(indent, no_comments);
+            node.autoformat_impl(indent, no_comments);
         }
-        if let Some(s) = self.trailing.as_mut() {
-            crate::fmt::fmt_trailing(s, no_comments);
+        if let Some(KdlDocumentFormat { trailing, .. }) = self.format_mut() {
+            crate::fmt::autoformat_trailing(trailing, no_comments);
             if !has_nodes {
-                s.push('\n');
+                trailing.push('\n');
             }
         }
     }
@@ -351,7 +340,7 @@ impl KdlDocument {
         f: &mut std::fmt::Formatter<'_>,
         indent: usize,
     ) -> std::fmt::Result {
-        if let Some(leading) = &self.leading {
+        if let Some(KdlDocumentFormat { leading, .. }) = self.format() {
             write!(f, "{}", leading)?;
         }
         for node in &self.nodes {
@@ -360,7 +349,7 @@ impl KdlDocument {
                 writeln!(f)?;
             }
         }
-        if let Some(trailing) = &self.trailing {
+        if let Some(KdlDocumentFormat { trailing, .. }) = self.format() {
             write!(f, "{}", trailing)?;
         }
         Ok(())
@@ -374,6 +363,15 @@ impl IntoIterator for KdlDocument {
     fn into_iter(self) -> Self::IntoIter {
         self.nodes.into_iter()
     }
+}
+
+/// Formatting details for [`KdlDocument`]s.
+#[derive(Debug, Clone, Default, Hash, Eq, PartialEq)]
+pub struct KdlDocumentFormat {
+    /// Whitespace and comments preceding the document's first node.
+    pub leading: String,
+    /// Whitespace and comments following the document's last node.
+    pub trailing: String,
 }
 
 #[cfg(test)]
@@ -408,8 +406,8 @@ second_node /* This time, the comment is here */ param=153 {
         let mut left_doc: KdlDocument = left_src.parse()?;
         let mut right_doc: KdlDocument = right_src.parse()?;
         assert_ne!(left_doc, right_doc);
-        left_doc.clear_fmt_recursive();
-        right_doc.clear_fmt_recursive();
+        left_doc.clear_format_recursive();
+        right_doc.clear_format_recursive();
         assert_eq!(left_doc, right_doc);
         Ok(())
     }
@@ -441,12 +439,12 @@ another /*foo*/ \"node\" /-1 /*bar*/ null;
 final;";
         let mut doc: KdlDocument = src.parse()?;
 
-        assert_eq!(doc.leading, Some("".into()));
         assert_eq!(doc.get_arg("foo"), Some(&1.into()));
         assert_eq!(
             doc.get_dash_args("foo"),
             vec![&1.into(), &2.into(), &"three".into()]
         );
+        assert_eq!(doc.format(), Some(&Default::default()));
 
         let foo = doc.get("foo").expect("expected a foo node");
         assert_eq!(
@@ -531,7 +529,7 @@ baz
     }
 
     #[test]
-    fn fmt() -> miette::Result<()> {
+    fn autoformat() -> miette::Result<()> {
         let mut doc: KdlDocument = r#"
 
         /* x */ foo    1 "bar"=0xDEADbeef {
@@ -565,7 +563,7 @@ baz
         "#
         .parse()?;
 
-        KdlDocument::fmt(&mut doc);
+        KdlDocument::autoformat(&mut doc);
 
         print!("{}", doc);
         assert_eq!(
@@ -592,9 +590,9 @@ foo 1 bar=0xdeadbeef {
     }
 
     #[test]
-    fn simple_fmt() -> miette::Result<()> {
+    fn simple_autoformat() -> miette::Result<()> {
         let mut doc: KdlDocument = "a { b { c { }; }; }".parse().unwrap();
-        KdlDocument::fmt(&mut doc);
+        KdlDocument::autoformat(&mut doc);
         print!("{}", doc);
         assert_eq!(
             doc.to_string(),

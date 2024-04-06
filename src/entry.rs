@@ -131,13 +131,13 @@ impl KdlEntry {
 
     /// Clears leading and trailing text (whitespace, comments), as well as
     /// resetting this entry's value to its default representation.
-    pub fn clear_fmt(&mut self) {
+    pub fn clear_format(&mut self) {
         self.format = None;
         if let Some(ty) = &mut self.ty {
-            ty.clear_fmt();
+            ty.clear_format();
         }
         if let Some(name) = &mut self.name {
-            name.clear_fmt();
+            name.clear_format();
         }
     }
 
@@ -152,10 +152,10 @@ impl KdlEntry {
     }
 
     /// Auto-formats this entry.
-    pub fn fmt(&mut self) {
+    pub fn autoformat(&mut self) {
         self.format = None;
         if let Some(name) = &mut self.name {
-            name.fmt();
+            name.autoformat();
         }
     }
 }
@@ -274,8 +274,8 @@ mod test {
         let mut left_entry: KdlEntry = "   name=1.03e2".parse()?;
         let mut right_entry: KdlEntry = "   name=103.0".parse()?;
         assert_ne!(left_entry, right_entry);
-        left_entry.clear_fmt();
-        right_entry.clear_fmt();
+        left_entry.clear_format();
+        right_entry.clear_format();
         assert_eq!(left_entry, right_entry);
         Ok(())
     }

@@ -7,7 +7,9 @@ use std::{
 #[cfg(feature = "span")]
 use miette::SourceSpan;
 
-use crate::{v2_parser, KdlDocument, KdlEntry, KdlIdentifier, KdlParseFailure, KdlValue};
+use crate::{
+    v2_parser, KdlDocument, KdlDocumentFormat, KdlEntry, KdlIdentifier, KdlParseFailure, KdlValue,
+};
 
 /// Represents an individual KDL
 /// [`Node`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#node) inside a
@@ -133,21 +135,21 @@ impl KdlNode {
     ///
     /// If you want to clear formatting on all children and entries as well,
     /// use [`Self::clear_fmt_recursive`].
-    pub fn clear_fmt(&mut self) {
+    pub fn clear_format(&mut self) {
         self.format = None;
     }
 
     /// Clears leading and trailing text (whitespace, comments), as well as
     /// the space before the children block, if any. Individual entries and
     /// children formatting will also be cleared.
-    pub fn clear_fmt_recursive(&mut self) {
-        self.clear_fmt();
-        self.name.clear_fmt();
+    pub fn clear_format_recursive(&mut self) {
+        self.clear_format();
+        self.name.clear_format();
         if let Some(children) = &mut self.children {
-            children.clear_fmt_recursive();
+            children.clear_format_recursive();
         }
         for entry in self.entries.iter_mut() {
-            entry.clear_fmt();
+            entry.clear_format();
         }
     }
 
@@ -381,12 +383,12 @@ impl KdlNode {
     }
     /// Auto-formats this node and its contents.
     pub fn fmt(&mut self) {
-        self.fmt_impl(0, false);
+        self.autoformat_impl(0, false);
     }
 
     /// Auto-formats this node and its contents, stripping comments.
     pub fn fmt_no_comments(&mut self) {
-        self.fmt_impl(0, true);
+        self.autoformat_impl(0, true);
     }
 
     // TODO(@zkat): These should all be moved into the query module, instead
@@ -510,7 +512,7 @@ impl Display for KdlNode {
 }
 
 impl KdlNode {
-    pub(crate) fn fmt_impl(&mut self, indent: usize, no_comments: bool) {
+    pub(crate) fn autoformat_impl(&mut self, indent: usize, no_comments: bool) {
         if let Some(KdlNodeFormat {
             leading,
             trailing,
@@ -518,8 +520,8 @@ impl KdlNode {
             ..
         }) = self.format_mut()
         {
-            crate::fmt::fmt_leading(leading, indent, no_comments);
-            crate::fmt::fmt_trailing(trailing, no_comments);
+            crate::fmt::autoformat_leading(leading, indent, no_comments);
+            crate::fmt::autoformat_trailing(trailing, no_comments);
             if trailing.starts_with(';') {
                 trailing.remove(0);
             }
@@ -532,19 +534,17 @@ impl KdlNode {
 
             *before_children = "".into();
         }
-        self.name.clear_fmt();
+        self.name.clear_format();
         if let Some(ty) = self.ty.as_mut() {
-            ty.clear_fmt()
+            ty.clear_format()
         }
         for entry in &mut self.entries {
-            entry.fmt();
+            entry.autoformat();
         }
         if let Some(children) = self.children.as_mut() {
-            children.fmt_impl(indent + 4, no_comments);
-            if let Some(leading) = children.leading.as_mut() {
+            children.autoformat_impl(indent + 4, no_comments);
+            if let Some(KdlDocumentFormat { leading, trailing }) = children.format_mut() {
                 leading.push('\n');
-            }
-            if let Some(trailing) = children.trailing.as_mut() {
                 trailing.push_str(format!("{:indent$}", "", indent = indent).as_str());
             }
         }
@@ -582,11 +582,11 @@ impl KdlNode {
                 write!(f, " ")?;
             }
             write!(f, "{{")?;
-            if children.leading.is_none() {
+            if children.format().is_none() {
                 writeln!(f)?;
             }
             children.stringify(f, indent + 4)?;
-            if children.trailing.is_none() {
+            if children.format().is_none() {
                 write!(f, "{:indent$}", "", indent = indent)?;
             }
             write!(f, "}}")?;
@@ -629,8 +629,8 @@ mod test {
         .parse()?;
         let mut right_node: KdlNode = "node param_name=103.0 { nested 1 2 3; }".parse()?;
         assert_ne!(left_node, right_node);
-        left_node.clear_fmt_recursive();
-        right_node.clear_fmt_recursive();
+        left_node.clear_format_recursive();
+        right_node.clear_format_recursive();
         assert_eq!(left_node, right_node);
         Ok(())
     }
