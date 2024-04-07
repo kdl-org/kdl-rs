@@ -325,15 +325,20 @@ fn test_node() {
                 repr: Some("foo".into()),
                 span: (0..3).into()
             },
-            entries: vec![],
+            entries: vec![KdlEntry {
+                ty: None,
+                value: "bar".into(),
+                name: None,
+                format: Some(KdlEntryFormat {
+                    value_repr: "bar".into(),
+                    leading: " ".into(),
+                    ..Default::default()
+                }),
+                span: SourceSpan::new(3.into(), 4)
+            }],
             children: None,
             format: Some(KdlNodeFormat {
-                after_ty: " ".into(),
-                before_ty_name: "".into(),
-                after_ty_name: "".into(),
-                before_children: "".into(),
-                leading: "".into(),
-                trailing: "".into()
+                ..Default::default()
             }),
             span: (0..7).into()
         }
@@ -342,9 +347,13 @@ fn test_node() {
 
 pub(crate) fn padded_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
     let ((leading, mut node, trailing), _span) = (
-        repeat(0.., plain_node_space).map(|_: ()| ()).recognize(),
+        repeat(0.., alt((line_space, node_space)))
+            .map(|_: ()| ())
+            .recognize(),
         node,
-        repeat(0.., plain_node_space).map(|_: ()| ()).recognize(),
+        repeat(0.., alt((line_space, node_space)))
+            .map(|_: ()| ())
+            .recognize(),
     )
         .with_span()
         .parse_next(input)?;
@@ -371,7 +380,9 @@ pub(crate) fn padded_node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<Kdl
     let ((leading, entry, trailing), _span) = (
         repeat(0.., line_space).map(|_: ()| ()).recognize(),
         node_entry,
-        repeat(0.., alt((line_space, node_space))).map(|_: ()| ()).recognize(),
+        repeat(0.., alt((line_space, node_space)))
+            .map(|_: ()| ())
+            .recognize(),
     )
         .with_span()
         .parse_next(input)?;
@@ -405,6 +416,39 @@ fn node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
         e
     });
     Ok(entry)
+}
+
+#[cfg(test)]
+#[test]
+fn entry_test() {
+    assert_eq!(
+        node_entry.parse(new_input("foo=bar")).unwrap(),
+        Some(KdlEntry {
+            ty: None,
+            value: KdlValue::String("bar".into()),
+            name: Some("foo".parse().unwrap()),
+            format: Some(KdlEntryFormat {
+                value_repr: "bar".into(),
+                eq: "=".into(),
+                ..Default::default()
+            }),
+            span: (0..7).into()
+        })
+    );
+
+    assert_eq!(
+        node_entry.parse(new_input("foo")).unwrap(),
+        Some(KdlEntry {
+            ty: None,
+            value: KdlValue::String("foo".into()),
+            name: None,
+            format: Some(KdlEntryFormat {
+                value_repr: "foo".into(),
+                ..Default::default()
+            }),
+            span: (0..3).into()
+        })
+    );
 }
 
 /// `node-children := '{' nodes final-node? '}'`
@@ -549,7 +593,9 @@ fn node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
 
 /// `required-node-space := node-space* plain-node-space+`
 fn required_node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
-    repeat(0.., node_space).map(|_: ()| ()).parse_next(input)?;
+    repeat(0.., (node_space, peek(plain_node_space)))
+        .map(|_: ()| ())
+        .parse_next(input)?;
     repeat(1.., plain_node_space).parse_next(input)
 }
 

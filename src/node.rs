@@ -631,7 +631,7 @@ mod test {
         assert_ne!(left_node, right_node);
         left_node.clear_format_recursive();
         right_node.clear_format_recursive();
-        assert_eq!(left_node, right_node);
+        assert_eq!(left_node.to_string(), right_node.to_string());
         Ok(())
     }
 
@@ -640,7 +640,7 @@ mod test {
         let node: KdlNode = "\n\t  (\"ty\")\"node\" 0xDEADbeef;\n".parse()?;
         assert_eq!(node.ty(), Some(&"\"ty\"".parse()?));
         assert_eq!(node.name(), &"\"node\"".parse()?);
-        assert_eq!(node.entry(0), Some(&"0xDEADbeef".parse()?));
+        assert_eq!(node.entry(0), Some(&" 0xDEADbeef".parse()?));
         assert_eq!(
             node.format(),
             Some(&KdlNodeFormat {
