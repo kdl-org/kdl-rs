@@ -311,6 +311,39 @@ mod test {
 
     #[test]
     fn parsing() -> miette::Result<()> {
+        let entry: KdlEntry = "foo".parse()?;
+        assert_eq!(
+            entry,
+            KdlEntry {
+                ty: None,
+                value: KdlValue::from("foo"),
+                name: None,
+                format: Some(KdlEntryFormat {
+                    value_repr: "foo".into(),
+                    ..Default::default()
+                }),
+                #[cfg(feature = "span")]
+                span: SourceSpan::from(0..3),
+            }
+        );
+
+        let entry: KdlEntry = "foo=bar".parse()?;
+        assert_eq!(
+            entry,
+            KdlEntry {
+                ty: None,
+                value: KdlValue::from("bar"),
+                name: Some("foo".parse()?),
+                format: Some(KdlEntryFormat {
+                    value_repr: "bar".into(),
+                    eq: "=".into(),
+                    ..Default::default()
+                }),
+                #[cfg(feature = "span")]
+                span: SourceSpan::from(0..7),
+            }
+        );
+
         let entry: KdlEntry = " \\\n (\"m\\\"eh\")0xDEADbeef\t\\\n".parse()?;
         let mut ty: KdlIdentifier = "\"m\\\"eh\"".parse()?;
         ty.span = (5..12).into();
@@ -324,12 +357,7 @@ mod test {
                     leading: " \\\n ".into(),
                     trailing: "\t\\\n".into(),
                     value_repr: "0xDEADbeef".into(),
-                    before_ty_name: "".into(),
-                    after_ty_name: "".into(),
-                    after_ty: "".into(),
-                    after_key: "".into(),
-                    after_eq: "".into(),
-                    eq: "".into(),
+                    ..Default::default()
                 }),
                 #[cfg(feature = "span")]
                 span: SourceSpan::from(0..26),

@@ -230,17 +230,16 @@ fn nodes<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
 
 /// `base-node := type? optional-node-space string (required-node-space node-prop-or-arg)* (required-node-space node-children)?`
 fn base_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
-    let ((ty, after_ty, name, entries, before_children, children), _span) = (
+    let ((ty, after_ty, name, entries, children), _span) = (
         opt(ty),
         optional_node_space.recognize(),
         identifier,
         repeat(
             0..,
-            (required_node_space, node_entry).map(|(_, e): ((), _)| e),
+            (peek(required_node_space), node_entry).map(|(_, e): ((), _)| e),
         )
         .map(|e: Vec<Option<KdlEntry>>| e.into_iter().filter_map(|e| e).collect::<Vec<KdlEntry>>()),
-        required_node_space.recognize(),
-        opt(node_children),
+        opt((required_node_space.recognize(), node_children)),
     )
         .with_span()
         .parse_next(input)?;
@@ -249,6 +248,9 @@ fn base_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
     } else {
         ("", None, "")
     };
+    let (before_children, children) = children
+        .map(|(before_children, children)| (before_children, Some(children)))
+        .unwrap_or(("", None));
     Ok(KdlNode {
         ty,
         name,
@@ -288,6 +290,56 @@ fn node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
     Ok(node)
 }
 
+#[cfg(test)]
+#[test]
+fn test_node() {
+    assert_eq!(
+        node.parse(new_input("foo")).unwrap(),
+        KdlNode {
+            ty: None,
+            name: KdlIdentifier {
+                value: "foo".into(),
+                repr: Some("foo".into()),
+                span: (0..3).into()
+            },
+            entries: vec![],
+            children: None,
+            format: Some(KdlNodeFormat {
+                after_ty: "".into(),
+                before_ty_name: "".into(),
+                after_ty_name: "".into(),
+                before_children: "".into(),
+                leading: "".into(),
+                trailing: "".into()
+            }),
+            span: (0..7).into()
+        }
+    );
+
+    assert_eq!(
+        base_node.parse(new_input("foo bar")).unwrap(),
+        KdlNode {
+            ty: None,
+            name: KdlIdentifier {
+                value: "foo".into(),
+                repr: Some("foo".into()),
+                span: (0..3).into()
+            },
+            entries: vec![],
+            children: None,
+            format: Some(KdlNodeFormat {
+                after_ty: " ".into(),
+                before_ty_name: "".into(),
+                after_ty_name: "".into(),
+                before_children: "".into(),
+                leading: "".into(),
+                trailing: "".into()
+            }),
+            span: (0..7).into()
+        }
+    );
+}
+
 pub(crate) fn padded_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
     let ((leading, mut node, trailing), _span) = (
         repeat(0.., plain_node_space).map(|_: ()| ()).recognize(),
@@ -319,14 +371,14 @@ pub(crate) fn padded_node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<Kdl
     let ((leading, entry, trailing), _span) = (
         repeat(0.., line_space).map(|_: ()| ()).recognize(),
         node_entry,
-        repeat(0.., line_space).map(|_: ()| ()).recognize(),
+        repeat(0.., alt((line_space, node_space))).map(|_: ()| ()).recognize(),
     )
         .with_span()
         .parse_next(input)?;
     Ok(entry.map(|mut val| {
         if let Some(fmt) = val.format_mut() {
-            fmt.leading = leading.into();
-            fmt.trailing = trailing.into();
+            fmt.leading = format!("{leading}{}", fmt.leading);
+            fmt.trailing = format!("{}{trailing}", fmt.trailing);
         }
         #[cfg(feature = "span")]
         {
@@ -374,7 +426,7 @@ fn node_children<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
 
 /// `node-terminator := single-line-comment | newline | ';' | eof`
 fn node_terminator<'s>(input: &mut Input<'s>) -> PResult<()> {
-    alt((single_line_comment, newline, ";".void(), eof.void())).parse_next(input)
+    alt((eof.void(), ";".void(), newline, single_line_comment)).parse_next(input)
 }
 
 /// `prop := string optional-node-space equals-sign optional-node-space value`
@@ -592,9 +644,7 @@ fn identifier_char<'s>(input: &mut Input<'s>) -> PResult<char> {
 
 /// `equals-sign := See Table ([Equals Sign](#equals-sign))`
 fn equals_sign<'s>(input: &mut Input<'s>) -> PResult<()> {
-    one_of(['=', '﹦', '＝', '🟰'])
-        .void()
-        .parse_next(input)
+    one_of(['=', '﹦', '＝', '🟰']).void().parse_next(input)
 }
 
 /// ```text
@@ -694,7 +744,7 @@ fn escaped_char<'s>(input: &mut Input<'s>) -> PResult<char> {
 /// `single-line-raw-string-body := (unicode - newline - disallowed-literal-code-points)*`
 /// `multi-line-raw-string-body := (unicode - disallowed-literal-code-points)`
 fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
-    let hashes = repeat(1.., "#").parse_next(input)?;
+    let hashes: String = repeat(1.., "#").parse_next(input)?;
     "\"".parse_next(input)?;
     let is_multiline = opt(newline).parse_next(input)?.is_some();
     let ml_prefix: Option<String> = if is_multiline {
@@ -712,12 +762,12 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
             (
                 &prefix[..],
                 not(disallowed_unicode),
-                not(("\"", hashes)),
+                not(("\"", &hashes[..])),
                 any,
                 newline,
             )
                 .map(|(_, _, _, s, _)| s),
-            (&prefix[..], "\"", hashes),
+            (&prefix[..], "\"", &hashes[..]),
         ))
         .map(|(s, _): (String, _)| s)
         .resume_after(raw_string_badval)
@@ -728,11 +778,11 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
             (
                 not(disallowed_unicode),
                 not(newline),
-                not(("\"", hashes)),
+                not(("\"", &hashes[..])),
                 any,
             )
                 .map(|(_, _, _, s)| s),
-            ("\"", hashes),
+            ("\"", &hashes[..]),
         ))
         .map(|(s, _): (String, _)| s)
         .resume_after(raw_string_badval)
@@ -750,6 +800,47 @@ fn raw_string_badval<'s>(input: &mut Input<'s>) -> PResult<()> {
     )
     .map(|(v, _)| v)
     .parse_next(input)
+}
+
+#[cfg(test)]
+mod string_tests {
+    use super::*;
+
+    #[test]
+    fn identifier_string() {
+        assert_eq!(
+            string.parse(new_input("foo")).unwrap(),
+            Some(KdlValue::String("foo".into()))
+        );
+    }
+
+    #[test]
+    fn quoted_string() {
+        assert_eq!(
+            string.parse(new_input("\"foo\"")).unwrap(),
+            Some(KdlValue::String("foo".into()))
+        );
+    }
+
+    #[test]
+    fn raw_string() {
+        assert_eq!(
+            string.parse(new_input("#\"foo\"#")).unwrap(),
+            Some(KdlValue::String("foo".into()))
+        );
+    }
+
+    #[test]
+    fn ident() {
+        assert_eq!(
+            identifier.parse(new_input("foo")).unwrap(),
+            KdlIdentifier {
+                value: "foo".into(),
+                repr: Some("foo".into()),
+                span: (0..3).into()
+            }
+        );
+    }
 }
 
 /// ```text
