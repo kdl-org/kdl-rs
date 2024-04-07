@@ -289,13 +289,15 @@ fn node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
 }
 
 pub(crate) fn padded_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
-    let ((mut node, trailing), _span) = (
+    let ((leading, mut node, trailing), _span) = (
+        repeat(0.., plain_node_space).map(|_: ()| ()).recognize(),
         node,
         repeat(0.., plain_node_space).map(|_: ()| ()).recognize(),
     )
         .with_span()
         .parse_next(input)?;
     if let Some(fmt) = node.format_mut() {
+        fmt.leading = format!("{leading}{}", fmt.leading);
         fmt.trailing = format!("{}{trailing}", fmt.trailing);
     }
     #[cfg(feature = "span")]
@@ -315,9 +317,9 @@ fn final_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
 
 pub(crate) fn padded_node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
     let ((leading, entry, trailing), _span) = (
-        repeat(0.., plain_node_space).map(|_: ()| ()).recognize(),
+        repeat(0.., line_space).map(|_: ()| ()).recognize(),
         node_entry,
-        repeat(0.., plain_node_space).map(|_: ()| ()).recognize(),
+        repeat(0.., line_space).map(|_: ()| ()).recognize(),
     )
         .with_span()
         .parse_next(input)?;
@@ -591,7 +593,7 @@ fn identifier_char<'s>(input: &mut Input<'s>) -> PResult<char> {
 /// `equals-sign := See Table ([Equals Sign](#equals-sign))`
 fn equals_sign<'s>(input: &mut Input<'s>) -> PResult<()> {
     one_of(['=', '﹦', '＝', '🟰'])
-        .map(|_| ())
+        .void()
         .parse_next(input)
 }
 
@@ -758,12 +760,12 @@ fn keyword<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
     let _ = "#".parse_next(input)?;
     let _ = not(one_of(['#', '"'])).parse_next(input)?;
     cut_err(alt((
-        Caseless("true").map(|_| KdlValue::Bool(true)),
-        Caseless("false").map(|_| KdlValue::Bool(false)),
-        Caseless("null").map(|_| KdlValue::Null),
-        Caseless("nan").map(|_| KdlValue::Base10Float(f64::NAN)),
-        Caseless("inf").map(|_| KdlValue::Base10Float(f64::INFINITY)),
-        Caseless("-inf").map(|_| KdlValue::Base10Float(f64::NEG_INFINITY)),
+        Caseless("true").value(KdlValue::Bool(true)),
+        Caseless("false").value(KdlValue::Bool(false)),
+        Caseless("null").value(KdlValue::Null),
+        Caseless("nan").value(KdlValue::Base10Float(f64::NAN)),
+        Caseless("inf").value(KdlValue::Base10Float(f64::INFINITY)),
+        Caseless("-inf").value(KdlValue::Base10Float(f64::NEG_INFINITY)),
     )))
     .context(lbl("keyword"))
     .resume_after(badval)
@@ -772,7 +774,7 @@ fn keyword<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
 
 /// `bom := '\u{FEFF}'`
 fn bom<'s>(input: &mut Input<'s>) -> PResult<()> {
-    "\u{FEFF}".map(|_| ()).parse_next(input)
+    "\u{FEFF}".void().parse_next(input)
 }
 
 /// `disallowed-literal-code-points := See Table (Disallowed Literal Code
@@ -842,7 +844,7 @@ fn unicode_space<'s>(input: &mut Input<'s>) -> PResult<()> {
         '\u{2002}', '\u{2003}', '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}', '\u{2008}',
         '\u{2009}', '\u{200A}', '\u{202F}', '\u{205F}', '\u{3000}',
     ))
-    .map(|_| ())
+    .void()
     .parse_next(input)
 }
 
