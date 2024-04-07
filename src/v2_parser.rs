@@ -336,7 +336,7 @@ pub(crate) fn padded_node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<Kdl
 
 /// `node-prop-or-arg := prop | value`
 fn node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
-    let ((leading, mut entry), _span) = (required_node_space.recognize(), alt((prop, value)))
+    let ((leading, mut entry), _span) = (optional_node_space.recognize(), alt((prop, value)))
         .context(lbl("node entry"))
         .with_span()
         .parse_next(input)?;

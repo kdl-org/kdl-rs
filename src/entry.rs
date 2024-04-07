@@ -312,10 +312,12 @@ mod test {
     #[test]
     fn parsing() -> miette::Result<()> {
         let entry: KdlEntry = " \\\n (\"m\\\"eh\")0xDEADbeef\t\\\n".parse()?;
+        let mut ty: KdlIdentifier = "\"m\\\"eh\"".parse()?;
+        ty.span = (5..12).into();
         assert_eq!(
             entry,
             KdlEntry {
-                ty: Some("\"m\\\"eh\"".parse()?),
+                ty: Some(ty),
                 value: KdlValue::Base16(0xdeadbeef),
                 name: None,
                 format: Some(KdlEntryFormat {
@@ -327,10 +329,10 @@ mod test {
                     after_ty: "".into(),
                     after_key: "".into(),
                     after_eq: "".into(),
-                    eq: "=".into(),
+                    eq: "".into(),
                 }),
                 #[cfg(feature = "span")]
-                span: SourceSpan::from(0..0),
+                span: SourceSpan::from(0..26),
             }
         );
 
