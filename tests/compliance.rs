@@ -5,7 +5,41 @@ use std::{
 };
 
 use kdl::{KdlDocument, KdlIdentifier, KdlParseFailure, KdlValue};
-use miette::IntoDiagnostic;
+use miette::{Diagnostic, IntoDiagnostic};
+use thiserror::Error;
+
+#[derive(Debug, Error, Diagnostic)]
+#[error("Compliance test suite failed {} of {total_checks}.", diagnostics.len())]
+struct ComplianceSuitFailure {
+    total_checks: usize,
+    #[related]
+    diagnostics: Vec<ComplianceDiagnostic>,
+}
+
+#[derive(Debug, Error, Diagnostic)]
+enum ComplianceDiagnostic {
+    #[error("{}", PathBuf::from(.0.file_name().unwrap()).display())]
+    #[diagnostic(code(kdl::compliance::parse_failure))]
+    KdlParseFailure(
+        PathBuf,
+        #[source]
+        #[diagnostic_source]
+        KdlParseFailure,
+    ),
+
+    #[error("{}:\nExpected:\n{expected}\nActual:\n{actual}", PathBuf::from(file.file_name().unwrap()).display())]
+    #[diagnostic(code(kdl::compliance::expectation_mismatch))]
+    ExpectationMismatch {
+        file: PathBuf,
+        original: String,
+        expected: String,
+        actual: String,
+    },
+
+    #[error(transparent)]
+    #[diagnostic(code(kdl::compliance::io_error))]
+    IoError(#[from] std::io::Error),
+}
 
 #[test]
 fn spec_compliance() -> miette::Result<()> {
@@ -13,21 +47,37 @@ fn spec_compliance() -> miette::Result<()> {
         .join("tests")
         .join("test_cases")
         .join("input");
+    let mut failures = Vec::new();
+    let mut count = 0usize;
     for test_name in fs::read_dir(&input).into_diagnostic()? {
         let test_path = test_name.into_diagnostic()?.path();
-        println!(
-            "parsing {}:",
-            PathBuf::from(test_path.file_name().unwrap()).display()
-        );
         let src = normalize_line_endings(fs::read_to_string(&test_path).into_diagnostic()?);
-        println!("src: {}", src);
-        let res: Result<KdlDocument, KdlParseFailure> = src.parse();
-        validate_res(res, &test_path)?;
+        let res = src.parse();
+        if let Err(e) = validate_res(res, &test_path, &src) {
+            failures.push(e);
+        }
+        count += 1;
     }
-    Ok(())
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        let mut output = String::new();
+        for failure in &failures {
+            output.push_str(format!("\n{failure}").as_str());
+        }
+        Err(ComplianceSuitFailure {
+            total_checks: count,
+            diagnostics: failures,
+        }
+        .into())
+    }
 }
 
-fn validate_res(res: Result<KdlDocument, KdlParseFailure>, path: &Path) -> miette::Result<()> {
+fn validate_res(
+    res: Result<KdlDocument, KdlParseFailure>,
+    path: &Path,
+    src: &String,
+) -> Result<(), ComplianceDiagnostic> {
     let file_name = path.file_name().unwrap();
     let expected_dir = path
         .parent()
@@ -38,20 +88,24 @@ fn validate_res(res: Result<KdlDocument, KdlParseFailure>, path: &Path) -> miett
     let expected_path = expected_dir.join(file_name);
     let underscored = expected_dir.join(format!("_{}", PathBuf::from(file_name).display()));
     if expected_path.exists() {
-        let doc = res?;
-        let expected =
-            normalize_line_endings(fs::read_to_string(&expected_path).into_diagnostic()?);
-        println!("expected: {}", expected);
+        let doc = res.map_err(|e| ComplianceDiagnostic::KdlParseFailure(path.into(), e))?;
+        let expected = normalize_line_endings(fs::read_to_string(&expected_path)?);
         let stringified = stringify_to_expected(doc);
-        println!("stringified: {}", stringified);
-        assert_eq!(stringified, expected);
+        if stringified != expected {
+            return Err(ComplianceDiagnostic::ExpectationMismatch {
+                file: path.into(),
+                original: src.clone(),
+                expected: expected,
+                actual: stringified,
+            });
+        }
     } else if underscored.exists() {
-        println!(
+        eprintln!(
             "skipped reserialization for {}",
             PathBuf::from(file_name).display()
         );
     } else {
-        assert!(res.is_err(), "parse should not have succeeded");
+        res.map_err(|e| ComplianceDiagnostic::KdlParseFailure(path.into(), e))?;
     }
     Ok(())
 }
