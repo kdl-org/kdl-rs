@@ -100,7 +100,7 @@ pub enum KdlErrorKind {
 
     /// Generic unspecified error. If this is returned, the call site should
     /// be annotated with context, if possible.
-    #[error("An unspecified error occurred.")]
+    #[error("An unspecified parse error occurred.")]
     #[diagnostic(code(kdl::other))]
     Other,
 }

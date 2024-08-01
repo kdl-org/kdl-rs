@@ -231,7 +231,7 @@ impl FromStr for KdlEntry {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (maybe_val, errs) = v2_parser::try_parse(v2_parser::padded_node_entry, s);
-        if let Some(Some(v)) = maybe_val {
+        if let (Some(Some(v)), true) = (maybe_val, errs.is_empty()) {
             Ok(v)
         } else {
             Err(v2_parser::failure_from_errs(errs, s))

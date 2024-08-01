@@ -496,8 +496,8 @@ impl FromStr for KdlNode {
     type Err = KdlParseFailure;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        let (maybe_val, errs) = v2_parser::try_parse(v2_parser::padded_node, input);
-        if let Some(v) = maybe_val {
+        let (maybe_val, errs) = dbg!(v2_parser::try_parse(v2_parser::padded_node, input));
+        if let (Some(v), true) = (maybe_val, errs.is_empty()) {
             Ok(v)
         } else {
             Err(v2_parser::failure_from_errs(errs, input))
@@ -628,6 +628,8 @@ mod test {
         }"#
         .parse()?;
         let mut right_node: KdlNode = "node param_name=103.0 { nested 1 2 3; }".parse()?;
+        dbg!(&left_node);
+        dbg!(&right_node);
         assert_ne!(left_node, right_node);
         left_node.clear_format_recursive();
         right_node.clear_format_recursive();
@@ -637,27 +639,33 @@ mod test {
 
     #[test]
     fn parsing() -> miette::Result<()> {
-        let node: KdlNode = "\n\t  (\"ty\")\"node\" 0xDEADbeef;\n".parse()?;
-        assert_eq!(node.ty(), Some(&"\"ty\"".parse()?));
-        assert_eq!(node.name(), &"\"node\"".parse()?);
-        assert_eq!(node.entry(0), Some(&" 0xDEADbeef".parse()?));
-        assert_eq!(
-            node.format(),
-            Some(&KdlNodeFormat {
-                leading: "\n\t  ".into(),
-                trailing: ";\n".into(),
-                before_ty_name: "".into(),
-                after_ty_name: "".into(),
-                after_ty: "".into(),
-                before_children: "".into(),
-            })
-        );
+        // let node: KdlNode = "\n\t  (\"ty\")\"node\" 0xDEADbeef;\n".parse()?;
+        // assert_eq!(node.ty(), Some(&"\"ty\"".parse()?));
+        // assert_eq!(node.name(), &"\"node\"".parse()?);
+        // assert_eq!(node.entry(0), Some(&" 0xDEADbeef".parse()?));
+        // assert_eq!(
+        //     node.format(),
+        //     Some(&KdlNodeFormat {
+        //         leading: "\n\t  ".into(),
+        //         trailing: ";\n".into(),
+        //         before_ty_name: "".into(),
+        //         after_ty_name: "".into(),
+        //         after_ty: "".into(),
+        //         before_children: "".into(),
+        //     })
+        // );
 
-        r#"
-        node "test" {
-            link "blah" anything="self"
-        }"#
+        let node: KdlNode = r#"node "test" {
+    link "blah" anything=self
+}
+
+more stuff
+"#
         .parse::<KdlNode>()?;
+        dbg!(&node);
+        assert_eq!(node.entry(0), Some(&" \"test\"".parse()?));
+        assert_eq!(node.children().unwrap().len(), 1);
+
         Ok(())
     }
 

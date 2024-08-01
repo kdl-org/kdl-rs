@@ -31,7 +31,7 @@ impl std::str::FromStr for KdlDocument {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (maybe_val, errs) = try_parse(document, s);
-        if let Some(v) = maybe_val {
+        if let (Some(v), true) = (maybe_val, errs.is_empty()) {
             Ok(v)
         } else {
             Err(failure_from_errs(errs, s))
@@ -76,7 +76,6 @@ pub(crate) struct KdlParseError {
     pub(crate) label: Option<&'static str>,
     pub(crate) help: Option<&'static str>,
     pub(crate) kind: Option<KdlErrorKind>,
-    pub(crate) touched: bool,
 }
 
 impl<I: Stream> ParserError<I> for KdlParseError {
@@ -87,7 +86,6 @@ impl<I: Stream> ParserError<I> for KdlParseError {
             help: None,
             context: None,
             kind: None,
-            touched: false,
         }
     }
 
@@ -121,7 +119,6 @@ impl<'a> FromExternalError<Input<'a>, ParseIntError> for KdlParseError {
             help: None,
             context: None,
             kind: Some(KdlErrorKind::ParseIntError(e)),
-            touched: false,
         }
     }
 }
@@ -134,33 +131,35 @@ impl<'a> FromExternalError<Input<'a>, ParseFloatError> for KdlParseError {
             help: None,
             context: None,
             kind: Some(KdlErrorKind::ParseFloatError(e)),
-            touched: false,
         }
     }
 }
 
-impl<I: Stream> FromRecoverableError<I, Self> for KdlParseError {
+impl<I: Stream + Location> FromRecoverableError<I, Self> for KdlParseError {
     #[inline]
     fn from_recoverable_error(
-        _token_start: &<I as Stream>::Checkpoint,
+        token_start: &<I as Stream>::Checkpoint,
         _err_start: &<I as Stream>::Checkpoint,
-        _input: &I,
-        e: Self,
+        input: &I,
+        mut e: Self,
     ) -> Self {
+        e.span = e.span.or_else(|| {
+            Some((input.offset_from(token_start).saturating_sub(1)..input.location()).into())
+        });
         e
     }
 }
 
-impl<I: Stream> FromRecoverableError<I, ContextError> for KdlParseError {
+impl<I: Stream + Location> FromRecoverableError<I, ContextError> for KdlParseError {
     #[inline]
     fn from_recoverable_error(
-        _token_start: &<I as Stream>::Checkpoint,
+        token_start: &<I as Stream>::Checkpoint,
         _err_start: &<I as Stream>::Checkpoint,
-        _input: &I,
+        input: &I,
         e: ContextError,
     ) -> Self {
         KdlParseError {
-            span: None,
+            span: Some((input.offset_from(token_start).saturating_sub(1)..input.location()).into()),
             label: None,
             help: None,
             context: e.context().next().and_then(|e| match e {
@@ -170,7 +169,6 @@ impl<I: Stream> FromRecoverableError<I, ContextError> for KdlParseError {
                 _ => None,
             }),
             kind: None,
-            touched: false,
         }
     }
 }
@@ -180,8 +178,14 @@ impl<I: Stream> FromRecoverableError<I, ContextError> for KdlParseError {
 fn badval<'s>(input: &mut Input<'s>) -> PResult<()> {
     repeat_till(
         0..,
-        (not(alt((ws, newline, eof.void()))), any),
-        alt((eof.void(), peek(alt((ws, newline, eof.void()))))),
+        (
+            not(alt((ws, node_terminator.void(), "{".void(), "}".void()))),
+            any,
+        ),
+        alt((
+            eof.void(),
+            peek(alt((ws, node_terminator.void(), "{".void(), "}".void()))),
+        )),
     )
     .map(|(_, _): ((), _)| ())
     .parse_next(input)
@@ -239,7 +243,7 @@ fn base_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
             (peek(required_node_space), node_entry).map(|(_, e): ((), _)| e),
         )
         .map(|e: Vec<Option<KdlEntry>>| e.into_iter().filter_map(|e| e).collect::<Vec<KdlEntry>>()),
-        opt((required_node_space.recognize(), node_children)),
+        opt((optional_node_space.recognize(), node_children)),
     )
         .with_span()
         .parse_next(input)?;
@@ -470,7 +474,7 @@ fn node_children<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
 
 /// `node-terminator := single-line-comment | newline | ';' | eof`
 fn node_terminator<'s>(input: &mut Input<'s>) -> PResult<()> {
-    alt((eof.void(), ";".void(), newline, single_line_comment)).parse_next(input)
+    alt((eof.void(), ";".void(), newline)).parse_next(input)
 }
 
 /// `prop := string optional-node-space equals-sign optional-node-space value`
@@ -480,14 +484,12 @@ fn prop<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
         optional_node_space.recognize(),
         equals_sign.recognize(),
         optional_node_space.recognize(),
-        cut_err(value)
-            .context("property value")
-            .resume_after(badval),
+        cut_err(value).context("property value"),
     )
         .context("property")
         .with_span()
         .parse_next(input)?;
-    Ok(value.flatten().map(|mut value| {
+    Ok(value.map(|mut value| {
         value.name = Some(key);
         if let Some(fmt) = value.format_mut() {
             fmt.after_ty = after_key.into();
@@ -507,7 +509,7 @@ fn value<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
     let ((ty, after_ty, (value, raw)), _span) = (
         opt(ty),
         optional_node_space.recognize(),
-        alt((string, number, keyword))
+        alt((string, number.map(Some), keyword.map(Some)))
             .context(lbl("value"))
             .resume_after(badval)
             .with_recognized(),
@@ -556,7 +558,7 @@ fn plain_line_space<'s>(input: &mut Input<'s>) -> PResult<()> {
 
 /// `plain-node-space := ws* escline ws* | ws+`
 fn plain_node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
-    alt((escline, wsp)).parse_next(input)
+    alt(((wss, escline, wss).void(), wsp)).parse_next(input)
 }
 
 /// `line-space := plain-line-space+ | '/-' plain-node-space* node`
@@ -893,7 +895,7 @@ mod string_tests {
 /// keyword := '#true' | '#false' | '#null'
 /// keyword-number := '#inf' | '#-inf' | '#nan'
 /// ````
-fn keyword<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
+fn keyword<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
     let _ = "#".parse_next(input)?;
     let _ = not(one_of(['#', '"'])).parse_next(input)?;
     cut_err(alt((
@@ -905,7 +907,6 @@ fn keyword<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
         Caseless("-inf").value(KdlValue::Base10Float(f64::NEG_INFINITY)),
     )))
     .context(lbl("keyword"))
-    .resume_after(badval)
     .parse_next(input)
 }
 
@@ -963,6 +964,10 @@ fn newline<'s>(input: &mut Input<'s>) -> PResult<()> {
     .void()
     .context(lbl("newline"))
     .parse_next(input)
+}
+
+fn wss<'s>(input: &mut Input<'s>) -> PResult<()> {
+    repeat(0.., ws).parse_next(input)
 }
 
 fn wsp<'s>(input: &mut Input<'s>) -> PResult<()> {
@@ -1024,7 +1029,7 @@ fn commented_block<'s>(input: &mut Input<'s>) -> PResult<()> {
 
 /// `multi-line-comment :`
 /// `number := keyword-number | hex | octal | binary | decimal`
-fn number<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
+fn number<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
     alt((hex, octal, binary, float, integer)).parse_next(input)
 }
 
@@ -1032,7 +1037,7 @@ fn number<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
 /// decimal := sign? integer ('.' integer)? exponent?
 /// exponent := ('e' | 'E') sign? integer
 /// ```
-fn float<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
+fn float<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
     alt((
         (
             integer,
@@ -1050,7 +1055,6 @@ fn float<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
             .map(KdlValue::Base10Float)
     })
     .context(lbl("float"))
-    .resume_after(badval)
     .parse_next(input)
 }
 
@@ -1061,25 +1065,25 @@ fn float_test() {
 
     assert_eq!(
         float.parse(new_input("12_34.56")).unwrap(),
-        Some(KdlValue::Base10Float(1234.56))
+        KdlValue::Base10Float(1234.56)
     );
     assert_eq!(
         float.parse(new_input("1234_.56")).unwrap(),
-        Some(KdlValue::Base10Float(1234.56))
+        KdlValue::Base10Float(1234.56)
     );
     assert_eq!(
         (float, take(1usize)).parse(new_input("1234.56c")).unwrap(),
-        (Some(KdlValue::Base10Float(1234.56)), "c")
+        (KdlValue::Base10Float(1234.56), "c")
     );
-    assert!(float.parse(new_input("_1234.56")).unwrap().is_none());
-    assert!(float.parse(new_input("1234a.56")).unwrap().is_none());
+    assert!(float.parse(new_input("_1234.56")).is_err());
+    assert!(float.parse(new_input("1234a.56")).is_err());
 }
 
 /// Non-float decimal
-fn integer<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
+fn integer<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
     let mult = sign.parse_next(input)?;
     integer_base
-        .map(|x| x.map(|x| KdlValue::Base10(x * mult)))
+        .map(|x| KdlValue::Base10(x * mult))
         .context(lbl("integer"))
         .parse_next(input)
 }
@@ -1089,35 +1093,33 @@ fn integer<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
 fn integer_test() {
     assert_eq!(
         integer.parse(new_input("12_34")).unwrap(),
-        Some(KdlValue::Base10(1234))
+        KdlValue::Base10(1234)
     );
     assert_eq!(
         integer.parse(new_input("1234_")).unwrap(),
-        Some(KdlValue::Base10(1234))
+        KdlValue::Base10(1234)
     );
     assert!(integer.parse(new_input("_1234")).is_err());
     assert!(integer.parse(new_input("1234a")).is_err());
 }
 
 /// `integer := digit (digit | '_')*`
-fn integer_base<'s>(input: &mut Input<'s>) -> PResult<Option<i64>> {
+fn integer_base<'s>(input: &mut Input<'s>) -> PResult<i64> {
     (
         digit1,
         cut_err(repeat(
             0..,
             alt(("_", take_while(1.., AsChar::is_dec_digit).recognize())),
-        ))
-        .resume_after(badval),
+        )),
     )
-        .try_map(|(l, r): (&str, Option<Vec<&str>>)| {
-            r.map(|r| format!("{l}{}", str::replace(&r.join(""), "_", "")).parse())
-                .map_or(Ok(None), |v| v.map(Some))
+        .try_map(|(l, r): (&str, Vec<&str>)| {
+            format!("{l}{}", str::replace(&r.join(""), "_", "")).parse()
         })
         .parse_next(input)
 }
 
 /// `hex := sign? '0x' hex-digit (hex-digit | '_')*`
-fn hex<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
+fn hex<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
     let mult = sign.parse_next(input)?;
     alt(("0x", "0X")).parse_next(input)?;
     cut_err((
@@ -1133,7 +1135,6 @@ fn hex<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
             .map(KdlValue::Base16)
     })
     .context(lbl("hexadecimal"))
-    .resume_after(badval)
     .parse_next(input)
 }
 
@@ -1142,22 +1143,22 @@ fn hex<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
 fn test_hex() {
     assert_eq!(
         hex.parse(new_input("0xdead_beef123")).unwrap(),
-        Some(KdlValue::Base16(0xdeadbeef123))
+        KdlValue::Base16(0xdeadbeef123)
     );
     assert_eq!(
         hex.parse(new_input("0xDeAd_BeEf123")).unwrap(),
-        Some(KdlValue::Base16(0xdeadbeef123))
+        KdlValue::Base16(0xdeadbeef123)
     );
     assert_eq!(
         hex.parse(new_input("0xdeadbeef123_")).unwrap(),
-        Some(KdlValue::Base16(0xdeadbeef123))
+        KdlValue::Base16(0xdeadbeef123)
     );
-    assert!(hex.parse(new_input("0x_deadbeef123")).unwrap().is_none());
+    assert!(hex.parse(new_input("0x_deadbeef123")).is_err());
     assert!(hex.parse(new_input("0xbeefg1")).is_err());
 }
 
 /// `octal := sign? '0o' [0-7] [0-7_]*`
-fn octal<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
+fn octal<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
     let mult = sign.parse_next(input)?;
     alt(("0o", "0O")).parse_next(input)?;
     cut_err((
@@ -1173,7 +1174,6 @@ fn octal<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
             .map(KdlValue::Base8)
     })
     .context(lbl("octal"))
-    .resume_after(badval)
     .parse_next(input)
 }
 
@@ -1182,18 +1182,18 @@ fn octal<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
 fn test_octal() {
     assert_eq!(
         octal.parse(new_input("0o12_34")).unwrap(),
-        Some(KdlValue::Base8(0o1234))
+        KdlValue::Base8(0o1234)
     );
     assert_eq!(
         octal.parse(new_input("0o1234_")).unwrap(),
-        Some(KdlValue::Base8(0o1234))
+        KdlValue::Base8(0o1234)
     );
-    assert!(octal.parse(new_input("0o_12_34")).unwrap().is_none());
-    assert!(octal.parse(new_input("0o89")).unwrap().is_none());
+    assert!(octal.parse(new_input("0o_12_34")).is_err());
+    assert!(octal.parse(new_input("0o89")).is_err());
 }
 
 /// `binary := sign? '0b' ('0' | '1') ('0' | '1' | '_')*`
-fn binary<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
+fn binary<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
     let mult = sign.parse_next(input)?;
     alt(("0b", "0B")).parse_next(input)?;
     cut_err(
@@ -1206,7 +1206,6 @@ fn binary<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
         ),
     )
     .context(lbl("binary"))
-    .resume_after(badval)
     .parse_next(input)
 }
 
@@ -1217,16 +1216,16 @@ fn test_binary() {
 
     assert_eq!(
         binary.parse(new_input("0b10_01")).unwrap(),
-        Some(KdlValue::Base2(0b1001))
+        KdlValue::Base2(0b1001)
     );
     assert_eq!(
         binary.parse(new_input("0b1001_")).unwrap(),
-        Some(KdlValue::Base2(0b1001))
+        KdlValue::Base2(0b1001)
     );
-    assert!(binary.parse(new_input("0b_10_01")).unwrap().is_none());
+    assert!(binary.parse(new_input("0b_10_01")).is_err());
     assert_eq!(
         (binary, take(4usize)).parse(new_input("0b12389")).unwrap(),
-        (Some(KdlValue::Base2(1)), "2389")
+        (KdlValue::Base2(1), "2389")
     );
     assert!(binary.parse(new_input("123")).is_err());
 }
