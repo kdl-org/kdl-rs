@@ -1,11 +1,12 @@
-use std::{
-    num::{ParseFloatError, ParseIntError},
-    sync::Arc,
+use {
+    miette::{Diagnostic, SourceSpan},
+    std::{
+        num::{ParseFloatError, ParseIntError},
+        sync::Arc,
+    },
+    thiserror::Error,
+    winnow::error::{ContextError, ErrorKind, FromExternalError, ParseError},
 };
-
-use miette::{Diagnostic, SourceSpan};
-use nom::error::{ContextError, ErrorKind, FromExternalError, ParseError};
-use thiserror::Error;
 
 #[cfg(doc)]
 use {
@@ -116,33 +117,33 @@ pub(crate) struct KdlParseError<I> {
     pub(crate) touched: bool,
 }
 
-impl<I> ParseError<I> for KdlParseError<I> {
-    fn from_error_kind(input: I, _kind: nom::error::ErrorKind) -> Self {
-        Self {
-            input,
-            len: 0,
-            label: None,
-            help: None,
-            context: None,
-            kind: None,
-            touched: false,
-        }
-    }
+// impl<I> ParseError<I> for KdlParseError<I> {
+//     fn from_error_kind(input: I, _kind: winnow::error::ErrorKind) -> Self {
+//         Self {
+//             input,
+//             len: 0,
+//             label: None,
+//             help: None,
+//             context: None,
+//             kind: None,
+//             touched: false,
+//         }
+//     }
 
-    fn append(_input: I, _kind: nom::error::ErrorKind, other: Self) -> Self {
-        other
-    }
-}
+//     fn append(_input: I, _kind: winnow::error::ErrorKind, other: Self) -> Self {
+//         other
+//     }
+// }
 
-impl<I> ContextError<I> for KdlParseError<I> {
-    fn add_context(_input: I, ctx: &'static str, mut other: Self) -> Self {
-        other.context = other.context.or(Some(ctx));
-        other
-    }
-}
+// impl<I> ContextError<I> for KdlParseError<I> {
+//     fn add_context(_input: I, ctx: &'static str, mut other: Self) -> Self {
+//         other.context = other.context.or(Some(ctx));
+//         other
+//     }
+// }
 
 impl<'a> FromExternalError<&'a str, ParseIntError> for KdlParseError<&'a str> {
-    fn from_external_error(input: &'a str, _kind: ErrorKind, e: ParseIntError) -> Self {
+    fn from_external_error(input: &&'a str, _kind: ErrorKind, e: ParseIntError) -> Self {
         KdlParseError {
             input,
             len: 0,
@@ -156,7 +157,7 @@ impl<'a> FromExternalError<&'a str, ParseIntError> for KdlParseError<&'a str> {
 }
 
 impl<'a> FromExternalError<&'a str, ParseFloatError> for KdlParseError<&'a str> {
-    fn from_external_error(input: &'a str, _kind: ErrorKind, e: ParseFloatError) -> Self {
+    fn from_external_error(input: &&'a str, _kind: ErrorKind, e: ParseFloatError) -> Self {
         KdlParseError {
             input,
             len: 0,
