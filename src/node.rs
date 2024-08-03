@@ -621,6 +621,15 @@ mod test {
     use super::*;
 
     #[test]
+    fn try_it_out() -> miette::Result<()> {
+        r#"foo 1.0{
+            foo bar
+        }"#
+        .parse::<KdlDocument>()?;
+        Ok(())
+    }
+
+    #[test]
     fn canonical_clear_fmt() -> miette::Result<()> {
         let mut left_node: KdlNode = r#"node /-"commented" param_name=103.000 {
             // This is a nested node
