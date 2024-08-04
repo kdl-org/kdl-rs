@@ -867,16 +867,16 @@ mod string_tests {
     #[test]
     fn quoted_string() {
         assert_eq!(
-            string.parse(new_input("\"foo\"")).unwrap(),
-            Some(KdlValue::String("foo".into()))
+            string.parse(new_input("\"foo ntastic\"")).unwrap(),
+            Some(KdlValue::String("foo ntastic".into()))
         );
     }
 
     #[test]
     fn raw_string() {
         assert_eq!(
-            string.parse(new_input("#\"foo\"#")).unwrap(),
-            Some(KdlValue::String("foo".into()))
+            string.parse(new_input("#\"foo rawr\"#")).unwrap(),
+            Some(KdlValue::String("foo rawr".into()))
         );
     }
 
