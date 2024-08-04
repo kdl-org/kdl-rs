@@ -134,7 +134,7 @@ impl KdlNode {
     /// their formatting will be preserved.
     ///
     /// If you want to clear formatting on all children and entries as well,
-    /// use [`Self::clear_fmt_recursive`].
+    /// use [`Self::clear_format_recursive`].
     pub fn clear_format(&mut self) {
         self.format = None;
     }
