@@ -202,7 +202,7 @@ fn new_input<'a>(s: &'a str) -> Input<'a> {
 
 /// `document := bom? nodes`
 fn document<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
-    let bom = opt(bom.recognize()).parse_next(input)?;
+    let bom = opt(bom.take()).parse_next(input)?;
     let mut doc = nodes.parse_next(input)?;
     if let Some(bom) = bom {
         if let Some(fmt) = doc.format_mut() {
@@ -215,9 +215,9 @@ fn document<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
 /// `nodes := (line-space* node)* line-space*`
 fn nodes<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
     let ((leading, nodes, trailing), _span) = (
-        repeat(0.., line_space).map(|()| ()).recognize(),
+        repeat(0.., line_space).map(|()| ()).take(),
         repeat(0.., node),
-        repeat(0.., line_space).map(|()| ()).recognize(),
+        repeat(0.., line_space).map(|()| ()).take(),
     )
         .with_span()
         .parse_next(input)?;
@@ -236,14 +236,14 @@ fn nodes<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
 fn base_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
     let ((ty, after_ty, name, entries, children), _span) = (
         opt(ty),
-        optional_node_space.recognize(),
+        optional_node_space.take(),
         identifier,
         repeat(
             0..,
             (peek(required_node_space), node_entry).map(|(_, e): ((), _)| e),
         )
         .map(|e: Vec<Option<KdlEntry>>| e.into_iter().filter_map(|e| e).collect::<Vec<KdlEntry>>()),
-        opt((optional_node_space.recognize(), node_children)),
+        opt((optional_node_space.take(), node_children)),
     )
         .with_span()
         .parse_next(input)?;
@@ -275,10 +275,10 @@ fn base_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
 /// `node := base-node optional-node-space node-terminator`
 fn node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
     let ((leading, mut node, trailing, terminator), _span) = (
-        repeat(0.., line_space).map(|()| ()).recognize(),
+        repeat(0.., line_space).map(|()| ()).take(),
         base_node,
-        optional_node_space.recognize(),
-        node_terminator.recognize(),
+        optional_node_space.take(),
+        node_terminator.take(),
     )
         .context("node")
         .with_span()
@@ -353,11 +353,11 @@ pub(crate) fn padded_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
     let ((leading, mut node, trailing), _span) = (
         repeat(0.., alt((line_space, node_space)))
             .map(|_: ()| ())
-            .recognize(),
+            .take(),
         node,
         repeat(0.., alt((line_space, node_space)))
             .map(|_: ()| ())
-            .recognize(),
+            .take(),
     )
         .with_span()
         .parse_next(input)?;
@@ -382,11 +382,11 @@ fn final_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
 
 pub(crate) fn padded_node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
     let ((leading, entry, trailing), _span) = (
-        repeat(0.., line_space).map(|_: ()| ()).recognize(),
+        repeat(0.., line_space).map(|_: ()| ()).take(),
         node_entry,
         repeat(0.., alt((line_space, node_space)))
             .map(|_: ()| ())
-            .recognize(),
+            .take(),
     )
         .with_span()
         .parse_next(input)?;
@@ -405,7 +405,7 @@ pub(crate) fn padded_node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<Kdl
 
 /// `node-prop-or-arg := prop | value`
 fn node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
-    let ((leading, mut entry), _span) = (optional_node_space.recognize(), alt((prop, value)))
+    let ((leading, mut entry), _span) = (optional_node_space.take(), alt((prop, value)))
         .context(lbl("node entry"))
         .with_span()
         .parse_next(input)?;
@@ -481,9 +481,9 @@ fn node_terminator<'s>(input: &mut Input<'s>) -> PResult<()> {
 fn prop<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
     let ((key, after_key, eq, after_eq, value), _span) = (
         identifier,
-        optional_node_space.recognize(),
-        equals_sign.recognize(),
-        optional_node_space.recognize(),
+        optional_node_space.take(),
+        equals_sign.take(),
+        optional_node_space.take(),
         cut_err(value).context("property value"),
     )
         .context("property")
@@ -508,11 +508,11 @@ fn prop<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
 fn value<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
     let ((ty, after_ty, (value, raw)), _span) = (
         opt(ty),
-        optional_node_space.recognize(),
+        optional_node_space.take(),
         alt((string, number.map(Some), keyword.map(Some)))
             .context(lbl("value"))
             .resume_after(badval)
-            .with_recognized(),
+            .with_taken(),
     )
         .with_span()
         .parse_next(input)?;
@@ -541,10 +541,10 @@ fn value<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
 fn ty<'s>(input: &mut Input<'s>) -> PResult<(&'s str, Option<KdlIdentifier>, &'s str)> {
     "(".parse_next(input)?;
     let (before_ty, ty, after_ty) = (
-        optional_node_space.recognize(),
+        optional_node_space.take(),
         cut_err(identifier.context(lbl("type name")))
             .resume_after((badval, peek(")").void(), badval).void()),
-        optional_node_space.recognize(),
+        optional_node_space.take(),
     )
         .parse_next(input)?;
     cut_err(")").parse_next(input)?;
@@ -603,6 +603,7 @@ fn required_node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
 
 /// `optional-node-space := node-space*`
 fn optional_node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
+    dbg!(&input);
     repeat(0.., node_space).parse_next(input)
 }
 
@@ -621,7 +622,7 @@ pub(crate) fn identifier<'s>(input: &mut Input<'s>) -> PResult<KdlIdentifier> {
                 _ => None,
             })
         })
-        .with_recognized()
+        .with_taken()
         .with_span()
         .parse_next(input)?;
     ident.set_repr(raw);
@@ -635,7 +636,7 @@ pub(crate) fn identifier<'s>(input: &mut Input<'s>) -> PResult<KdlIdentifier> {
 /// `identifier-string := unambiguous-ident | signed-ident | dotted-ident`
 fn identifier_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
     alt((unambiguous_ident, signed_ident, dotted_ident))
-        .recognize()
+        .take()
         .map(|s| Some(KdlValue::String(s.into())))
         .parse_next(input)
 }
@@ -705,7 +706,7 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
     let is_multiline = opt(newline).parse_next(input)?.is_some();
     let ml_prefix: Option<String> = if is_multiline {
         Some(
-            peek(repeat(0.., unicode_space).map(|_: ()| ()).recognize())
+            peek(repeat(0.., unicode_space).map(|_: ()| ()).take())
                 .parse_next(input)?
                 .to_string(),
         )
@@ -797,7 +798,7 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
     let is_multiline = opt(newline).parse_next(input)?.is_some();
     let ml_prefix: Option<String> = if is_multiline {
         Some(
-            peek(repeat(0.., unicode_space).map(|_: ()| ()).recognize())
+            peek(repeat(0.., unicode_space).map(|_: ()| ()).take())
                 .parse_next(input)?
                 .to_string(),
         )
@@ -1046,8 +1047,8 @@ fn float<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
             opt(one_of(['-', '+'])),
             cut_err(integer_base),
         )
-            .recognize(),
-        (integer, '.', cut_err(integer_base)).recognize(),
+            .take(),
+        (integer, '.', cut_err(integer_base)).take(),
     ))
     .try_map(|float_str| {
         str::replace(float_str, "_", "")
@@ -1109,7 +1110,7 @@ fn integer_base<'s>(input: &mut Input<'s>) -> PResult<i64> {
         digit1,
         cut_err(repeat(
             0..,
-            alt(("_", take_while(1.., AsChar::is_dec_digit).recognize())),
+            alt(("_", take_while(1.., AsChar::is_dec_digit).take())),
         )),
     )
         .try_map(|(l, r): (&str, Vec<&str>)| {
@@ -1126,7 +1127,7 @@ fn hex<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
         hex_digit1,
         repeat(
             0..,
-            alt(("_", take_while(1.., AsChar::is_hex_digit).recognize())),
+            alt(("_", take_while(1.., AsChar::is_hex_digit).take())),
         ),
     ))
     .try_map(|(l, r): (&str, Vec<&str>)| {
@@ -1165,7 +1166,7 @@ fn octal<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
         oct_digit1,
         repeat(
             0..,
-            alt(("_", take_while(1.., AsChar::is_oct_digit).recognize())),
+            alt(("_", take_while(1.., AsChar::is_oct_digit).take())),
         ),
     ))
     .try_map(|(l, r): (&str, Vec<&str>)| {
