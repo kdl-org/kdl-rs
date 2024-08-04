@@ -51,7 +51,7 @@ pub(crate) fn failure_from_errs(errs: Vec<KdlParseError>, input: &str) -> KdlPar
     let src = Arc::new(String::from(input));
     KdlParseFailure {
         input: src.clone(),
-        diagnostics: errs
+        diagnostics: dbg!(errs)
             .into_iter()
             .map(|e| KdlDiagnostic {
                 input: src.clone(),
@@ -176,6 +176,7 @@ impl<I: Stream + Location> FromRecoverableError<I, ContextError> for KdlParseErr
 /// Consumes the rest of a value we've cut_err on, so we can contine the parse.
 // TODO: maybe use this for detecting invalid codepoints with useful errors?
 fn badval<'s>(input: &mut Input<'s>) -> PResult<()> {
+    dbg!(&input);
     repeat_till(
         0..,
         (
@@ -507,6 +508,7 @@ fn prop<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
 
 /// `value := type? optional-node-space (string | number | keyword)`
 fn value<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
+    dbg!(&input);
     let ((ty, after_ty, _, (value, raw)), _span) = (
         opt(ty),
         optional_node_space.take(),
@@ -605,15 +607,15 @@ fn required_node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
 
 /// `optional-node-space := node-space*`
 fn optional_node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
-    dbg!(&input);
+    // dbg!(&input);
     repeat(0.., node_space).parse_next(input)
 }
 
 /// `string := identifier-string | quoted-string | raw-string`
 pub(crate) fn string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
-    alt((identifier_string, raw_string, quoted_string))
+    dbg!(alt((identifier_string, raw_string, quoted_string))
         .context("string")
-        .parse_next(input)
+        .parse_next(input))
 }
 
 pub(crate) fn identifier<'s>(input: &mut Input<'s>) -> PResult<KdlIdentifier> {
