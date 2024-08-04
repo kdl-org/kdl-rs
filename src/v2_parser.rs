@@ -512,7 +512,7 @@ fn value<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
     let ((ty, after_ty, _, (value, raw)), _span) = (
         opt(ty),
         optional_node_space.take(),
-        not("{"),
+        peek(not("{")),
         alt((string, number.map(Some), keyword.map(Some)))
             .context(lbl("value"))
             .resume_after(badval)
