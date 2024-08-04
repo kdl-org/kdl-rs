@@ -383,7 +383,7 @@ fn final_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
 pub(crate) fn padded_node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
     let ((leading, entry, trailing), _span) = (
         repeat(0.., line_space).map(|_: ()| ()).take(),
-        node_entry,
+        node_prop_or_arg,
         repeat(0.., alt((line_space, node_space)))
             .map(|_: ()| ())
             .take(),
@@ -404,7 +404,7 @@ pub(crate) fn padded_node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<Kdl
 }
 
 /// `node-prop-or-arg := prop | value`
-fn node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
+fn node_prop_or_arg<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
     let ((leading, mut entry), _span) = (optional_node_space.take(), alt((prop, value)))
         .context(lbl("node entry"))
         .with_span()
@@ -426,7 +426,7 @@ fn node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
 #[test]
 fn entry_test() {
     assert_eq!(
-        node_entry.parse(new_input("foo=bar")).unwrap(),
+        node_prop_or_arg.parse(new_input("foo=bar")).unwrap(),
         Some(KdlEntry {
             ty: None,
             value: KdlValue::String("bar".into()),
@@ -441,7 +441,7 @@ fn entry_test() {
     );
 
     assert_eq!(
-        node_entry.parse(new_input("foo")).unwrap(),
+        node_prop_or_arg.parse(new_input("foo")).unwrap(),
         Some(KdlEntry {
             ty: None,
             value: KdlValue::String("foo".into()),
@@ -585,7 +585,7 @@ fn node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
         "/-",
         repeat(0.., plain_node_space).map(|_: ()| ()),
         cut_err(alt((
-            node_entry.void().context(lbl("slashdashed entry")),
+            node_prop_or_arg.void().context(lbl("slashdashed entry")),
             node_children.void().context(lbl("slashdashed children")),
         ))),
     ))
