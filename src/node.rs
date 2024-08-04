@@ -622,10 +622,8 @@ mod test {
 
     #[test]
     fn try_it_out() -> miette::Result<()> {
-        r#"foo 1.0{
-            foo bar
-        }"#
-        .parse::<KdlDocument>()?;
+        "foo {}".parse::<KdlNode>()?;
+        r#"foo 1.0 {}"#.parse::<KdlNode>()?;
         Ok(())
     }
 
@@ -635,7 +633,7 @@ mod test {
             // This is a nested node
             nested 1 2 3
         }"#
-        .parse()?;
+        .parse::<KdlNode>()?;
         let mut right_node: KdlNode = "node param_name=103.0 { nested 1 2 3; }".parse()?;
         dbg!(&left_node);
         dbg!(&right_node);
