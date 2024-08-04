@@ -507,9 +507,10 @@ fn prop<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
 
 /// `value := type? optional-node-space (string | number | keyword)`
 fn value<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
-    let ((ty, after_ty, (value, raw)), _span) = (
+    let ((ty, after_ty, _, (value, raw)), _span) = (
         opt(ty),
         optional_node_space.take(),
+        not("{"),
         alt((string, number.map(Some), keyword.map(Some)))
             .context(lbl("value"))
             .resume_after(badval)
