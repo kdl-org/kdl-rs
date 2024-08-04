@@ -240,7 +240,8 @@ fn base_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
         identifier,
         repeat(
             0..,
-            (peek(required_node_space), node_entry).map(|(_, e): ((), _)| e),
+            (peek(required_node_space), peek(not("{")), node_prop_or_arg)
+                .map(|(_, _, e): ((), (), _)| e),
         )
         .map(|e: Vec<Option<KdlEntry>>| e.into_iter().filter_map(|e| e).collect::<Vec<KdlEntry>>()),
         opt((optional_node_space.take(), node_children)),
