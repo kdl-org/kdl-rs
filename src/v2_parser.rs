@@ -232,7 +232,7 @@ fn nodes<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
     })
 }
 
-/// `base-node := type? optional-node-space string (required-node-space node-prop-or-arg)* (required-node-space node-children)?`
+/// `base-node := type? optional-node-space string (required-node-space node-prop-or-arg)* (optional-node-space node-children)?`
 fn base_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
     let ((ty, after_ty, name, entries, children), _span) = (
         opt(ty),
