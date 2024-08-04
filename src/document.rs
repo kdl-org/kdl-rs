@@ -381,9 +381,27 @@ mod test {
     use crate::{KdlEntry, KdlValue};
 
     use super::*;
+    use std::sync::Once;
+
+    fn miette_setup() {
+        static MIETTE_SETUP: Once = Once::new();
+        MIETTE_SETUP.call_once(|| {
+            miette::set_hook(Box::new(|_| {
+                Box::new(
+                    miette::MietteHandlerOpts::new()
+                        .context_lines(1)
+                        .break_words(true)
+                        .build(),
+                )
+            }))
+            .unwrap();
+        });
+    }
 
     #[test]
     fn canonical_clear_fmt() -> miette::Result<()> {
+        miette_setup();
+
         let left_src = r#"
 // There is a node here
 first_node /*with cool comments, too */ param=1.03e2 /-"commented" "argument" {
@@ -414,6 +432,8 @@ second_node /* This time, the comment is here */ param=153 {
 
     #[test]
     fn parsing() -> miette::Result<()> {
+        miette_setup();
+
         let src = "
 // This is the first node
 foo 1 2 \"three\" null true bar=\"baz\" {
@@ -530,6 +550,8 @@ baz
 
     #[test]
     fn autoformat() -> miette::Result<()> {
+        miette_setup();
+
         let mut doc: KdlDocument = r#"
 
         /* x */ foo    1 "bar"=0xDEADbeef {
@@ -591,6 +613,8 @@ foo 1 bar=0xdeadbeef {
 
     #[test]
     fn simple_autoformat() -> miette::Result<()> {
+        miette_setup();
+
         let mut doc: KdlDocument = "a { b { c { }; }; }".parse().unwrap();
         KdlDocument::autoformat(&mut doc);
         print!("{}", doc);
@@ -663,6 +687,8 @@ foo 1 bar=0xdeadbeef {
     #[cfg(feature = "span")]
     #[test]
     fn span_test() -> miette::Result<()> {
+        miette_setup();
+
         let input = r####"
 this {
     is (a)"cool" document="to" read=(int)5 10.1 (u32)0x45
@@ -791,6 +817,8 @@ inline { time; to; live "our" "dreams"; "y;all"; }
 
     #[test]
     fn parse_examples() -> miette::Result<()> {
+        miette_setup();
+
         include_str!("../examples/kdl-schema.kdl").parse::<KdlDocument>()?;
         include_str!("../examples/Cargo.kdl").parse::<KdlDocument>()?;
         include_str!("../examples/ci.kdl").parse::<KdlDocument>()?;
