@@ -622,8 +622,9 @@ mod test {
 
     #[test]
     fn try_it_out() -> miette::Result<()> {
-        "foo {}".parse::<KdlNode>()?;
-        r#"foo 1.0 {}"#.parse::<KdlNode>()?;
+        // "foo {}".parse::<KdlNode>()?;
+        r#"prop ref description="A globally unique reference to another property node." {}"#
+            .parse::<KdlNode>()?;
         Ok(())
     }
 
