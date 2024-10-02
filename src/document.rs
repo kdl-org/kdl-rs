@@ -413,19 +413,50 @@ second_node /* This time, the comment is here */ param=153 {
     }
 
     #[test]
+    fn basic_parsing() -> miette::Result<()> {
+        let src = r#"
+            // Hello, world!
+            node 1
+            node two
+            node item="three";
+            node {
+                nested 1 2 3
+                nested_2 hi "world"
+            }
+            (type)node ("type")what?
+            +false #true
+            null_id null_prop=#null
+                    foo indented
+            // normal comment?
+            /- comment
+            /* block comment */
+            inline /*comment*/ here
+            another /-commend there
+            
+            
+            after some whitespace
+            trailing /* multiline */
+            trailing // single line
+            "#;
+        let _doc: KdlDocument = src.parse()?;
+        // TODO: trailing `//` comments don't work. Multiline works fine?
+        Ok(())
+    }
+
+    #[test]
     fn parsing() -> miette::Result<()> {
         let src = "
 // This is the first node
-foo 1 2 \"three\" null true bar=\"baz\" {
+foo 1 2 three #null #true bar=\"baz\" {
     - 1
     - 2
-    - \"three\"
-    (mytype)something (\"name\")\"else\"\r
+    - three
+    (mytype)something (\"name\")else\r
 }
 
-null_id null_prop=null
-true_id true_prop=null
-+false true
+null_id null_prop=#null
+true_id true_prop=#null
++false #true
 
          bar \"indented\" // trailing whitespace after this\t
 /*
@@ -435,7 +466,7 @@ Some random comment
 a; b; c;
 /-commented \"node\"
 
-another /*foo*/ \"node\" /-1 /*bar*/ null;
+another /*foo*/ \"node\" /-1 /*bar*/ #null;
 final;";
         let mut doc: KdlDocument = src.parse()?;
 
@@ -444,13 +475,13 @@ final;";
             doc.get_dash_args("foo"),
             vec![&1.into(), &2.into(), &"three".into()]
         );
-        assert_eq!(doc.format(), Some(&Default::default()));
-
-        let foo = doc.get("foo").expect("expected a foo node");
         assert_eq!(
-            foo.format().map(|f| &f.leading[..]),
+            doc.format().map(|f| &f.leading[..]),
             Some("\n// This is the first node\n")
         );
+
+        let foo = doc.get("foo").expect("expected a foo node");
+        assert_eq!(foo.format().map(|f| &f.trailing[..]), Some("\n"));
         assert_eq!(&foo[2], &"three".into());
         assert_eq!(&foo["bar"], &"baz".into());
         assert_eq!(
@@ -477,19 +508,21 @@ final;";
         let a = doc.get("a").expect("expected a node");
         assert_eq!(
             format!("{}", a),
-            "/*\nSome random comment\n */\n\na; ".to_string()
+            "/*\nSome random comment\n */\n\na;".to_string()
         );
 
         let b = doc.get("b").expect("expected a node");
-        assert_eq!(format!("{}", b), "b; ".to_string());
+        assert_eq!(format!("{}", b), " b;".to_string());
 
         // Round-tripping works.
         assert_eq!(format!("{}", doc), src);
 
         // Programmatic manipulation works.
         let mut node: KdlNode = "new\n".parse()?;
-        // Manual entry parsing preserves formatting/reprs.
-        node.push("\"blah\"=0xDEADbeef".parse::<KdlEntry>()?);
+        // Manual entry parsing preserves formatting/reprs. Note that
+        // if you're making KdlEntries this way, you need to inject
+        // your own whitespace (or format the node)
+        node.push(" \"blah\"=0xDEADbeef".parse::<KdlEntry>()?);
         doc.nodes_mut().push(node);
 
         assert_eq!(
@@ -667,7 +700,7 @@ foo 1 bar=0xdeadbeef {
 this {
     is (a)"cool" document="to" read=(int)5 10.1 (u32)0x45
     and x="" {
-        "it" /*shh*/ "has"="💯" r##"the"##
+        "it" /*shh*/ "has"="💯" ##"the"##
         Best🎊est
         "syntax ever"
     }
@@ -678,7 +711,7 @@ nice
 inline { time; to; live "our" "dreams"; "y;all"; }
 "####;
 
-        let doc: KdlDocument = input.parse().unwrap();
+        let doc: KdlDocument = input.parse()?;
 
         // First check that all the identity-spans are correct
         check_spans_for_doc(&doc, &input);
@@ -724,7 +757,7 @@ inline { time; to; live "our" "dreams"; "y;all"; }
         // The node is what you expect, the whole line and its two braces
         check_span(
             r####"and x="" {
-        "it" /*shh*/ "has"="💯" r##"the"##
+        "it" /*shh*/ "has"="💯" ##"the"##
         Best🎊est
         "syntax ever"
     }"####,
@@ -736,7 +769,7 @@ inline { time; to; live "our" "dreams"; "y;all"; }
         // with extra newlines on both ends.
         check_span(
             r####"
-        "it" /*shh*/ "has"="💯" r##"the"##
+        "it" /*shh*/ "has"="💯" ##"the"##
         Best🎊est
         "syntax ever"
 "####,
@@ -750,7 +783,7 @@ inline { time; to; live "our" "dreams"; "y;all"; }
         // Now the "it" node, more straightforward
         let it_node = and_node.children().unwrap().get("it").unwrap();
         check_span(
-            r####""it" /*shh*/ "has"="💯" r##"the"##"####,
+            r####""it" /*shh*/ "has"="💯" ##"the"##"####,
             it_node.span(),
             &input,
         );
@@ -760,7 +793,7 @@ inline { time; to; live "our" "dreams"; "y;all"; }
             &input,
         );
         check_span(
-            r####"r##"the"##"####,
+            r####"##"the"##"####,
             it_node.entry(0).unwrap().span(),
             &input,
         );

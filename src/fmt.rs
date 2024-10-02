@@ -1,24 +1,25 @@
 use std::fmt::Write as _;
 
-pub(crate) fn autoformat_leading(leading: &mut String, indent: usize, _no_comments: bool) {
+pub(crate) fn autoformat_leading(leading: &mut String, indent: usize, no_comments: bool) {
     if leading.is_empty() {
         return;
     }
     // TODO
     let mut result = String::new();
-    // if !no_comments {
-    //     let input = leading.trim();
-    //     let kdl_parser = crate::v1_parser::KdlParser { full_input: input };
-    //     let comments = kdl_parser
-    //         .parse(crate::v1_parser::leading_comments(&kdl_parser))
-    //         .expect("invalid leading text");
-    //     for line in comments {
-    //         let trimmed = line.trim();
-    //         if !trimmed.is_empty() {
-    //             writeln!(result, "{:indent$}{}", "", trimmed, indent = indent).unwrap();
-    //         }
-    //     }
-    // }
+    if !no_comments {
+        let input = leading.trim();
+        let (maybe_val, errs) =
+            crate::v2_parser::try_parse(crate::v2_parser::leading_comments, input);
+        let (Some(comments), true) = (maybe_val, errs.is_empty()) else {
+            panic!("invalid leading text");
+        };
+        for line in comments {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                writeln!(result, "{:indent$}{}", "", trimmed, indent = indent).unwrap();
+            }
+        }
+    }
     write!(result, "{:indent$}", "", indent = indent).unwrap();
     *leading = result;
 }
