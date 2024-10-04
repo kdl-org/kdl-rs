@@ -290,14 +290,11 @@ fn base_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
 
 /// `node := base-node optional-node-space node-terminator`
 fn node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
-    let ((leading, mut node, trailing, terminator), _span) = (
+    let (leading, (mut node, _span), (trailing, terminator)) = (
         repeat(0.., line_space).map(|()| ()).take(),
-        base_node,
-        optional_node_space.take(),
-        node_terminator.take(),
+        base_node.with_span(),
+        (optional_node_space.take(), node_terminator.take()),
     )
-        .context("node")
-        .with_span()
         .parse_next(input)?;
     if let Some(fmt) = node.format_mut() {
         fmt.leading = leading.into();
@@ -421,17 +418,11 @@ pub(crate) fn padded_node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<Kdl
 
 /// `node-prop-or-arg := prop | value`
 fn node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
-    let ((leading, mut entry), _span) = (optional_node_space.take(), alt((prop, value)))
-        .context(lbl("node entry"))
-        .with_span()
-        .parse_next(input)?;
+    let (leading, mut entry) =
+        (optional_node_space.take(), alt((prop, value))).parse_next(input)?;
     entry = entry.map(|mut e| {
         if let Some(fmt) = e.format_mut() {
             fmt.leading = leading.into();
-        }
-        #[cfg(feature = "span")]
-        {
-            e.set_span(_span);
         }
         e
     });
@@ -473,18 +464,18 @@ fn entry_test() {
 
 /// `node-children := '{' nodes final-node? '}'`
 fn node_children<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
-    "{".parse_next(input)?;
     let _start = input.location();
+    "{".parse_next(input)?;
     let mut ns = nodes.parse_next(input)?;
     let fin = opt(final_node).parse_next(input)?;
     if let Some(fin) = fin {
         ns.nodes.push(fin);
-        #[cfg(feature = "span")]
-        {
-            ns.span = (_start..input.location()).into();
-        }
     }
     cut_err("}").parse_next(input)?;
+    #[cfg(feature = "span")]
+    {
+        ns.span = (_start..input.location()).into();
+    }
     Ok(ns)
 }
 
@@ -500,9 +491,8 @@ fn prop<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
         optional_node_space.take(),
         equals_sign.take(),
         optional_node_space.take(),
-        cut_err(value).context("property value"),
+        cut_err(value),
     )
-        .context("property")
         .with_span()
         .parse_next(input)?;
     Ok(value.map(|mut value| {
@@ -522,19 +512,16 @@ fn prop<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
 
 /// `value := type? optional-node-space (string | number | keyword)`
 fn value<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
-    let ((ty, after_ty, (value, raw)), _span) = (
-        opt(ty),
-        optional_node_space.take(),
-        alt((string, number.map(Some), keyword.map(Some)))
-            .context(lbl("value"))
-            .with_taken(),
+    let ((ty, (value, raw)), _span) = (
+        opt((ty, optional_node_space.take())),
+        alt((string, number.map(Some), keyword.map(Some))).with_taken(),
     )
         .with_span()
         .parse_next(input)?;
-    let (before_ty_name, ty, after_ty_name) = if let Some(ty_info) = ty {
+    let ((before_ty_name, ty, after_ty_name), after_ty) = if let Some(ty_info) = ty {
         ty_info
     } else {
-        ("", None, "")
+        (("", None, ""), "")
     };
     Ok(value.map(|value| KdlEntry {
         ty,
@@ -720,41 +707,65 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
     let is_multiline = opt(newline).parse_next(input)?.is_some();
     let ml_prefix: Option<String> = if is_multiline {
         Some(
-            peek(repeat(0.., unicode_space).map(|_: ()| ()).take())
-                .parse_next(input)?
-                .to_string(),
+            peek(preceded(
+                repeat_till(
+                    0..,
+                    (
+                        repeat(0.., (not(newline), string_char)).map(|()| ()),
+                        newline
+                    ),
+                    peek(terminated(repeat(0.., unicode_space).map(|()| ()), "\"")),
+                )
+                .map(|((), ())| ()),
+                terminated(repeat(0.., unicode_space).map(|()| ()).take(), "\""),
+            ))
+            .parse_next(input)?
+            .to_string(),
         )
     } else {
         None
     };
     let body: Option<String> = if let Some(prefix) = ml_prefix {
-        cut_err(repeat_till(
+        Some(dbg!(repeat_till(
             0..,
-            (&prefix[..], string_char, newline).map(|(_, s, _)| s),
-            (&prefix[..], "\""),
-        ))
-        .map(|(s, _): (String, _)| s)
-        .context(lbl("quoted string"))
-        .resume_after(quoted_string_badval)
-        .parse_next(input)?
+            (
+                cut_err(&prefix[..]).context(lbl("matching multiline string prefix")),
+                repeat_till(
+                    0..,
+                    (not(newline), string_char),
+                    newline
+                ).map(|((), ())| ()).take(),
+            ),
+            (
+                cut_err(&prefix[..]).context(lbl("matching multiline string prefix")),
+                repeat(0.., unicode_space).map(|()| ()).take(),
+                peek("\""),
+            ),
+        )
+        .map(|((), _)| ()).take()
+        .map(|s| format!("{s}"))
+        .parse_next(input))?)
     } else {
-        cut_err(repeat_till(
+        repeat_till(
             0..,
             (not(newline), string_char).map(|(_, s)| s),
-            "\"",
-        ))
-        .map(|(s, _): (String, _)| s)
+            (repeat(0.., unicode_space).map(|()| ()).take(), peek("\"")),
+        )
+        .map(|(s, (end, _)): (String, (&'s str, _))| format!("{s}{end}"))
         .context(lbl("quoted string"))
         .resume_after(quoted_string_badval)
         .parse_next(input)?
     };
+    cut_err("\"")
+        .context(lbl("closing quote"))
+        .parse_next(input)?;
     Ok(body.map(|body| KdlValue::String(body)))
 }
 
 /// Like badval, but is able to slurp up invalid raw strings, which contain whitespace.
 fn quoted_string_badval<'s>(input: &mut Input<'s>) -> PResult<()> {
-    let terminator = ("\"", peek(alt((ws, newline, eof.void()))));
-    let terminator2 = ("\"", peek(alt((ws, newline, eof.void()))));
+    let terminator = (peek("\""), peek(alt((ws, newline, eof.void()))));
+    let terminator2 = (peek("\""), peek(alt((ws, newline, eof.void()))));
     repeat_till(0.., (not(terminator), any), terminator2)
         .map(|(v, _)| v)
         .parse_next(input)

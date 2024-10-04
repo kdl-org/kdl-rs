@@ -563,7 +563,7 @@ baz
 
     #[test]
     fn autoformat() -> miette::Result<()> {
-        let mut doc: KdlDocument = r#"
+        let mut doc: KdlDocument = r##"
 
         /* x */ foo    1 "bar"=0xDEADbeef {
     child1     1  ;
@@ -581,7 +581,7 @@ baz
 
        multiline*/
                                     inner1    \
-                    r"value" \
+                    #"value"# \
                     ;
 
         inner2      \ //comment
@@ -593,7 +593,7 @@ baz
 
         // trailing comment here
 
-        "#
+        "##
         .parse()?;
 
         KdlDocument::autoformat(&mut doc);
@@ -768,11 +768,11 @@ inline { time; to; live "our" "dreams"; "y;all"; }
         // The child document is a little weird, it's the contents *inside* the braces
         // with extra newlines on both ends.
         check_span(
-            r####"
+            r####"{
         "it" /*shh*/ "has"="💯" ##"the"##
         Best🎊est
         "syntax ever"
-"####,
+    }"####,
             and_node.children().unwrap().span(),
             &input,
         );
@@ -808,7 +808,7 @@ inline { time; to; live "our" "dreams"; "y;all"; }
 
         let inline_children = inline_node.children().unwrap();
         check_span(
-            r#" time; to; live "our" "dreams"; "y;all"; "#,
+            r#"{ time; to; live "our" "dreams"; "y;all"; }"#,
             inline_children.span(),
             &input,
         );
