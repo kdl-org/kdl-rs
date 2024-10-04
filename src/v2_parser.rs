@@ -730,9 +730,13 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
             0..,
             (
                 cut_err(&prefix[..]).context(lbl("matching multiline string prefix")),
-                repeat_till(0.., (not(newline), string_char), newline)
-                    .map(|((), ())| ())
-                    .take(),
+                repeat_till(
+                    0..,
+                    (not(newline), string_char).map(|((), _)| ()).take(),
+                    newline,
+                )
+                // multiline string literal newlines are normalized to `\n`
+                .map(|(s, _): (Vec<&str>, _)| format!("{}\n", s.join(""))),
             )
                 .map(|(_, s)| s),
             (
@@ -741,7 +745,7 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
                 peek("\""),
             ),
         )
-        .map(|(s, _): (Vec<&str>, (_, _, _))| {
+        .map(|(s, _): (Vec<String>, (_, _, _))| {
             let mut s = s.join("");
             // Slice off the `\n` at the end of the last line.
             s.truncate(s.len() - 1);
@@ -867,9 +871,15 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
             0..,
             (
                 cut_err(&prefix[..]).context(lbl("matching multiline raw string prefix")),
-                repeat_till(0.., (not(newline), not(("\"", &hashes[..])), any), newline)
-                    .map(|((), ())| ())
-                    .take(),
+                repeat_till(
+                    0..,
+                    (not(newline), not(("\"", &hashes[..])), any)
+                        .map(|((), (), _)| ())
+                        .take(),
+                    newline,
+                )
+                // multiline string literal newlines are normalized to `\n`
+                .map(|(s, _): (Vec<&str>, _)| format!("{}\n", s.join(""))),
             )
                 .map(|(_, s)| s),
             (
@@ -878,7 +888,7 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
                 peek(("\"", &hashes[..])),
             ),
         )
-        .map(|(s, _): (Vec<&str>, (_, _, _))| {
+        .map(|(s, _): (Vec<String>, (_, _, _))| {
             let mut s = s.join("");
             // Slice off the `\n` at the end of the last line.
             s.truncate(s.len() - 1);
@@ -953,6 +963,10 @@ mod string_tests {
             Some(KdlValue::String("foo\n  bar\nbaz".into()))
         );
         assert_eq!(
+            string.parse(new_input("\"\nfoo\r\nbar\nbaz\n\"")).unwrap(),
+            Some(KdlValue::String("foo\nbar\nbaz".into()))
+        );
+        assert_eq!(
             string
                 .parse(new_input("\"\n  foo\n    bar\n   baz\n  \""))
                 .unwrap(),
@@ -975,6 +989,12 @@ mod string_tests {
     fn multiline_raw_string() {
         assert_eq!(
             string.parse(new_input("#\"\nfoo\nbar\nbaz\n\"#")).unwrap(),
+            Some(KdlValue::String("foo\nbar\nbaz".into()))
+        );
+        assert_eq!(
+            string
+                .parse(new_input("#\"\nfoo\r\nbar\nbaz\n\"#"))
+                .unwrap(),
             Some(KdlValue::String("foo\nbar\nbaz".into()))
         );
         assert_eq!(
@@ -1069,13 +1089,13 @@ fn escline<'s>(input: &mut Input<'s>) -> PResult<()> {
 /// `newline := <See Table>`
 fn newline<'s>(input: &mut Input<'s>) -> PResult<()> {
     alt((
+        "\u{000D}\u{000A}",
         "\u{000D}",
         "\u{000A}",
         "\u{0085}",
         "\u{000C}",
         "\u{2028}",
         "\u{2029}",
-        "\u{000D}\u{000A}",
     ))
     .void()
     .context(lbl("newline"))
