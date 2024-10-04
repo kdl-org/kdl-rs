@@ -712,7 +712,7 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
                     0..,
                     (
                         repeat(0.., (not(newline), string_char)).map(|()| ()),
-                        newline
+                        newline,
                     ),
                     peek(terminated(repeat(0.., unicode_space).map(|()| ()), "\"")),
                 )
@@ -726,25 +726,29 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
         None
     };
     let body: Option<String> = if let Some(prefix) = ml_prefix {
-        Some(dbg!(repeat_till(
+        repeat_till(
             0..,
             (
                 cut_err(&prefix[..]).context(lbl("matching multiline string prefix")),
-                repeat_till(
-                    0..,
-                    (not(newline), string_char),
-                    newline
-                ).map(|((), ())| ()).take(),
-            ),
+                repeat_till(0.., (not(newline), string_char), newline)
+                    .map(|((), ())| ())
+                    .take(),
+            )
+                .map(|(_, s)| s),
             (
                 cut_err(&prefix[..]).context(lbl("matching multiline string prefix")),
                 repeat(0.., unicode_space).map(|()| ()).take(),
                 peek("\""),
             ),
         )
-        .map(|((), _)| ()).take()
-        .map(|s| format!("{s}"))
-        .parse_next(input))?)
+        .map(|(s, _): (Vec<&str>, (_, _, _))| {
+            let mut s = s.join("");
+            // Slice off the `\n` at the end of the last line.
+            s.truncate(s.len() - 1);
+            s
+        })
+        .resume_after(quoted_string_badval)
+        .parse_next(input)?
     } else {
         repeat_till(
             0..,
@@ -825,28 +829,62 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
     let is_multiline = opt(newline).parse_next(input)?.is_some();
     let ml_prefix: Option<String> = if is_multiline {
         Some(
-            peek(repeat(0.., unicode_space).map(|_: ()| ()).take())
-                .parse_next(input)?
-                .to_string(),
+            peek(preceded(
+                repeat_till(
+                    0..,
+                    (
+                        repeat(
+                            0..,
+                            (
+                                not(newline),
+                                not(disallowed_unicode),
+                                not(("\"", &hashes[..])),
+                                any,
+                            ),
+                        )
+                        .map(|()| ()),
+                        newline,
+                    ),
+                    peek(terminated(
+                        repeat(0.., unicode_space).map(|()| ()),
+                        ("\"", &hashes[..]),
+                    )),
+                )
+                .map(|((), ())| ()),
+                terminated(
+                    repeat(0.., unicode_space).map(|()| ()).take(),
+                    ("\"", &hashes[..]),
+                ),
+            ))
+            .parse_next(input)?
+            .to_string(),
         )
     } else {
         None
     };
     let body: Option<String> = if let Some(prefix) = ml_prefix {
-        cut_err(repeat_till(
+        dbg!(&prefix);
+        repeat_till(
             0..,
             (
-                &prefix[..],
-                not(disallowed_unicode),
-                not(("\"", &hashes[..])),
-                any,
-                newline,
+                cut_err(&prefix[..]).context(lbl("matching multiline raw string prefix")),
+                repeat_till(0.., (not(newline), not(("\"", &hashes[..])), any), newline)
+                    .map(|((), ())| ())
+                    .take(),
             )
-                .map(|(_, _, _, s, _)| s),
-            (&prefix[..], "\"", &hashes[..]),
-        ))
-        .map(|(s, _): (String, _)| s)
-        .context(lbl("raw string"))
+                .map(|(_, s)| s),
+            (
+                cut_err(&prefix[..]).context(lbl("matching multiline raw string prefix")),
+                repeat(0.., unicode_space).map(|()| ()).take(),
+                peek(("\"", &hashes[..])),
+            ),
+        )
+        .map(|(s, _): (Vec<&str>, (_, _, _))| {
+            let mut s = s.join("");
+            // Slice off the `\n` at the end of the last line.
+            s.truncate(s.len() - 1);
+            s
+        })
         .resume_after(raw_string_badval)
         .parse_next(input)?
     } else {
@@ -866,6 +904,9 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
         .resume_after(raw_string_badval)
         .parse_next(input)?
     };
+    cut_err(("\"", &hashes[..]))
+        .context(lbl("closing quote"))
+        .parse_next(input)?;
     Ok(body.map(|body| KdlValue::String(body)))
 }
 
@@ -901,11 +942,57 @@ mod string_tests {
     }
 
     #[test]
+    fn multiline_quoted_string() {
+        assert_eq!(
+            string.parse(new_input("\"\nfoo\nbar\nbaz\n\"")).unwrap(),
+            Some(KdlValue::String("foo\nbar\nbaz".into()))
+        );
+        assert_eq!(
+            string
+                .parse(new_input("\"\n  foo\n    bar\n  baz\n  \""))
+                .unwrap(),
+            Some(KdlValue::String("foo\n  bar\nbaz".into()))
+        );
+        assert_eq!(
+            string
+                .parse(new_input("\"\n  foo\n    bar\n   baz\n  \""))
+                .unwrap(),
+            Some(KdlValue::String("foo\n  bar\n baz".into()))
+        );
+        assert!(string
+            .parse(new_input("\"\nfoo\n  bar\n  baz\n  \""))
+            .is_err());
+    }
+
+    #[test]
     fn raw_string() {
         assert_eq!(
             string.parse(new_input("#\"foo\"#")).unwrap(),
             Some(KdlValue::String("foo".into()))
         );
+    }
+
+    #[test]
+    fn multiline_raw_string() {
+        assert_eq!(
+            string.parse(new_input("#\"\nfoo\nbar\nbaz\n\"#")).unwrap(),
+            Some(KdlValue::String("foo\nbar\nbaz".into()))
+        );
+        assert_eq!(
+            string
+                .parse(new_input("##\"\n  foo\n    bar\n  baz\n  \"##"))
+                .unwrap(),
+            Some(KdlValue::String("foo\n  bar\nbaz".into()))
+        );
+        assert_eq!(
+            string
+                .parse(new_input("#\"\n  foo\n    \\nbar\n   baz\n  \"#"))
+                .unwrap(),
+            Some(KdlValue::String("foo\n  \\nbar\n baz".into()))
+        );
+        assert!(string
+            .parse(new_input("#\"\nfoo\n  bar\n  baz\n  \"#"))
+            .is_err());
     }
 
     #[test]
