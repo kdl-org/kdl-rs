@@ -863,7 +863,6 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
         None
     };
     let body: Option<String> = if let Some(prefix) = ml_prefix {
-        dbg!(&prefix);
         repeat_till(
             0..,
             (
@@ -888,7 +887,7 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
         .resume_after(raw_string_badval)
         .parse_next(input)?
     } else {
-        cut_err(repeat_till(
+        repeat_till(
             0..,
             (
                 not(disallowed_unicode),
@@ -897,8 +896,8 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
                 any,
             )
                 .map(|(_, _, _, s)| s),
-            ("\"", &hashes[..]),
-        ))
+            peek(("\"", &hashes[..])),
+        )
         .map(|(s, _): (String, _)| s)
         .context(lbl("raw string"))
         .resume_after(raw_string_badval)
