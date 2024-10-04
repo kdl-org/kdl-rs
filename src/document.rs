@@ -626,7 +626,6 @@ foo 1 bar=0xdeadbeef {
     fn simple_autoformat() -> miette::Result<()> {
         let mut doc: KdlDocument = "a { b { c { }; }; }".parse().unwrap();
         KdlDocument::autoformat(&mut doc);
-        print!("{}", doc);
         assert_eq!(
             doc.to_string(),
             r#"a {

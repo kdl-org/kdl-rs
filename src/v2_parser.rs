@@ -1086,6 +1086,16 @@ fn escline<'s>(input: &mut Input<'s>) -> PResult<()> {
     alt((single_line_comment, newline, eof.void())).parse_next(input)
 }
 
+#[cfg(test)]
+#[test]
+fn escline_test() {
+    let node = node.parse(new_input("foo bar\\\n   baz\n")).unwrap();
+    assert_eq!(
+       node.entries().len(),
+       2
+    );
+}
+
 /// `newline := <See Table>`
 fn newline<'s>(input: &mut Input<'s>) -> PResult<()> {
     alt((
