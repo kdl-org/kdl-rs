@@ -682,10 +682,10 @@ static DISALLOWED_IDENT_CHARS: [char; 11] =
 
 pub(crate) fn is_disallowed_ident_char(c: char) -> bool {
     DISALLOWED_IDENT_CHARS.iter().any(|ic| ic == &c)
-   || NEWLINES.iter().copied().collect::<String>().contains(c)
-   || UNICODE_SPACES.iter().any(|us| us == &c)
-   || is_disallowed_unicode(c)
-   || EQUALS_SIGNS.iter().any(|eq| eq == &c)
+        || NEWLINES.iter().copied().collect::<String>().contains(c)
+        || UNICODE_SPACES.iter().any(|us| us == &c)
+        || is_disallowed_unicode(c)
+        || EQUALS_SIGNS.iter().any(|eq| eq == &c)
 }
 
 /// `identifier-char := unicode - unicode-space - newline - [\\/(){};\[\]"#] - disallowed-literal-code-points - equals-sign`
@@ -822,10 +822,11 @@ fn escaped_char<'s>(input: &mut Input<'s>) -> PResult<char> {
             )),
         ),
         (
-            "u{",
+            "\\u{",
             cut_err(take_while(1..6, AsChar::is_hex_digit)),
             cut_err("}"),
         )
+            .context(lbl("unicode escape char"))
             .verify_map(|(_, hx, _)| {
                 let val = u32::from_str_radix(hx, 16)
                     .expect("Should have already been validated to be a hex string.");
@@ -960,6 +961,10 @@ mod string_tests {
         assert_eq!(
             string.parse(new_input("\"foo\"")).unwrap(),
             Some(KdlValue::String("foo".into()))
+        );
+        assert_eq!(
+            string.parse(new_input("\"foo\\u{0a}\"")).unwrap(),
+            Some(KdlValue::String("foo\u{0a}".into()))
         );
     }
 
@@ -1166,16 +1171,14 @@ fn comment<'s>(input: &mut Input<'s>) -> PResult<&'s str> {
 }
 
 static UNICODE_SPACES: [char; 19] = [
-    '\u{0009}', '\u{000B}', '\u{0020}', '\u{00A0}', '\u{1680}', '\u{2000}', '\u{2001}',
-    '\u{2002}', '\u{2003}', '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}', '\u{2008}',
-    '\u{2009}', '\u{200A}', '\u{202F}', '\u{205F}', '\u{3000}',
+    '\u{0009}', '\u{000B}', '\u{0020}', '\u{00A0}', '\u{1680}', '\u{2000}', '\u{2001}', '\u{2002}',
+    '\u{2003}', '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}', '\u{2008}', '\u{2009}', '\u{200A}',
+    '\u{202F}', '\u{205F}', '\u{3000}',
 ];
 
 /// `unicode-space := <See Table>`
 fn unicode_space<'s>(input: &mut Input<'s>) -> PResult<()> {
-    one_of(UNICODE_SPACES)
-    .void()
-    .parse_next(input)
+    one_of(UNICODE_SPACES).void().parse_next(input)
 }
 
 /// `single-line-comment := '//' ^newline* (newline | eof)`
@@ -1266,7 +1269,10 @@ fn float_test() {
     assert!(float.parse(new_input("_1234.56")).is_err());
     assert!(float.parse(new_input("1234a.56")).is_err());
     assert_eq!(
-        value.parse(new_input("2.5")).unwrap().map(|x| x.value().clone()),
+        value
+            .parse(new_input("2.5"))
+            .unwrap()
+            .map(|x| x.value().clone()),
         Some(KdlValue::Base10Float(2.5))
     );
 }
@@ -1345,7 +1351,9 @@ fn test_hex() {
         hex.parse(new_input("0xdeadbeef123_")).unwrap(),
         KdlValue::Base16(0xdeadbeef123)
     );
+    assert!(hex.parse(new_input("0xABCDEF0123456789abcdef")).is_err(), "i64 overflow");
     assert!(hex.parse(new_input("0x_deadbeef123")).is_err());
+
     assert!(hex.parse(new_input("0xbeefg1")).is_err());
 }
 
