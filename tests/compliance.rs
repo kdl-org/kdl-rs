@@ -104,8 +104,8 @@ fn validate_res(
             "skipped reserialization for {}",
             PathBuf::from(file_name).display()
         );
-    // } else {
-    //     res.map_err(|e| ComplianceDiagnostic::KdlParseFailure(path.into(), e))?;
+        // } else {
+        //     res.map_err(|e| ComplianceDiagnostic::KdlParseFailure(path.into(), e))?;
     }
     Ok(())
 }

@@ -14,7 +14,7 @@ use winnow::{
     },
     prelude::*,
     stream::{AsChar, Location, Recoverable, Stream},
-    token::{any, none_of, one_of, take_until, take_while},
+    token::{any, none_of, one_of, take_while},
     Located,
 };
 
@@ -671,7 +671,7 @@ fn dotted_ident<'s>(input: &mut Input<'s>) -> PResult<()> {
         opt(sign),
         ".",
         not(digit1),
-        repeat(1.., identifier_char).map(|_: ()| ()),
+        repeat(0.., identifier_char).map(|_: ()| ()),
     )
         .void()
         .parse_next(input)
@@ -724,7 +724,7 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
                 repeat_till(
                     0..,
                     (
-                        repeat(0.., (not(newline), string_char)).map(|()| ()),
+                        repeat(0.., (not(newline), opt(ws_escape), string_char)).map(|()| ()),
                         newline,
                     ),
                     peek(terminated(repeat(0.., unicode_space).map(|()| ()), "\"")),
@@ -745,11 +745,11 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
                 cut_err(&prefix[..]).context(lbl("matching multiline string prefix")),
                 repeat_till(
                     0..,
-                    (not(newline), string_char).map(|((), _)| ()).take(),
+                    (not(newline), opt(ws_escape), string_char).map(|(_, _, s)| s),
                     newline,
                 )
                 // multiline string literal newlines are normalized to `\n`
-                .map(|(s, _): (Vec<&str>, _)| format!("{}\n", s.join(""))),
+                .map(|(s, _): (String, _)| format!("{s}\n")),
             )
                 .map(|(_, s)| s),
             (
@@ -769,7 +769,7 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
     } else {
         repeat_till(
             0..,
-            (not(newline), string_char).map(|(_, s)| s),
+            (not(newline), opt(ws_escape), string_char).map(|(_, _, s)| s),
             (repeat(0.., unicode_space).map(|()| ()).take(), peek("\"")),
         )
         .map(|(s, (end, _)): (String, (&'s str, _))| format!("{s}{end}"))
@@ -802,27 +802,34 @@ fn string_char<'s>(input: &mut Input<'s>) -> PResult<char> {
     .parse_next(input)
 }
 
+fn ws_escape<'s>(input: &mut Input<'s>) -> PResult<()> {
+    (
+        "\\",
+        repeat(1.., alt((unicode_space, newline))).map(|()| ()),
+    )
+        .void()
+        .parse_next(input)
+}
+
 /// ```text
 /// escape := ["\\bfnrts] | 'u{' hex-digit{1, 6} '}' | (unicode-space | newline)+
 /// hex-digit := [0-9a-fA-F]
 /// ```
 fn escaped_char<'s>(input: &mut Input<'s>) -> PResult<char> {
+    "\\".parse_next(input)?;
     alt((
-        preceded(
-            "\\",
-            alt((
-                "\\".value('\\'),
-                "\"".value('\"'),
-                "b".value('\u{0008}'),
-                "f".value('\u{000C}'),
-                "n".value('\n'),
-                "r".value('\r'),
-                "t".value('\t'),
-                "s".value(' '),
-            )),
-        ),
+        alt((
+            "\\".value('\\'),
+            "\"".value('\"'),
+            "b".value('\u{0008}'),
+            "f".value('\u{000C}'),
+            "n".value('\n'),
+            "r".value('\r'),
+            "t".value('\t'),
+            "s".value(' '),
+        )),
         (
-            "\\u{",
+            "u{",
             cut_err(take_while(1..6, AsChar::is_hex_digit)),
             cut_err("}"),
         )
@@ -832,7 +839,6 @@ fn escaped_char<'s>(input: &mut Input<'s>) -> PResult<char> {
                     .expect("Should have already been validated to be a hex string.");
                 char::from_u32(val)
             }),
-        repeat(1.., alt((unicode_space, newline))).map(|_: ()| ' '),
     ))
     .parse_next(input)
 }
@@ -990,6 +996,12 @@ mod string_tests {
                 .unwrap(),
             Some(KdlValue::String("foo\n  bar\n baz".into()))
         );
+        assert_eq!(
+            string
+                .parse(new_input("\"\n  \\     foo\n    \\  bar\n   \\ baz\n  \""))
+                .unwrap(),
+            Some(KdlValue::String("foo\n  bar\n baz".into()))
+        );
         assert!(string
             .parse(new_input("\"\nfoo\n  bar\n  baz\n  \""))
             .is_err());
@@ -1042,6 +1054,14 @@ mod string_tests {
                 span: (0..3).into()
             }
         );
+        assert_eq!(
+            identifier.parse(new_input("+.")).unwrap(),
+            KdlIdentifier {
+                value: "+.".into(),
+                repr: Some("+.".into()),
+                span: (0..1).into()
+            }
+        )
     }
 }
 
@@ -1209,12 +1229,26 @@ fn commented_block<'s>(input: &mut Input<'s>) -> PResult<()> {
                 multi_line_comment,
                 "*".void(),
                 "/".void(),
-                take_until(1.., "*/").void(),
+                repeat(1.., none_of(['*', '/'])).map(|()| ()),
             )),
             commented_block,
         ),
     ))
     .parse_next(input)
+}
+
+#[cfg(test)]
+#[test]
+fn multi_line_comment_test() {
+    assert!(multi_line_comment.parse(new_input("/* foo */")).is_ok());
+    assert!(multi_line_comment.parse(new_input("/**/")).is_ok());
+    assert!(multi_line_comment.parse(new_input("/*\nfoo\n*/")).is_ok());
+    assert!(multi_line_comment.parse(new_input("/*\nfoo*/")).is_ok());
+    assert!(multi_line_comment.parse(new_input("/*foo\n*/")).is_ok());
+    assert!(multi_line_comment.parse(new_input("/* foo\n*/")).is_ok());
+    assert!(multi_line_comment
+        .parse(new_input("/* /*bar*/ foo\n*/"))
+        .is_ok());
 }
 
 /// `number := keyword-number | hex | octal | binary | decimal`
@@ -1349,7 +1383,10 @@ fn test_hex() {
         hex.parse(new_input("0xdeadbeef123_")).unwrap(),
         KdlValue::Base16(0xdeadbeef123)
     );
-    assert!(hex.parse(new_input("0xABCDEF0123456789abcdef")).is_err(), "i64 overflow");
+    assert!(
+        hex.parse(new_input("0xABCDEF0123456789abcdef")).is_err(),
+        "i64 overflow"
+    );
     assert!(hex.parse(new_input("0x_deadbeef123")).is_err());
 
     assert!(hex.parse(new_input("0xbeefg1")).is_err());

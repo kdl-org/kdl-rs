@@ -55,7 +55,7 @@ impl KdlEntry {
     pub fn name(&self) -> Option<&KdlIdentifier> {
         self.name.as_ref()
     }
-    
+
     /// Gets a mutable reference to this node's name.
     pub fn name_mut(&mut self) -> Option<&mut KdlIdentifier> {
         self.name.as_mut()
