@@ -361,10 +361,7 @@ mod test {
     #[test]
     fn formatting() {
         let raw = KdlValue::RawString(r###"##"foo#"bar"#baz"##"###.into());
-        assert_eq!(
-            format!("{}", raw),
-            r####"###"##"foo#"bar"#baz"##"###"####
-        );
+        assert_eq!(format!("{}", raw), r####"###"##"foo#"bar"#baz"##"###"####);
 
         let string = KdlValue::String("foo\n".into());
         assert_eq!(format!("{}", string), r#""foo\n""#);

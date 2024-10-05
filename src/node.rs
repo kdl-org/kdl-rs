@@ -58,7 +58,10 @@ impl KdlNode {
             ty: None,
             entries: Vec::new(),
             children: None,
-            format: Some(KdlNodeFormat { trailing: "\n".into(), ..Default::default() }),
+            format: Some(KdlNodeFormat {
+                trailing: "\n".into(),
+                ..Default::default()
+            }),
             #[cfg(feature = "span")]
             span: SourceSpan::from(0..0),
         }
@@ -524,6 +527,7 @@ impl KdlNode {
         {
             crate::fmt::autoformat_leading(leading, indent, no_comments);
             crate::fmt::autoformat_trailing(trailing, no_comments);
+            *trailing = trailing.trim().into();
             if trailing.starts_with(';') {
                 trailing.remove(0);
             }
@@ -532,12 +536,14 @@ impl KdlNode {
                     trailing.insert(0, ' ');
                 }
             }
-            *trailing = trailing.trim().into();
             trailing.push('\n');
 
             *before_children = " ".into();
         } else {
-            self.set_format(KdlNodeFormat { trailing: "\n".into(), ..Default::default() })
+            self.set_format(KdlNodeFormat {
+                trailing: "\n".into(),
+                ..Default::default()
+            })
         }
         self.name.clear_format();
         if let Some(ty) = self.ty.as_mut() {
@@ -643,21 +649,21 @@ mod test {
 
     #[test]
     fn parsing() -> miette::Result<()> {
-        // let node: KdlNode = "\n\t  (\"ty\")\"node\" 0xDEADbeef;\n".parse()?;
-        // assert_eq!(node.ty(), Some(&"\"ty\"".parse()?));
-        // assert_eq!(node.name(), &"\"node\"".parse()?);
-        // assert_eq!(node.entry(0), Some(&" 0xDEADbeef".parse()?));
-        // assert_eq!(
-        //     node.format(),
-        //     Some(&KdlNodeFormat {
-        //         leading: "\n\t  ".into(),
-        //         trailing: ";\n".into(),
-        //         before_ty_name: "".into(),
-        //         after_ty_name: "".into(),
-        //         after_ty: "".into(),
-        //         before_children: "".into(),
-        //     })
-        // );
+        let node: KdlNode = "\n\t  (\"ty\")\"node\" 0xDEADbeef;\n".parse()?;
+        assert_eq!(node.ty(), Some(&"\"ty\"".parse()?));
+        assert_eq!(node.name(), &"\"node\"".parse()?);
+        assert_eq!(node.entry(0), Some(&" 0xDEADbeef".parse()?));
+        assert_eq!(
+            node.format(),
+            Some(&KdlNodeFormat {
+                leading: "\n\t  ".into(),
+                trailing: ";\n".into(),
+                before_ty_name: "".into(),
+                after_ty_name: "".into(),
+                after_ty: "".into(),
+                before_children: "".into(),
+            })
+        );
 
         let node: KdlNode = r#"node test {
     link "blah" anything=self

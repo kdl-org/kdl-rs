@@ -726,14 +726,18 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
         repeat_till(
             0..,
             (
-                cut_err(alt((&prefix[..], peek(newline).take()))).context(lbl("matching multiline string prefix")),
-                repeat_till(
-                    0..,
-                    (not(newline), opt(ws_escape), string_char).map(|(_, _, s)| s),
-                    newline,
-                )
-                // multiline string literal newlines are normalized to `\n`
-                .map(|(s, _): (String, _)| format!("{s}\n")),
+                cut_err(alt((&prefix[..], peek(newline).take())))
+                    .context(lbl("matching multiline string prefix")),
+                alt((
+                    newline.take().map(|_| "\n".to_string()),
+                    repeat_till(
+                        0..,
+                        (not(newline), opt(ws_escape), string_char).map(|(_, _, s)| s),
+                        newline,
+                    )
+                    // multiline string literal newlines are normalized to `\n`
+                    .map(|(s, _): (String, _)| format!("{s}\n")),
+                )),
             )
                 .map(|(_, s)| s),
             (
@@ -874,16 +878,20 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
         repeat_till(
             0..,
             (
-                cut_err(alt((&prefix[..], peek(newline).take()))).context(lbl("matching multiline raw string prefix")),
-                repeat_till(
-                    0..,
-                    (not(newline), not(("\"", &hashes[..])), any)
-                        .map(|((), (), _)| ())
-                        .take(),
-                    newline,
-                )
-                // multiline string literal newlines are normalized to `\n`
-                .map(|(s, _): (Vec<&str>, _)| format!("{}\n", s.join(""))),
+                cut_err(alt((&prefix[..], peek(newline).take())))
+                    .context(lbl("matching multiline raw string prefix")),
+                alt((
+                    newline.take().map(|_| "\n".to_string()),
+                    repeat_till(
+                        0..,
+                        (not(newline), not(("\"", &hashes[..])), any)
+                            .map(|((), (), _)| ())
+                            .take(),
+                        newline,
+                    )
+                    // multiline string literal newlines are normalized to `\n`
+                    .map(|(s, _): (Vec<&str>, _)| format!("{}\n", s.join(""))),
+                )),
             )
                 .map(|(_, s)| s),
             (
@@ -987,7 +995,9 @@ mod string_tests {
             Some(KdlValue::String("foo\n  bar\n baz".into()))
         );
         assert_eq!(
-            string.parse(new_input("\"\n\n    string\t\n    \"")).unwrap(),
+            string
+                .parse(new_input("\"\n\n    string\t\n    \""))
+                .unwrap(),
             Some(KdlValue::String("\nstring\t".into())),
             "Empty line without any indentation"
         );
@@ -1114,7 +1124,8 @@ fn disallowed_unicode<'s>(input: &mut Input<'s>) -> PResult<()> {
 fn escline<'s>(input: &mut Input<'s>) -> PResult<()> {
     "\\".parse_next(input)?;
     repeat(0.., ws).map(|_: ()| ()).parse_next(input)?;
-    alt((single_line_comment, newline, eof.void())).parse_next(input)
+    alt((single_line_comment, newline, eof.void())).parse_next(input)?;
+    repeat(0.., ws).map(|_: ()| ()).parse_next(input)
 }
 
 #[cfg(test)]

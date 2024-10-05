@@ -547,7 +547,7 @@ final;";
         doc.nodes_mut().push(KdlNode::new("baz"));
 
         doc.autoformat();
-        
+
         assert_eq!(
             r#"foo
 bar prop=value 1 2 #false #null {
@@ -604,7 +604,7 @@ foo 1 bar=0xdeadbeef {
     child1 1
     // child 2 comment
     child2 2 // comment
-    child3 "\n\n   string\t" {
+    child3 "\nstring\t" {
         /*
 
 
