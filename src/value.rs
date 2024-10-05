@@ -254,10 +254,10 @@ fn is_plain_ident(ident: &str) -> bool {
     ident
         .find(crate::v2_parser::is_disallowed_ident_char)
         .is_none()
-        && ident_bytes.get(0).map(|c| c.is_ascii_digit()) != Some(true)
+        && ident_bytes.first().map(|c| c.is_ascii_digit()) != Some(true)
         && !(ident
             .chars()
-            .nth(0)
+            .next()
             .map(|c| c == '.' || c == '-' || c == '+')
             == Some(true)
             && ident_bytes.get(1).map(|c| c.is_ascii_digit()) == Some(true))

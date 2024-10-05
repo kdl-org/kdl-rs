@@ -175,7 +175,7 @@ impl<I: Stream + Location> FromRecoverableError<I, ContextError> for KdlParseErr
 
 /// Consumes the rest of a value we've cut_err on, so we can contine the parse.
 // TODO: maybe use this for detecting invalid codepoints with useful errors?
-fn badval<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn badval(input: &mut Input<'_>) -> PResult<()> {
     repeat_till(
         0..,
         (
@@ -196,12 +196,12 @@ fn lbl(label: &'static str) -> &'static str {
 }
 
 #[cfg(test)]
-fn new_input<'a>(s: &'a str) -> Input<'a> {
+fn new_input(s: &str) -> Input<'_> {
     Recoverable::new(Located::new(s))
 }
 
 /// `document := bom? nodes`
-fn document<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
+fn document(input: &mut Input<'_>) -> PResult<KdlDocument> {
     let bom = opt(bom.take()).parse_next(input)?;
     let mut doc = nodes.parse_next(input)?;
     if let Some(bom) = bom {
@@ -213,7 +213,7 @@ fn document<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
 }
 
 /// `nodes := (line-space* node)* line-space*`
-fn nodes<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
+fn nodes(input: &mut Input<'_>) -> PResult<KdlDocument> {
     let ((leading, nodes, trailing), _span) = (
         repeat(0.., line_space).map(|()| ()).take(),
         repeat(0.., node),
@@ -233,7 +233,7 @@ fn nodes<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
 }
 
 /// `base-node := type? optional-node-space string (required-node-space node-prop-or-arg)* (required-node-space node-children)?`
-fn base_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
+fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
     let ((ty, after_ty, name, entries, children), _span) = (
         opt(ty),
         optional_node_space.take(),
@@ -242,16 +242,12 @@ fn base_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
             0..,
             (peek(required_node_space), node_entry).map(|(_, e): ((), _)| e),
         )
-        .map(|e: Vec<Option<KdlEntry>>| e.into_iter().filter_map(|e| e).collect::<Vec<KdlEntry>>()),
+        .map(|e: Vec<Option<KdlEntry>>| e.into_iter().flatten().collect::<Vec<KdlEntry>>()),
         opt((optional_node_space.take(), node_children)),
     )
         .with_span()
         .parse_next(input)?;
-    let (before_inner_ty, ty, after_inner_ty) = if let Some(ty_info) = ty {
-        ty_info
-    } else {
-        ("", None, "")
-    };
+    let (before_inner_ty, ty, after_inner_ty) = ty.unwrap_or_default();
     let (before_children, children) = children
         .map(|(before_children, children)| (before_children, Some(children)))
         .unwrap_or(("", None));
@@ -273,7 +269,7 @@ fn base_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
 }
 
 /// `node := base-node optional-node-space node-terminator`
-fn node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
+fn node(input: &mut Input<'_>) -> PResult<KdlNode> {
     let (leading, (mut node, _span), (trailing, terminator)) = (
         repeat(0.., line_space).map(|()| ()).take(),
         base_node.with_span(),
@@ -346,7 +342,7 @@ fn test_node() {
     );
 }
 
-pub(crate) fn padded_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
+pub(crate) fn padded_node(input: &mut Input<'_>) -> PResult<KdlNode> {
     let ((leading, mut node, trailing), _span) = (
         repeat(0.., alt((line_space, node_space)))
             .map(|_: ()| ())
@@ -370,14 +366,14 @@ pub(crate) fn padded_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
 }
 
 /// `final-node := base-node optional-node-space node-terminator?`
-fn final_node<'s>(input: &mut Input<'s>) -> PResult<KdlNode> {
+fn final_node(input: &mut Input<'_>) -> PResult<KdlNode> {
     let node = base_node.parse_next(input)?;
     optional_node_space.parse_next(input)?;
     opt(node_terminator).parse_next(input)?;
     Ok(node)
 }
 
-pub(crate) fn padded_node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
+pub(crate) fn padded_node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
     let ((leading, entry, trailing), _span) = (
         repeat(0.., line_space).map(|_: ()| ()).take(),
         node_entry,
@@ -401,7 +397,7 @@ pub(crate) fn padded_node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<Kdl
 }
 
 /// `node-prop-or-arg := prop | value`
-fn node_entry<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
+fn node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
     let (leading, mut entry) =
         (optional_node_space.take(), alt((prop, value))).parse_next(input)?;
     entry = entry.map(|mut e| {
@@ -447,7 +443,7 @@ fn entry_test() {
 }
 
 /// `node-children := '{' nodes final-node? '}'`
-fn node_children<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
+fn node_children(input: &mut Input<'_>) -> PResult<KdlDocument> {
     let _start = input.location();
     "{".parse_next(input)?;
     let mut ns = nodes.parse_next(input)?;
@@ -464,12 +460,12 @@ fn node_children<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
 }
 
 /// `node-terminator := single-line-comment | newline | ';' | eof`
-fn node_terminator<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn node_terminator(input: &mut Input<'_>) -> PResult<()> {
     alt((eof.void(), ";".void(), newline, single_line_comment)).parse_next(input)
 }
 
 /// `prop := string optional-node-space equals-sign optional-node-space value`
-fn prop<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
+fn prop(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
     let ((key, after_key, eq, after_eq, value), _span) = (
         identifier,
         optional_node_space.take(),
@@ -495,18 +491,14 @@ fn prop<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
 }
 
 /// `value := type? optional-node-space (string | number | keyword)`
-fn value<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
+fn value(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
     let ((ty, (value, raw)), _span) = (
         opt((ty, optional_node_space.take())),
         alt((keyword.map(Some), number.map(Some), string)).with_taken(),
     )
         .with_span()
         .parse_next(input)?;
-    let ((before_ty_name, ty, after_ty_name), after_ty) = if let Some(ty_info) = ty {
-        ty_info
-    } else {
-        (("", None, ""), "")
-    };
+    let ((before_ty_name, ty, after_ty_name), after_ty) = ty.unwrap_or_default();
     Ok(value.map(|value| KdlEntry {
         ty,
         value,
@@ -538,17 +530,17 @@ fn ty<'s>(input: &mut Input<'s>) -> PResult<(&'s str, Option<KdlIdentifier>, &'s
 }
 
 /// `plain-line-space := newline | ws | single-line-comment`
-fn plain_line_space<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn plain_line_space(input: &mut Input<'_>) -> PResult<()> {
     alt((newline, ws, single_line_comment)).parse_next(input)
 }
 
 /// `plain-node-space := ws* escline ws* | ws+`
-fn plain_node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn plain_node_space(input: &mut Input<'_>) -> PResult<()> {
     alt(((wss, escline, wss).void(), wsp)).parse_next(input)
 }
 
 /// `line-space := plain-line-space+ | '/-' plain-node-space* node`
-fn line_space<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn line_space(input: &mut Input<'_>) -> PResult<()> {
     alt((
         repeat(1.., plain_line_space).map(|_: ()| ()).void(),
         (
@@ -563,7 +555,7 @@ fn line_space<'s>(input: &mut Input<'s>) -> PResult<()> {
 }
 
 /// `node-space := plain-node-space+ ('/-' plain-node-space* (node-prop-or-arg | node-children))?`
-fn node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn node_space(input: &mut Input<'_>) -> PResult<()> {
     repeat(1.., plain_node_space)
         .map(|_: ()| ())
         .parse_next(input)?;
@@ -580,7 +572,7 @@ fn node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
 }
 
 /// `required-node-space := node-space* plain-node-space+`
-fn required_node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn required_node_space(input: &mut Input<'_>) -> PResult<()> {
     repeat(0.., (node_space, peek(plain_node_space)))
         .map(|_: ()| ())
         .parse_next(input)?;
@@ -588,18 +580,18 @@ fn required_node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
 }
 
 /// `optional-node-space := node-space*`
-fn optional_node_space<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn optional_node_space(input: &mut Input<'_>) -> PResult<()> {
     repeat(0.., node_space).parse_next(input)
 }
 
 /// `string := identifier-string | quoted-string | raw-string`
-pub(crate) fn string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
+pub(crate) fn string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
     alt((identifier_string, raw_string, quoted_string))
         .context("string")
         .parse_next(input)
 }
 
-pub(crate) fn identifier<'s>(input: &mut Input<'s>) -> PResult<KdlIdentifier> {
+pub(crate) fn identifier(input: &mut Input<'_>) -> PResult<KdlIdentifier> {
     let ((mut ident, raw), _span) = string
         .verify_map(|i| {
             i.and_then(|v| match v {
@@ -619,7 +611,7 @@ pub(crate) fn identifier<'s>(input: &mut Input<'s>) -> PResult<KdlIdentifier> {
 }
 
 /// `identifier-string := unambiguous-ident | signed-ident | dotted-ident`
-fn identifier_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
+fn identifier_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
     alt((unambiguous_ident, signed_ident, dotted_ident))
         .take()
         .map(|s| Some(KdlValue::String(s.into())))
@@ -627,7 +619,7 @@ fn identifier_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
 }
 
 /// `unambiguous-ident := ((identifier-char - digit - sign - '.') identifier-char*) - 'true' - 'false' - 'null' - 'inf' - '-inf' - 'nan'`
-fn unambiguous_ident<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn unambiguous_ident(input: &mut Input<'_>) -> PResult<()> {
     not(alt((digit1.void(), alt(("-", "+")).void(), ".".void()))).parse_next(input)?;
     repeat(1.., identifier_char)
         .verify_map(|s: String| {
@@ -643,14 +635,14 @@ fn unambiguous_ident<'s>(input: &mut Input<'s>) -> PResult<()> {
 }
 
 /// `signed-ident := sign ((identifier-char - digit - '.') identifier-char*)?`
-fn signed_ident<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn signed_ident(input: &mut Input<'_>) -> PResult<()> {
     alt(("+", "-")).parse_next(input)?;
     not(alt((digit1.void(), ".".void()))).parse_next(input)?;
     repeat(0.., identifier_char).parse_next(input)
 }
 
 /// `dotted-ident := sign? '.' ((identifier-char - digit) identifier-char*)?`
-fn dotted_ident<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn dotted_ident(input: &mut Input<'_>) -> PResult<()> {
     (
         opt(sign),
         ".",
@@ -673,7 +665,7 @@ pub(crate) fn is_disallowed_ident_char(c: char) -> bool {
 }
 
 /// `identifier-char := unicode - unicode-space - newline - [\\/(){};\[\]"#] - disallowed-literal-code-points - equals-sign`
-fn identifier_char<'s>(input: &mut Input<'s>) -> PResult<char> {
+fn identifier_char(input: &mut Input<'_>) -> PResult<char> {
     (
         not(alt((
             unicode_space,
@@ -690,7 +682,7 @@ fn identifier_char<'s>(input: &mut Input<'s>) -> PResult<char> {
 static EQUALS_SIGNS: [char; 4] = ['=', '﹦', '＝', '🟰'];
 
 /// `equals-sign := See Table ([Equals Sign](#equals-sign))`
-fn equals_sign<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn equals_sign(input: &mut Input<'_>) -> PResult<()> {
     one_of(EQUALS_SIGNS).void().parse_next(input)
 }
 
@@ -768,11 +760,11 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
     cut_err("\"")
         .context(lbl("closing quote"))
         .parse_next(input)?;
-    Ok(body.map(|body| KdlValue::String(body)))
+    Ok(body.map(KdlValue::String))
 }
 
 /// Like badval, but is able to slurp up invalid raw strings, which contain whitespace.
-fn quoted_string_badval<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn quoted_string_badval(input: &mut Input<'_>) -> PResult<()> {
     let terminator = (peek("\""), peek(alt((ws, newline, eof.void()))));
     let terminator2 = (peek("\""), peek(alt((ws, newline, eof.void()))));
     repeat_till(0.., (not(terminator), any), terminator2)
@@ -782,7 +774,7 @@ fn quoted_string_badval<'s>(input: &mut Input<'s>) -> PResult<()> {
 /// ```text
 /// string-character := '\' escape | [^\\"] - disallowed-literal-code-points
 /// ```
-fn string_char<'s>(input: &mut Input<'s>) -> PResult<char> {
+fn string_char(input: &mut Input<'_>) -> PResult<char> {
     alt((
         escaped_char,
         (not(disallowed_unicode), none_of(['\\', '"'])).map(|(_, c)| c),
@@ -790,7 +782,7 @@ fn string_char<'s>(input: &mut Input<'s>) -> PResult<char> {
     .parse_next(input)
 }
 
-fn ws_escape<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn ws_escape(input: &mut Input<'_>) -> PResult<()> {
     (
         "\\",
         repeat(1.., alt((unicode_space, newline))).map(|()| ()),
@@ -803,7 +795,7 @@ fn ws_escape<'s>(input: &mut Input<'s>) -> PResult<()> {
 /// escape := ["\\bfnrts] | 'u{' hex-digit{1, 6} '}' | (unicode-space | newline)+
 /// hex-digit := [0-9a-fA-F]
 /// ```
-fn escaped_char<'s>(input: &mut Input<'s>) -> PResult<char> {
+fn escaped_char(input: &mut Input<'_>) -> PResult<char> {
     "\\".parse_next(input)?;
     alt((
         alt((
@@ -835,7 +827,7 @@ fn escaped_char<'s>(input: &mut Input<'s>) -> PResult<char> {
 /// `raw-string-quotes := '"' (single-line-raw-string-body | newline multi-line-raw-string-body newline unicode-space*) '"'`
 /// `single-line-raw-string-body := (unicode - newline - disallowed-literal-code-points)*`
 /// `multi-line-raw-string-body := (unicode - disallowed-literal-code-points)`
-fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
+fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
     let hashes: String = repeat(1.., "#").parse_next(input)?;
     "\"".parse_next(input)?;
     let is_multiline = opt(newline).parse_next(input)?.is_some();
@@ -928,11 +920,11 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
     cut_err(("\"", &hashes[..]))
         .context(lbl("closing quote"))
         .parse_next(input)?;
-    Ok(body.map(|body| KdlValue::String(body)))
+    Ok(body.map(KdlValue::String))
 }
 
 /// Like badval, but is able to slurp up invalid raw strings, which contain whitespace.
-fn raw_string_badval<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn raw_string_badval(input: &mut Input<'_>) -> PResult<()> {
     repeat_till(
         0..,
         (not(alt(("#", "\""))), any),
@@ -1068,9 +1060,9 @@ mod string_tests {
 /// keyword := '#true' | '#false' | '#null'
 /// keyword-number := '#inf' | '#-inf' | '#nan'
 /// ````
-fn keyword<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
+fn keyword(input: &mut Input<'_>) -> PResult<KdlValue> {
     let _ = "#".parse_next(input)?;
-    let _ = not(one_of(['#', '"'])).parse_next(input)?;
+    not(one_of(['#', '"'])).parse_next(input)?;
     cut_err(alt((
         Caseless("true").value(KdlValue::Bool(true)),
         Caseless("false").value(KdlValue::Bool(false)),
@@ -1084,20 +1076,19 @@ fn keyword<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
 }
 
 /// `bom := '\u{FEFF}'`
-fn bom<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn bom(input: &mut Input<'_>) -> PResult<()> {
     "\u{FEFF}".void().parse_next(input)
 }
 
 pub(crate) fn is_disallowed_unicode(c: char) -> bool {
-    match c {
-        '\u{0000}'..='\u{0008}' => true,
-        '\u{000E}'..='\u{001F}' => true,
-        '\u{200E}'..='\u{200F}' => true,
-        '\u{202A}'..='\u{202E}' => true,
-        '\u{2066}'..='\u{2069}' => true,
-        '\u{FEFF}' => true,
-        _ => false,
-    }
+    matches!(c,
+        '\u{0000}'..='\u{0008}'
+        | '\u{000E}'..='\u{001F}'
+        | '\u{200E}'..='\u{200F}'
+        | '\u{202A}'..='\u{202E}'
+        | '\u{2066}'..='\u{2069}'
+        | '\u{FEFF}'
+    )
 }
 
 /// `disallowed-literal-code-points := See Table (Disallowed Literal Code
@@ -1114,14 +1105,14 @@ pub(crate) fn is_disallowed_unicode(c: char) -> bool {
 /// * `U+FEFF`, aka Zero-width Non-breaking Space (ZWNBSP)/Byte Order Mark (BOM),
 ///   except as the first code point in a document.
 /// ```
-fn disallowed_unicode<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn disallowed_unicode(input: &mut Input<'_>) -> PResult<()> {
     take_while(1.., is_disallowed_unicode)
         .void()
         .parse_next(input)
 }
 
 /// `escline := '\\' ws* (single-line-comment | newline | eof)`
-fn escline<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn escline(input: &mut Input<'_>) -> PResult<()> {
     "\\".parse_next(input)?;
     repeat(0.., ws).map(|_: ()| ()).parse_next(input)?;
     alt((single_line_comment, newline, eof.void())).parse_next(input)?;
@@ -1146,23 +1137,23 @@ static NEWLINES: [&str; 7] = [
 ];
 
 /// `newline := <See Table>`
-fn newline<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn newline(input: &mut Input<'_>) -> PResult<()> {
     alt(NEWLINES)
         .void()
         .context(lbl("newline"))
         .parse_next(input)
 }
 
-fn wss<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn wss(input: &mut Input<'_>) -> PResult<()> {
     repeat(0.., ws).parse_next(input)
 }
 
-fn wsp<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn wsp(input: &mut Input<'_>) -> PResult<()> {
     repeat(1.., ws).parse_next(input)
 }
 
 /// `ws := unicode-space | multi-line-comment``
-fn ws<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn ws(input: &mut Input<'_>) -> PResult<()> {
     alt((unicode_space, multi_line_comment)).parse_next(input)
 }
 
@@ -1173,12 +1164,12 @@ static UNICODE_SPACES: [char; 19] = [
 ];
 
 /// `unicode-space := <See Table>`
-fn unicode_space<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn unicode_space(input: &mut Input<'_>) -> PResult<()> {
     one_of(UNICODE_SPACES).void().parse_next(input)
 }
 
 /// `single-line-comment := '//' ^newline* (newline | eof)`
-fn single_line_comment<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn single_line_comment(input: &mut Input<'_>) -> PResult<()> {
     "//".parse_next(input)?;
     repeat_till(
         0..,
@@ -1190,7 +1181,7 @@ fn single_line_comment<'s>(input: &mut Input<'s>) -> PResult<()> {
 }
 
 /// `multi-line-comment := '/*' commented-block`
-fn multi_line_comment<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn multi_line_comment(input: &mut Input<'_>) -> PResult<()> {
     "/*".parse_next(input)?;
     cut_err(commented_block)
         .context(lbl("closing of multi-line comment"))
@@ -1198,7 +1189,7 @@ fn multi_line_comment<'s>(input: &mut Input<'s>) -> PResult<()> {
 }
 
 /// `commented-block := '*/' | (multi-line-comment | '*' | '/' | [^*/]+) commented-block`
-fn commented_block<'s>(input: &mut Input<'s>) -> PResult<()> {
+fn commented_block(input: &mut Input<'_>) -> PResult<()> {
     alt((
         "*/".void(),
         preceded(
@@ -1229,7 +1220,7 @@ fn multi_line_comment_test() {
 }
 
 /// `number := keyword-number | hex | octal | binary | decimal`
-fn number<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
+fn number(input: &mut Input<'_>) -> PResult<KdlValue> {
     alt((hex, octal, binary, float, integer)).parse_next(input)
 }
 
@@ -1237,7 +1228,7 @@ fn number<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
 /// decimal := sign? integer ('.' integer)? exponent?
 /// exponent := ('e' | 'E') sign? integer
 /// ```
-fn float<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
+fn float(input: &mut Input<'_>) -> PResult<KdlValue> {
     alt((
         (
             integer,
@@ -1287,7 +1278,7 @@ fn float_test() {
 }
 
 /// Non-float decimal
-fn integer<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
+fn integer(input: &mut Input<'_>) -> PResult<KdlValue> {
     let mult = sign.parse_next(input)?;
     integer_base
         .map(|x| KdlValue::Base10(x * mult))
@@ -1311,7 +1302,7 @@ fn integer_test() {
 }
 
 /// `integer := digit (digit | '_')*`
-fn integer_base<'s>(input: &mut Input<'s>) -> PResult<i64> {
+fn integer_base(input: &mut Input<'_>) -> PResult<i64> {
     (
         digit1,
         cut_err(repeat(
@@ -1326,7 +1317,7 @@ fn integer_base<'s>(input: &mut Input<'s>) -> PResult<i64> {
 }
 
 /// `hex := sign? '0x' hex-digit (hex-digit | '_')*`
-fn hex<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
+fn hex(input: &mut Input<'_>) -> PResult<KdlValue> {
     let mult = sign.parse_next(input)?;
     alt(("0x", "0X")).parse_next(input)?;
     cut_err((
@@ -1370,7 +1361,7 @@ fn test_hex() {
 }
 
 /// `octal := sign? '0o' [0-7] [0-7_]*`
-fn octal<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
+fn octal(input: &mut Input<'_>) -> PResult<KdlValue> {
     let mult = sign.parse_next(input)?;
     alt(("0o", "0O")).parse_next(input)?;
     cut_err((
@@ -1405,7 +1396,7 @@ fn test_octal() {
 }
 
 /// `binary := sign? '0b' ('0' | '1') ('0' | '1' | '_')*`
-fn binary<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
+fn binary(input: &mut Input<'_>) -> PResult<KdlValue> {
     let mult = sign.parse_next(input)?;
     alt(("0b", "0B")).parse_next(input)?;
     cut_err(
@@ -1442,7 +1433,7 @@ fn test_binary() {
     assert!(binary.parse(new_input("123")).is_err());
 }
 
-fn sign<'s>(input: &mut Input<'s>) -> PResult<i64> {
+fn sign(input: &mut Input<'_>) -> PResult<i64> {
     let sign = opt(alt(('+', '-'))).parse_next(input)?;
     let mult = if let Some(sign) = sign {
         if sign == '+' {

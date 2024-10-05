@@ -61,7 +61,7 @@ pub struct KdlDiagnostic {
     pub input: Arc<String>,
 
     /// Offset in chars of the error.
-    #[label("{}", label.unwrap_or("here".into()))]
+    #[label("{}", label.unwrap_or("here"))]
     pub span: SourceSpan,
 
     /// Label text for this span. Defaults to `"here"`.

@@ -49,7 +49,7 @@ fn spec_compliance() -> miette::Result<()> {
         .join("input");
     let mut failures = Vec::new();
     let mut count = 0usize;
-    for test_name in fs::read_dir(&input).into_diagnostic()? {
+    for test_name in fs::read_dir(input).into_diagnostic()? {
         let test_path = test_name.into_diagnostic()?.path();
         let src = normalize_line_endings(fs::read_to_string(&test_path).into_diagnostic()?);
         let res = src.parse();
@@ -155,7 +155,9 @@ fn normalize_identifiers(doc: &mut KdlDocument) {
         node.name_mut().clear_format();
         for entry in node.entries_mut() {
             if entry.name().is_some() {
-                entry.name_mut().map(|x| x.clear_format());
+                if let Some(x) = entry.name_mut() {
+                    x.clear_format()
+                }
             }
         }
         if let Some(children) = node.children_mut() {

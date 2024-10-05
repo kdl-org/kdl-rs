@@ -159,7 +159,7 @@
 //! License](LICENSE.md).
 
 #![deny(missing_debug_implementations, nonstandard_style)]
-#![warn(missing_docs, unreachable_pub, rust_2018_idioms, unreachable_pub)]
+#![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
 // #![cfg_attr(test, deny(warnings))]
 #![doc(html_favicon_url = "https://kdl.dev/favicon.ico")]
 #![doc(html_logo_url = "https://kdl.dev/logo.svg")]
