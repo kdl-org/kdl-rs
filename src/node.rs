@@ -11,6 +11,8 @@ use crate::{
     v2_parser, KdlDocument, KdlDocumentFormat, KdlEntry, KdlIdentifier, KdlParseFailure, KdlValue,
 };
 
+static INDENT: usize = 4;
+
 /// Represents an individual KDL
 /// [`Node`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#node) inside a
 /// KDL Document.
@@ -56,7 +58,7 @@ impl KdlNode {
             ty: None,
             entries: Vec::new(),
             children: None,
-            format: None,
+            format: Some(KdlNodeFormat { trailing: "\n".into(), ..Default::default() }),
             #[cfg(feature = "span")]
             span: SourceSpan::from(0..0),
         }
@@ -382,12 +384,12 @@ impl KdlNode {
         self.format = Some(format);
     }
     /// Auto-formats this node and its contents.
-    pub fn fmt(&mut self) {
+    pub fn autoformat(&mut self) {
         self.autoformat_impl(0, false);
     }
 
     /// Auto-formats this node and its contents, stripping comments.
-    pub fn fmt_no_comments(&mut self) {
+    pub fn autoformat_no_comments(&mut self) {
         self.autoformat_impl(0, true);
     }
 
@@ -530,9 +532,12 @@ impl KdlNode {
                     trailing.insert(0, ' ');
                 }
             }
+            *trailing = trailing.trim().into();
             trailing.push('\n');
 
             *before_children = " ".into();
+        } else {
+            self.set_format(KdlNodeFormat { trailing: "\n".into(), ..Default::default() })
         }
         self.name.clear_format();
         if let Some(ty) = self.ty.as_mut() {
@@ -542,9 +547,10 @@ impl KdlNode {
             entry.autoformat();
         }
         if let Some(children) = self.children.as_mut() {
-            children.autoformat_impl(indent + 4, no_comments);
+            children.autoformat_impl(indent + INDENT, no_comments);
             if let Some(KdlDocumentFormat { leading, trailing }) = children.format_mut() {
-                *leading = "\n".into();
+                *leading = leading.trim().into();
+                leading.push('\n');
                 trailing.push_str(format!("{:indent$}", "", indent = indent).as_str());
             }
         }

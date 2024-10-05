@@ -345,9 +345,6 @@ impl KdlDocument {
         }
         for node in &self.nodes {
             node.stringify(f, indent)?;
-            if node.format().is_none() {
-                writeln!(f)?;
-            }
         }
         if let Some(KdlDocumentFormat { trailing, .. }) = self.format() {
             write!(f, "{}", trailing)?;
@@ -549,9 +546,11 @@ final;";
         doc.nodes_mut().push(bar);
         doc.nodes_mut().push(KdlNode::new("baz"));
 
+        doc.autoformat();
+        
         assert_eq!(
             r#"foo
-bar prop="value" 1 2 false null {
+bar prop=value 1 2 #false #null {
     barchild
 }
 baz
@@ -598,7 +597,6 @@ baz
 
         KdlDocument::autoformat(&mut doc);
 
-        print!("{}", doc);
         assert_eq!(
             doc.to_string(),
             r#"/* x */
@@ -611,7 +609,7 @@ foo 1 bar=0xdeadbeef {
 
 
        multiline*/
-        inner1 r"value"
+        inner1 value
         inner2 {
             inner3
         }
