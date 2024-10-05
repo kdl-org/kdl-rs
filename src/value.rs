@@ -9,7 +9,7 @@ pub enum KdlValue {
     /// A non-float [KDL
     /// Number](https://github.com/kdl-org/kdl/blob/main/SPEC.md#number)
     Integer(i64),
-    
+
     /// A floating point [KDL
     /// Number](https://github.com/kdl-org/kdl/blob/main/SPEC.md#number)
     Float(f64),
