@@ -116,25 +116,11 @@ fn normalize_line_endings(src: String) -> String {
 
 fn stringify_to_expected(mut doc: KdlDocument) -> String {
     doc.autoformat_no_comments();
-    normalize_numbers(&mut doc);
     normalize_strings(&mut doc);
     normalize_identifiers(&mut doc);
     dedupe_props(&mut doc);
     remove_empty_children(&mut doc);
     doc.to_string()
-}
-
-fn normalize_numbers(doc: &mut KdlDocument) {
-    for node in doc.nodes_mut() {
-        for entry in node.entries_mut() {
-            if let Some(value) = entry.value().as_i64() {
-                *entry.value_mut() = KdlValue::Base10(value);
-            }
-        }
-        if let Some(children) = node.children_mut() {
-            normalize_numbers(children);
-        }
-    }
 }
 
 fn normalize_strings(doc: &mut KdlDocument) {

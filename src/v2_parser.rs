@@ -1065,9 +1065,9 @@ fn keyword(input: &mut Input<'_>) -> PResult<KdlValue> {
         Caseless("true").value(KdlValue::Bool(true)),
         Caseless("false").value(KdlValue::Bool(false)),
         Caseless("null").value(KdlValue::Null),
-        Caseless("nan").value(KdlValue::Base10Float(f64::NAN)),
-        Caseless("inf").value(KdlValue::Base10Float(f64::INFINITY)),
-        Caseless("-inf").value(KdlValue::Base10Float(f64::NEG_INFINITY)),
+        Caseless("nan").value(KdlValue::Float(f64::NAN)),
+        Caseless("inf").value(KdlValue::Float(f64::INFINITY)),
+        Caseless("-inf").value(KdlValue::Float(f64::NEG_INFINITY)),
     )))
     .context(lbl("keyword"))
     .parse_next(input)
@@ -1241,7 +1241,7 @@ fn float(input: &mut Input<'_>) -> PResult<KdlValue> {
     .try_map(|float_str| {
         str::replace(float_str, "_", "")
             .parse::<f64>()
-            .map(KdlValue::Base10Float)
+            .map(KdlValue::Float)
     })
     .context(lbl("float"))
     .parse_next(input)
@@ -1254,15 +1254,15 @@ fn float_test() {
 
     assert_eq!(
         float.parse(new_input("12_34.56")).unwrap(),
-        KdlValue::Base10Float(1234.56)
+        KdlValue::Float(1234.56)
     );
     assert_eq!(
         float.parse(new_input("1234_.56")).unwrap(),
-        KdlValue::Base10Float(1234.56)
+        KdlValue::Float(1234.56)
     );
     assert_eq!(
         (float, take(1usize)).parse(new_input("1234.56c")).unwrap(),
-        (KdlValue::Base10Float(1234.56), "c")
+        (KdlValue::Float(1234.56), "c")
     );
     assert!(float.parse(new_input("_1234.56")).is_err());
     assert!(float.parse(new_input("1234a.56")).is_err());
@@ -1271,7 +1271,7 @@ fn float_test() {
             .parse(new_input("2.5"))
             .unwrap()
             .map(|x| x.value().clone()),
-        Some(KdlValue::Base10Float(2.5))
+        Some(KdlValue::Float(2.5))
     );
 }
 
@@ -1279,7 +1279,7 @@ fn float_test() {
 fn integer(input: &mut Input<'_>) -> PResult<KdlValue> {
     let mult = sign.parse_next(input)?;
     integer_base
-        .map(|x| KdlValue::Base10(x * mult))
+        .map(|x| KdlValue::Integer(x * mult))
         .context(lbl("integer"))
         .parse_next(input)
 }
@@ -1289,11 +1289,11 @@ fn integer(input: &mut Input<'_>) -> PResult<KdlValue> {
 fn integer_test() {
     assert_eq!(
         integer.parse(new_input("12_34")).unwrap(),
-        KdlValue::Base10(1234)
+        KdlValue::Integer(1234)
     );
     assert_eq!(
         integer.parse(new_input("1234_")).unwrap(),
-        KdlValue::Base10(1234)
+        KdlValue::Integer(1234)
     );
     assert!(integer.parse(new_input("_1234")).is_err());
     assert!(integer.parse(new_input("1234a")).is_err());
@@ -1328,7 +1328,7 @@ fn hex(input: &mut Input<'_>) -> PResult<KdlValue> {
     .try_map(|(l, r): (&str, Vec<&str>)| {
         i64::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 16)
             .map(|x| x * mult)
-            .map(KdlValue::Base16)
+            .map(KdlValue::Integer)
     })
     .context(lbl("hexadecimal"))
     .parse_next(input)
@@ -1339,15 +1339,15 @@ fn hex(input: &mut Input<'_>) -> PResult<KdlValue> {
 fn test_hex() {
     assert_eq!(
         hex.parse(new_input("0xdead_beef123")).unwrap(),
-        KdlValue::Base16(0xdeadbeef123)
+        KdlValue::Integer(0xdeadbeef123)
     );
     assert_eq!(
         hex.parse(new_input("0xDeAd_BeEf123")).unwrap(),
-        KdlValue::Base16(0xdeadbeef123)
+        KdlValue::Integer(0xdeadbeef123)
     );
     assert_eq!(
         hex.parse(new_input("0xdeadbeef123_")).unwrap(),
-        KdlValue::Base16(0xdeadbeef123)
+        KdlValue::Integer(0xdeadbeef123)
     );
     assert!(
         hex.parse(new_input("0xABCDEF0123456789abcdef")).is_err(),
@@ -1372,7 +1372,7 @@ fn octal(input: &mut Input<'_>) -> PResult<KdlValue> {
     .try_map(|(l, r): (&str, Vec<&str>)| {
         i64::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 8)
             .map(|x| x * mult)
-            .map(KdlValue::Base8)
+            .map(KdlValue::Integer)
     })
     .context(lbl("octal"))
     .parse_next(input)
@@ -1383,11 +1383,11 @@ fn octal(input: &mut Input<'_>) -> PResult<KdlValue> {
 fn test_octal() {
     assert_eq!(
         octal.parse(new_input("0o12_34")).unwrap(),
-        KdlValue::Base8(0o1234)
+        KdlValue::Integer(0o1234)
     );
     assert_eq!(
         octal.parse(new_input("0o1234_")).unwrap(),
-        KdlValue::Base8(0o1234)
+        KdlValue::Integer(0o1234)
     );
     assert!(octal.parse(new_input("0o_12_34")).is_err());
     assert!(octal.parse(new_input("0o89")).is_err());
@@ -1402,7 +1402,7 @@ fn binary(input: &mut Input<'_>) -> PResult<KdlValue> {
             move |(x, xs): (&str, Vec<&str>)| {
                 i64::from_str_radix(&format!("{x}{}", str::replace(&xs.join(""), "_", "")), 2)
                     .map(|x| x * mult)
-                    .map(KdlValue::Base2)
+                    .map(KdlValue::Integer)
             },
         ),
     )
@@ -1417,16 +1417,16 @@ fn test_binary() {
 
     assert_eq!(
         binary.parse(new_input("0b10_01")).unwrap(),
-        KdlValue::Base2(0b1001)
+        KdlValue::Integer(0b1001)
     );
     assert_eq!(
         binary.parse(new_input("0b1001_")).unwrap(),
-        KdlValue::Base2(0b1001)
+        KdlValue::Integer(0b1001)
     );
     assert!(binary.parse(new_input("0b_10_01")).is_err());
     assert_eq!(
         (binary, take(4usize)).parse(new_input("0b12389")).unwrap(),
-        (KdlValue::Base2(1), "2389")
+        (KdlValue::Integer(1), "2389")
     );
     assert!(binary.parse(new_input("123")).is_err());
 }

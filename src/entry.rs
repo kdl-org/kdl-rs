@@ -297,7 +297,7 @@ mod test {
             entry,
             KdlEntry {
                 ty: None,
-                value: KdlValue::Base10(42),
+                value: KdlValue::Integer(42),
                 name: None,
                 format: None,
                 #[cfg(feature = "span")]
@@ -310,7 +310,7 @@ mod test {
             entry,
             KdlEntry {
                 ty: None,
-                value: KdlValue::Base10(42),
+                value: KdlValue::Integer(42),
                 name: Some("name".into()),
                 format: None,
                 #[cfg(feature = "span")]
@@ -361,7 +361,7 @@ mod test {
             entry,
             KdlEntry {
                 ty: Some(ty),
-                value: KdlValue::Base16(0xdeadbeef),
+                value: KdlValue::Integer(0xdeadbeef),
                 name: None,
                 format: Some(KdlEntryFormat {
                     leading: " \\\n ".into(),
@@ -390,7 +390,7 @@ mod test {
                     eq: "=".into(),
                 }),
                 ty: Some("\"m\\\"eh\"".parse()?),
-                value: KdlValue::Base16(0xdeadbeef),
+                value: KdlValue::Integer(0xdeadbeef),
                 name: Some("\"foo\"".parse()?),
                 #[cfg(feature = "span")]
                 span: SourceSpan::from(0..0),
@@ -402,10 +402,10 @@ mod test {
 
     #[test]
     fn display() {
-        let entry = KdlEntry::new(KdlValue::Base10(42));
+        let entry = KdlEntry::new(KdlValue::Integer(42));
         assert_eq!(format!("{}", entry), "42");
 
-        let entry = KdlEntry::new_prop("name", KdlValue::Base10(42));
+        let entry = KdlEntry::new_prop("name", KdlValue::Integer(42));
         assert_eq!(format!("{}", entry), "name=42");
     }
 }
