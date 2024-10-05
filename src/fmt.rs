@@ -8,15 +8,17 @@ pub(crate) fn autoformat_leading(leading: &mut String, indent: usize, no_comment
     let mut result = String::new();
     if !no_comments {
         let input = leading.trim();
-        let (maybe_val, errs) =
-            crate::v2_parser::try_parse(crate::v2_parser::leading_comments, input);
-        let (Some(comments), true) = (maybe_val, errs.is_empty()) else {
-            panic!("invalid leading text");
-        };
-        for line in comments {
-            let trimmed = line.trim();
-            if !trimmed.is_empty() {
-                writeln!(result, "{:indent$}{}", "", trimmed, indent = indent).unwrap();
+        if !input.is_empty() {
+            let (maybe_val, errs) =
+                crate::v2_parser::try_parse(crate::v2_parser::leading_comments, input);
+            let (Some(comments), true) = (maybe_val, errs.is_empty()) else {
+                panic!("invalid leading text");
+            };
+            for line in comments {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    writeln!(result, "{:indent$}{}", "", trimmed, indent = indent).unwrap();
+                }
             }
         }
     }

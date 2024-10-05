@@ -231,40 +231,65 @@ impl Display for KdlValue {
             Self::Base10(value) => write!(f, "{:?}", value),
             Self::Base10Float(value) => write!(
                 f,
-                "{:?}",
+                "{}",
                 if value == &f64::INFINITY {
-                    f64::MAX
+                    "#inf".into()
                 } else if value == &f64::NEG_INFINITY {
-                    -f64::MAX
+                    "#-inf".into()
                 } else if value.is_nan() {
-                    0.0
+                    "#nan".into()
                 } else {
-                    *value
+                    format!("{:?}", *value)
                 }
             ),
             Self::Base16(value) => write!(f, "0x{:x}", value),
-            Self::Bool(value) => write!(f, "{}", value),
-            Self::Null => write!(f, "null"),
+            Self::Bool(value) => write!(f, "#{}", value),
+            Self::Null => write!(f, "#null"),
         }
     }
+}
+
+fn is_plain_ident(ident: &str) -> bool {
+    let ident_bytes = ident.as_bytes();
+    ident
+        .find(crate::v2_parser::is_disallowed_ident_char)
+        .is_none()
+        && ident_bytes.get(0).map(|c| c.is_ascii_digit()) != Some(true)
+        && !(ident
+            .chars()
+            .nth(0)
+            .map(|c| c == '.' || c == '-' || c == '+')
+            == Some(true)
+            && ident_bytes.get(1).map(|c| c.is_ascii_digit()) == Some(true))
+}
+
+#[cfg(test)]
+#[test]
+fn plain_ident_test() {
+    assert!(is_plain_ident("foo123,bar"));
+    assert!(is_plain_ident("foo123~!@$%^&*.:'|?+<>,"));
 }
 
 impl KdlValue {
     fn write_string(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let string = self.as_string().unwrap();
-        write!(f, "\"")?;
-        for char in string.chars() {
-            match char {
-                '\\' | '"' => write!(f, "\\{}", char)?,
-                '\n' => write!(f, "\\n")?,
-                '\r' => write!(f, "\\r")?,
-                '\t' => write!(f, "\\t")?,
-                '\u{08}' => write!(f, "\\b")?,
-                '\u{0C}' => write!(f, "\\f")?,
-                _ => write!(f, "{}", char)?,
+        if !string.is_empty() && is_plain_ident(string) {
+            write!(f, "{string}")?;
+        } else {
+            write!(f, "\"")?;
+            for char in string.chars() {
+                match char {
+                    '\\' | '"' => write!(f, "\\{}", char)?,
+                    '\n' => write!(f, "\\n")?,
+                    '\r' => write!(f, "\\r")?,
+                    '\t' => write!(f, "\\t")?,
+                    '\u{08}' => write!(f, "\\b")?,
+                    '\u{0C}' => write!(f, "\\f")?,
+                    _ => write!(f, "{}", char)?,
+                }
             }
+            write!(f, "\"")?;
         }
-        write!(f, "\"")?;
         Ok(())
     }
     fn write_raw_string(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

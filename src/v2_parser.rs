@@ -218,12 +218,12 @@ pub(crate) fn leading_comments<'s>(input: &mut Input<'s>) -> PResult<Vec<&'s str
         repeat(
             0..,
             preceded(
-                repeat(0.., alt((newline, unicode_space)).void()).map(|()| ()),
-                comment.take(),
+                opt(repeat(0.., alt((newline, unicode_space)).void()).map(|()| ())),
+                comment,
             ),
         )
         .map(|s: Vec<&'s str>| s),
-        repeat(0.., alt((newline, unicode_space, eof.void()))).map(|()| ()),
+        opt(repeat(0.., alt((newline, unicode_space, eof.void()))).map(|()| ())),
     )
     .parse_next(input)
 }
@@ -514,7 +514,7 @@ fn prop<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
 fn value<'s>(input: &mut Input<'s>) -> PResult<Option<KdlEntry>> {
     let ((ty, (value, raw)), _span) = (
         opt((ty, optional_node_space.take())),
-        alt((string, number.map(Some), keyword.map(Some))).with_taken(),
+        alt((keyword.map(Some), number.map(Some), string)).with_taken(),
     )
         .with_span()
         .parse_next(input)?;
@@ -677,6 +677,17 @@ fn dotted_ident<'s>(input: &mut Input<'s>) -> PResult<()> {
         .parse_next(input)
 }
 
+static DISALLOWED_IDENT_CHARS: [char; 11] =
+    ['\\', '/', '(', ')', '{', '}', '[', ']', ';', '"', '#'];
+
+pub(crate) fn is_disallowed_ident_char(c: char) -> bool {
+    DISALLOWED_IDENT_CHARS.iter().any(|ic| ic == &c)
+   || NEWLINES.iter().copied().collect::<String>().contains(c)
+   || UNICODE_SPACES.iter().any(|us| us == &c)
+   || is_disallowed_unicode(c)
+   || EQUALS_SIGNS.iter().any(|eq| eq == &c)
+}
+
 /// `identifier-char := unicode - unicode-space - newline - [\\/(){};\[\]"#] - disallowed-literal-code-points - equals-sign`
 fn identifier_char<'s>(input: &mut Input<'s>) -> PResult<char> {
     (
@@ -686,15 +697,17 @@ fn identifier_char<'s>(input: &mut Input<'s>) -> PResult<char> {
             disallowed_unicode,
             equals_sign,
         ))),
-        none_of(['\\', '/', '(', ')', '{', '}', '[', ']', ';', '"', '#']),
+        none_of(DISALLOWED_IDENT_CHARS),
     )
         .map(|(_, c)| c)
         .parse_next(input)
 }
 
+static EQUALS_SIGNS: [char; 4] = ['=', '﹦', '＝', '🟰'];
+
 /// `equals-sign := See Table ([Equals Sign](#equals-sign))`
 fn equals_sign<'s>(input: &mut Input<'s>) -> PResult<()> {
-    one_of(['=', '﹦', '＝', '🟰']).void().parse_next(input)
+    one_of(EQUALS_SIGNS).void().parse_next(input)
 }
 
 /// ```text
@@ -1051,6 +1064,18 @@ fn bom<'s>(input: &mut Input<'s>) -> PResult<()> {
     "\u{FEFF}".void().parse_next(input)
 }
 
+pub(crate) fn is_disallowed_unicode(c: char) -> bool {
+    match c {
+        '\u{0000}'..='\u{0008}' => true,
+        '\u{000E}'..='\u{001F}' => true,
+        '\u{200E}'..='\u{200F}' => true,
+        '\u{202A}'..='\u{202E}' => true,
+        '\u{2066}'..='\u{2069}' => true,
+        '\u{FEFF}' => true,
+        _ => false,
+    }
+}
+
 /// `disallowed-literal-code-points := See Table (Disallowed Literal Code
 /// Points)`
 /// ```markdown
@@ -1066,17 +1091,9 @@ fn bom<'s>(input: &mut Input<'s>) -> PResult<()> {
 ///   except as the first code point in a document.
 /// ```
 fn disallowed_unicode<'s>(input: &mut Input<'s>) -> PResult<()> {
-    take_while(1.., |c| match c {
-        '\u{0000}'..='\u{0008}' => true,
-        '\u{000E}'..='\u{001F}' => true,
-        '\u{200E}'..='\u{200F}' => true,
-        '\u{202A}'..='\u{202E}' => true,
-        '\u{2066}'..='\u{2069}' => true,
-        '\u{FEFF}' => true,
-        _ => false,
-    })
-    .void()
-    .parse_next(input)
+    take_while(1.., is_disallowed_unicode)
+        .void()
+        .parse_next(input)
 }
 
 /// `escline := '\\' ws* (single-line-comment | newline | eof)`
@@ -1090,26 +1107,25 @@ fn escline<'s>(input: &mut Input<'s>) -> PResult<()> {
 #[test]
 fn escline_test() {
     let node = node.parse(new_input("foo bar\\\n   baz\n")).unwrap();
-    assert_eq!(
-       node.entries().len(),
-       2
-    );
+    assert_eq!(node.entries().len(), 2);
 }
+
+static NEWLINES: [&str; 7] = [
+    "\u{000D}\u{000A}",
+    "\u{000D}",
+    "\u{000A}",
+    "\u{0085}",
+    "\u{000C}",
+    "\u{2028}",
+    "\u{2029}",
+];
 
 /// `newline := <See Table>`
 fn newline<'s>(input: &mut Input<'s>) -> PResult<()> {
-    alt((
-        "\u{000D}\u{000A}",
-        "\u{000D}",
-        "\u{000A}",
-        "\u{0085}",
-        "\u{000C}",
-        "\u{2028}",
-        "\u{2029}",
-    ))
-    .void()
-    .context(lbl("newline"))
-    .parse_next(input)
+    alt(NEWLINES)
+        .void()
+        .context(lbl("newline"))
+        .parse_next(input)
 }
 
 fn wss<'s>(input: &mut Input<'s>) -> PResult<()> {
@@ -1149,13 +1165,15 @@ fn comment<'s>(input: &mut Input<'s>) -> PResult<&'s str> {
     .parse_next(input)
 }
 
+static UNICODE_SPACES: [char; 19] = [
+    '\u{0009}', '\u{000B}', '\u{0020}', '\u{00A0}', '\u{1680}', '\u{2000}', '\u{2001}',
+    '\u{2002}', '\u{2003}', '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}', '\u{2008}',
+    '\u{2009}', '\u{200A}', '\u{202F}', '\u{205F}', '\u{3000}',
+];
+
 /// `unicode-space := <See Table>`
 fn unicode_space<'s>(input: &mut Input<'s>) -> PResult<()> {
-    alt((
-        '\u{0009}', '\u{000B}', '\u{0020}', '\u{00A0}', '\u{1680}', '\u{2000}', '\u{2001}',
-        '\u{2002}', '\u{2003}', '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}', '\u{2008}',
-        '\u{2009}', '\u{200A}', '\u{202F}', '\u{205F}', '\u{3000}',
-    ))
+    one_of(UNICODE_SPACES)
     .void()
     .parse_next(input)
 }
@@ -1247,6 +1265,10 @@ fn float_test() {
     );
     assert!(float.parse(new_input("_1234.56")).is_err());
     assert!(float.parse(new_input("1234a.56")).is_err());
+    assert_eq!(
+        value.parse(new_input("2.5")).unwrap().map(|x| x.value().clone()),
+        Some(KdlValue::Base10Float(2.5))
+    );
 }
 
 /// Non-float decimal

@@ -574,7 +574,8 @@ baz
 
                child3    "
 
-   string\t" \
+   string\t
+   " \
 {
        /*
 

@@ -55,6 +55,16 @@ impl KdlEntry {
     pub fn name(&self) -> Option<&KdlIdentifier> {
         self.name.as_ref()
     }
+    
+    /// Gets a mutable reference to this node's name.
+    pub fn name_mut(&mut self) -> Option<&mut KdlIdentifier> {
+        self.name.as_mut()
+    }
+
+    /// Sets this node's name.
+    pub fn set_name(&mut self, name: Option<impl Into<KdlIdentifier>>) {
+        self.name = name.map(|x| x.into());
+    }
 
     /// Gets the entry's value.
     pub fn value(&self) -> &KdlValue {

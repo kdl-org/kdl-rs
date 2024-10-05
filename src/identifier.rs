@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{v2_parser, KdlParseFailure};
+use crate::{v2_parser, KdlParseFailure, KdlValue};
 
 /// Represents a KDL
 /// [Identifier](https://github.com/kdl-org/kdl/blob/main/SPEC.md#identifier).
@@ -93,82 +93,9 @@ impl Display for KdlIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(repr) = &self.repr {
             write!(f, "{}", repr)
-        } else if self.plain_value() {
-            write!(f, "{}", self.value)
         } else {
-            write!(f, "{:?}", self.value)
+            write!(f, "{}", KdlValue::String(self.value().into()))
         }
-    }
-}
-
-impl KdlIdentifier {
-    pub(crate) fn is_identifier_char(c: char) -> bool {
-        !((c as u32) < 0x20
-            || (c as u32) > 0x10ffff
-            || matches!(
-                c,
-                '\\' | '/'
-                    | '('
-                    | ')'
-                    | '{'
-                    | '}'
-                    | '<'
-                    | '>'
-                    | ';'
-                    | '['
-                    | ']'
-                    | '='
-                    | ','
-                    | '"'
-                    // Newlines
-                    | '\r'
-                    | '\n'
-                    | '\u{0085}'
-                    | '\u{000C}'
-                    | '\u{2028}'
-                    | '\u{2029}'
-                    // Whitespace
-                    | ' '
-                    | '\t'
-                    | '\u{FEFF}'
-                    | '\u{00A0}'
-                    | '\u{1680}'
-                    | '\u{2000}'
-                    | '\u{2001}'
-                    | '\u{2002}'
-                    | '\u{2003}'
-                    | '\u{2004}'
-                    | '\u{2005}'
-                    | '\u{2006}'
-                    | '\u{2007}'
-                    | '\u{2008}'
-                    | '\u{2009}'
-                    | '\u{200A}'
-                    | '\u{202F}'
-                    | '\u{205F}'
-                    | '\u{3000}'
-            ))
-    }
-
-    pub(crate) fn is_initial_char(c: char) -> bool {
-        !c.is_numeric() && Self::is_identifier_char(c)
-    }
-
-    fn plain_value(&self) -> bool {
-        let mut iter = self.value.chars();
-        if let Some(c) = iter.next() {
-            if !Self::is_initial_char(c) {
-                return false;
-            }
-        } else {
-            return false;
-        }
-        for char in iter {
-            if !Self::is_identifier_char(char) {
-                return false;
-            }
-        }
-        true
     }
 }
 
