@@ -661,7 +661,7 @@ pub(crate) fn is_disallowed_ident_char(c: char) -> bool {
         || NEWLINES.iter().copied().collect::<String>().contains(c)
         || UNICODE_SPACES.iter().any(|us| us == &c)
         || is_disallowed_unicode(c)
-        || EQUALS_SIGNS.iter().any(|eq| eq == &c)
+        || c == '='
 }
 
 /// `identifier-char := unicode - unicode-space - newline - [\\/(){};\[\]"#] - disallowed-literal-code-points - equals-sign`
@@ -679,11 +679,9 @@ fn identifier_char(input: &mut Input<'_>) -> PResult<char> {
         .parse_next(input)
 }
 
-static EQUALS_SIGNS: [char; 4] = ['=', '﹦', '＝', '🟰'];
-
 /// `equals-sign := See Table ([Equals Sign](#equals-sign))`
 fn equals_sign(input: &mut Input<'_>) -> PResult<()> {
-    one_of(EQUALS_SIGNS).void().parse_next(input)
+    "=".void().parse_next(input)
 }
 
 /// ```text
