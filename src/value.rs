@@ -305,7 +305,6 @@ impl KdlValue {
                 consecutive = 0;
             }
         }
-        write!(f, "r")?;
         write!(f, "{}", "#".repeat(maxhash))?;
         write!(f, "\"{}\"", raw)?;
         write!(f, "{}", "#".repeat(maxhash))?;
@@ -361,10 +360,10 @@ mod test {
 
     #[test]
     fn formatting() {
-        let raw = KdlValue::RawString(r###"r##"foor#"bar"#baz"##"###.into());
+        let raw = KdlValue::RawString(r###"##"foo#"bar"#baz"##"###.into());
         assert_eq!(
             format!("{}", raw),
-            r####"r###"r##"foor#"bar"#baz"##"###"####
+            r####"###"##"foo#"bar"#baz"##"###"####
         );
 
         let string = KdlValue::String("foo\n".into());
@@ -386,9 +385,9 @@ mod test {
         assert_eq!(format!("{}", base16), "0x1234567890abcdef");
 
         let boolean = KdlValue::Bool(true);
-        assert_eq!(format!("{}", boolean), "true");
+        assert_eq!(format!("{}", boolean), "#true");
 
         let null = KdlValue::Null;
-        assert_eq!(format!("{}", null), "null");
+        assert_eq!(format!("{}", null), "#null");
     }
 }

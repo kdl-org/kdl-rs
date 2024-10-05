@@ -532,7 +532,7 @@ impl KdlNode {
             }
             trailing.push('\n');
 
-            *before_children = "".into();
+            *before_children = " ".into();
         }
         self.name.clear_format();
         if let Some(ty) = self.ty.as_mut() {
@@ -544,7 +544,7 @@ impl KdlNode {
         if let Some(children) = self.children.as_mut() {
             children.autoformat_impl(indent + 4, no_comments);
             if let Some(KdlDocumentFormat { leading, trailing }) = children.format_mut() {
-                leading.push('\n');
+                *leading = "\n".into();
                 trailing.push_str(format!("{:indent$}", "", indent = indent).as_str());
             }
         }

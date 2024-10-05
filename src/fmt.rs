@@ -1,20 +1,11 @@
 use std::fmt::Write as _;
 
 pub(crate) fn autoformat_leading(leading: &mut String, indent: usize, no_comments: bool) {
-    if leading.is_empty() {
-        return;
-    }
-    // TODO
     let mut result = String::new();
     if !no_comments {
         let input = leading.trim();
         if !input.is_empty() {
-            let (maybe_val, errs) =
-                crate::v2_parser::try_parse(crate::v2_parser::leading_comments, input);
-            let (Some(comments), true) = (maybe_val, errs.is_empty()) else {
-                panic!("invalid leading text");
-            };
-            for line in comments {
+            for line in input.lines() {
                 let trimmed = line.trim();
                 if !trimmed.is_empty() {
                     writeln!(result, "{:indent$}{}", "", trimmed, indent = indent).unwrap();
@@ -26,22 +17,16 @@ pub(crate) fn autoformat_leading(leading: &mut String, indent: usize, no_comment
     *leading = result;
 }
 
-pub(crate) fn autoformat_trailing(decor: &mut String, _no_comments: bool) {
+pub(crate) fn autoformat_trailing(decor: &mut String, no_comments: bool) {
     if decor.is_empty() {
         return;
     }
     *decor = decor.trim().to_string();
-    let result = String::new();
-    // TODO
-    // if !no_comments {
-    //     let input = &*decor;
-    //     let kdl_parser = crate::v1_parser::KdlParser { full_input: input };
-    //     let comments = kdl_parser
-    //         .parse(crate::v1_parser::trailing_comments(&kdl_parser))
-    //         .expect("invalid trailing text");
-    //     for comment in comments {
-    //         result.push_str(comment);
-    //     }
-    // }
+    let mut result = String::new();
+    if !no_comments {
+        for comment in decor.lines() {
+            writeln!(result, "{comment}").unwrap();
+        }
+    }
     *decor = result;
 }

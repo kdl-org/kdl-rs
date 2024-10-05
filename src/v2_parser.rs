@@ -212,22 +212,6 @@ fn document<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
     Ok(doc)
 }
 
-// Used for formatting
-pub(crate) fn leading_comments<'s>(input: &mut Input<'s>) -> PResult<Vec<&'s str>> {
-    terminated(
-        repeat(
-            0..,
-            preceded(
-                opt(repeat(0.., alt((newline, unicode_space)).void()).map(|()| ())),
-                comment,
-            ),
-        )
-        .map(|s: Vec<&'s str>| s),
-        opt(repeat(0.., alt((newline, unicode_space, eof.void()))).map(|()| ())),
-    )
-    .parse_next(input)
-}
-
 /// `nodes := (line-space* node)* line-space*`
 fn nodes<'s>(input: &mut Input<'s>) -> PResult<KdlDocument> {
     let ((leading, nodes, trailing), _span) = (
@@ -1166,28 +1150,28 @@ fn ws<'s>(input: &mut Input<'s>) -> PResult<()> {
     alt((unicode_space, multi_line_comment)).parse_next(input)
 }
 
-fn comment<'s>(input: &mut Input<'s>) -> PResult<&'s str> {
-    alt((
-        single_line_comment.take(),
-        multi_line_comment.take(),
-        (
-            "/-",
-            repeat(0.., plain_node_space).map(|_: ()| ()),
-            cut_err(node),
-        )
-            .take(),
-        (
-            "/-",
-            repeat(0.., plain_node_space).map(|_: ()| ()),
-            cut_err(alt((
-                node_entry.void().context(lbl("slashdashed entry")),
-                node_children.void().context(lbl("slashdashed children")),
-            ))),
-        )
-            .take(),
-    ))
-    .parse_next(input)
-}
+// fn comment<'s>(input: &mut Input<'s>) -> PResult<&'s str> {
+//     alt((
+//         single_line_comment.take(),
+//         multi_line_comment.take(),
+//         (
+//             "/-",
+//             repeat(0.., plain_node_space).map(|_: ()| ()),
+//             cut_err(node),
+//         )
+//             .take(),
+//         (
+//             "/-",
+//             repeat(0.., plain_node_space).map(|_: ()| ()),
+//             cut_err(alt((
+//                 node_entry.void().context(lbl("slashdashed entry")),
+//                 node_children.void().context(lbl("slashdashed children")),
+//             ))),
+//         )
+//             .take(),
+//     ))
+//     .parse_next(input)
+// }
 
 static UNICODE_SPACES: [char; 19] = [
     '\u{0009}', '\u{000B}', '\u{0020}', '\u{00A0}', '\u{1680}', '\u{2000}', '\u{2001}', '\u{2002}',
