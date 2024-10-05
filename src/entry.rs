@@ -179,12 +179,11 @@ impl Display for KdlEntry {
             write!(f, "{}", name)?;
             if let Some(KdlEntryFormat {
                 after_key,
-                eq,
                 after_eq,
                 ..
             }) = &self.format
             {
-                write!(f, "{}{}{}", after_key, eq, after_eq)?;
+                write!(f, "{}={}", after_key, after_eq)?;
             } else {
                 write!(f, "=")?;
             }
@@ -271,8 +270,6 @@ pub struct KdlEntryFormat {
     pub after_key: String,
     /// Whitespace and comments between an entry's equals sign and its value.
     pub after_eq: String,
-    /// Actual text used as an entry's equals sign.
-    pub eq: String,
 }
 
 #[cfg(test)]
@@ -346,7 +343,6 @@ mod test {
                 name: Some("foo".parse()?),
                 format: Some(KdlEntryFormat {
                     value_repr: "bar".into(),
-                    eq: "=".into(),
                     ..Default::default()
                 }),
                 #[cfg(feature = "span")]
@@ -387,7 +383,6 @@ mod test {
                     after_ty: "".into(),
                     after_key: "".into(),
                     after_eq: "".into(),
-                    eq: "=".into(),
                 }),
                 ty: Some("\"m\\\"eh\"".parse()?),
                 value: KdlValue::Integer(0xdeadbeef),

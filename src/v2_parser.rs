@@ -420,7 +420,6 @@ fn entry_test() {
             name: Some("foo".parse().unwrap()),
             format: Some(KdlEntryFormat {
                 value_repr: "bar".into(),
-                eq: "=".into(),
                 ..Default::default()
             }),
             span: (0..7).into()
@@ -466,7 +465,7 @@ fn node_terminator(input: &mut Input<'_>) -> PResult<()> {
 
 /// `prop := string optional-node-space equals-sign optional-node-space value`
 fn prop(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
-    let ((key, after_key, eq, after_eq, value), _span) = (
+    let ((key, after_key, _eqa, after_eq, value), _span) = (
         identifier,
         optional_node_space.take(),
         equals_sign.take(),
@@ -479,7 +478,6 @@ fn prop(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
         value.name = Some(key);
         if let Some(fmt) = value.format_mut() {
             fmt.after_ty = after_key.into();
-            fmt.eq = eq.into();
             fmt.after_eq = after_eq.into();
         }
         #[cfg(feature = "span")]
