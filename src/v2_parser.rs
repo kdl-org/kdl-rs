@@ -1218,7 +1218,6 @@ fn commented_block<'s>(input: &mut Input<'s>) -> PResult<()> {
     .parse_next(input)
 }
 
-/// `multi-line-comment :`
 /// `number := keyword-number | hex | octal | binary | decimal`
 fn number<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
     alt((hex, octal, binary, float, integer)).parse_next(input)
