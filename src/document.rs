@@ -439,7 +439,6 @@ second_node /* This time, the comment is here */ param=153 {
             trailing // single line
             "#;
         let _doc: KdlDocument = src.parse()?;
-        // TODO: trailing `//` comments don't work. Multiline works fine?
         Ok(())
     }
 

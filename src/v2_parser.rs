@@ -1143,7 +1143,6 @@ fn wsp<'s>(input: &mut Input<'s>) -> PResult<()> {
 
 /// `ws := unicode-space | multi-line-comment``
 fn ws<'s>(input: &mut Input<'s>) -> PResult<()> {
-    // TODO(@zkat): line continuations (`\     foo`)
     alt((unicode_space, multi_line_comment)).parse_next(input)
 }
 
