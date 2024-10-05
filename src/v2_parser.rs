@@ -726,7 +726,7 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
         repeat_till(
             0..,
             (
-                cut_err(&prefix[..]).context(lbl("matching multiline string prefix")),
+                cut_err(alt((&prefix[..], peek(newline).take()))).context(lbl("matching multiline string prefix")),
                 repeat_till(
                     0..,
                     (not(newline), opt(ws_escape), string_char).map(|(_, _, s)| s),
@@ -737,7 +737,7 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
             )
                 .map(|(_, s)| s),
             (
-                cut_err(&prefix[..]).context(lbl("matching multiline string prefix")),
+                &prefix[..],
                 repeat(0.., unicode_space).map(|()| ()).take(),
                 peek("\""),
             ),
@@ -874,7 +874,7 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
         repeat_till(
             0..,
             (
-                cut_err(&prefix[..]).context(lbl("matching multiline raw string prefix")),
+                cut_err(alt((&prefix[..], peek(newline).take()))).context(lbl("matching multiline raw string prefix")),
                 repeat_till(
                     0..,
                     (not(newline), not(("\"", &hashes[..])), any)
@@ -887,7 +887,7 @@ fn raw_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
             )
                 .map(|(_, s)| s),
             (
-                cut_err(&prefix[..]).context(lbl("matching multiline raw string prefix")),
+                &prefix[..],
                 repeat(0.., unicode_space).map(|()| ()).take(),
                 peek(("\"", &hashes[..])),
             ),
@@ -985,6 +985,11 @@ mod string_tests {
                 .parse(new_input("\"\n  \\     foo\n    \\  bar\n   \\ baz\n  \""))
                 .unwrap(),
             Some(KdlValue::String("foo\n  bar\n baz".into()))
+        );
+        assert_eq!(
+            string.parse(new_input("\"\n\n    string\t\n    \"")).unwrap(),
+            Some(KdlValue::String("\nstring\t".into())),
+            "Empty line without any indentation"
         );
         assert!(string
             .parse(new_input("\"\nfoo\n  bar\n  baz\n  \""))
@@ -1149,29 +1154,6 @@ fn wsp<'s>(input: &mut Input<'s>) -> PResult<()> {
 fn ws<'s>(input: &mut Input<'s>) -> PResult<()> {
     alt((unicode_space, multi_line_comment)).parse_next(input)
 }
-
-// fn comment<'s>(input: &mut Input<'s>) -> PResult<&'s str> {
-//     alt((
-//         single_line_comment.take(),
-//         multi_line_comment.take(),
-//         (
-//             "/-",
-//             repeat(0.., plain_node_space).map(|_: ()| ()),
-//             cut_err(node),
-//         )
-//             .take(),
-//         (
-//             "/-",
-//             repeat(0.., plain_node_space).map(|_: ()| ()),
-//             cut_err(alt((
-//                 node_entry.void().context(lbl("slashdashed entry")),
-//                 node_children.void().context(lbl("slashdashed children")),
-//             ))),
-//         )
-//             .take(),
-//     ))
-//     .parse_next(input)
-// }
 
 static UNICODE_SPACES: [char; 19] = [
     '\u{0009}', '\u{000B}', '\u{0020}', '\u{00A0}', '\u{1680}', '\u{2000}', '\u{2001}', '\u{2002}',
