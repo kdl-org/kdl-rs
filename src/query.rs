@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, str::FromStr, sync::Arc};
 
-use crate::{query_parser::KdlQueryParser, KdlDocument, KdlError, KdlNode, KdlValue};
+use crate::{query_parser::KdlQueryParser, KdlDiagnostic, KdlDocument, KdlNode, KdlValue};
 
 /// A parsed KQL query. For details on the syntax, see the [KQL
 /// spec](https://github.com/kdl-org/kdl/blob/main/QUERY-SPEC.md).
@@ -8,7 +8,7 @@ use crate::{query_parser::KdlQueryParser, KdlDocument, KdlError, KdlNode, KdlVal
 pub struct KdlQuery(pub(crate) Vec<KdlQuerySelector>);
 
 impl FromStr for KdlQuery {
-    type Err = KdlError;
+    type Err = KdlDiagnostic;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parser = KdlQueryParser::new(s);
@@ -26,29 +26,29 @@ impl<'a> IntoKdlQuery for &'a String {}
 
 #[doc(hidden)]
 pub trait IntoQuerySealed {
-    fn into_query(self) -> Result<KdlQuery, KdlError>;
+    fn into_query(self) -> Result<KdlQuery, KdlDiagnostic>;
 }
 
 impl IntoQuerySealed for KdlQuery {
-    fn into_query(self) -> Result<KdlQuery, KdlError> {
+    fn into_query(self) -> Result<KdlQuery, KdlDiagnostic> {
         Ok(self)
     }
 }
 
 impl IntoQuerySealed for &str {
-    fn into_query(self) -> Result<KdlQuery, KdlError> {
+    fn into_query(self) -> Result<KdlQuery, KdlDiagnostic> {
         self.parse()
     }
 }
 
 impl IntoQuerySealed for String {
-    fn into_query(self) -> Result<KdlQuery, KdlError> {
+    fn into_query(self) -> Result<KdlQuery, KdlDiagnostic> {
         self.parse()
     }
 }
 
 impl IntoQuerySealed for &String {
-    fn into_query(self) -> Result<KdlQuery, KdlError> {
+    fn into_query(self) -> Result<KdlQuery, KdlDiagnostic> {
         self.parse()
     }
 }

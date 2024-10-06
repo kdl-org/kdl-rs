@@ -27,7 +27,7 @@ words {
     let word_node = KdlNode::new(identifier);
     word_nodes.push(word_node);
     word_nodes.sort_by(sort_by_name);
-    words_section.fmt();
+    words_section.autoformat();
 
     println!("{}", doc);
 

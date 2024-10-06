@@ -64,38 +64,6 @@
 //! [`KdlDocument`], [`KdlNode`], [`KdlEntry`], and [`KdlIdentifier`] can all
 //! be parsed and managed this way.
 //!
-//! ### Query Engine
-//!
-//! `kdl` includes a query engine for
-//! [KQL](https://github.com/kdl-org/kdl/blob/main/QUERY-SPEC.md), which lets you
-//! pick out nodes from a document using a CSS Selectors-style syntax.
-//!
-//! Queries can be done from either a [`KdlDocument`] or a [`KdlNode`], with
-//! mostly the same semantics.
-//!
-//! ```rust
-//! use kdl::KdlDocument;
-//!
-//! let doc = r#"
-//! a {
-//!     b 1
-//!     c 2
-//!     d 3 {
-//!         e prop="hello"
-//!     }
-//! }
-//! "#.parse::<KdlDocument>().expect("failed to parse KDL");
-//!
-//! let results = doc.query("a > b").expect("failed to parse query");
-//! assert_eq!(results, Some(&doc.nodes()[0].children().unwrap().nodes()[0]));
-//!
-//! let results = doc.query_get("e", "prop").expect("failed to parse query");
-//! assert_eq!(results, Some(&"hello".into()));
-//!
-//! let results = doc.query_get_all("a > []", 0).expect("failed to parse query").collect::<Vec<_>>();
-//! assert_eq!(results, vec![&1.into(), &2.into(), &3.into()]);
-//! ```
-//!
 //! ## Error Reporting
 //!
 //! [`KdlError`] implements [`miette::Diagnostic`] and can be used to display
@@ -152,14 +120,51 @@
 //!   you [`KdlDocument::fmt`] in which case the original representation will be
 //!   thrown away and the actual value will be used when serializing.
 //!
+//! ## Minimum Supported Rust Version
+//!
+//! You must be at least `1.70.0` tall to get on this ride.
+//!
 //! ## License
 //!
 //! The code in this repository is covered by [the Apache-2.0
 //! License](LICENSE.md).
 
+// TODO(@zkat): bring this back later.
+// ### Query Engine
+
+// `kdl` includes a query engine for
+// [KQL](https://github.com/kdl-org/kdl/blob/main/QUERY-SPEC.md), which lets you
+// pick out nodes from a document using a CSS Selectors-style syntax.
+
+// Queries can be done from either a [`KdlDocument`] or a [`KdlNode`], with
+// mostly the same semantics.
+
+// ```rust
+// use kdl::KdlDocument;
+
+// let doc = r#"
+// a {
+//     b 1
+//     c 2
+//     d 3 {
+//         e prop="hello"
+//     }
+// }
+// "#.parse::<KdlDocument>().expect("failed to parse KDL");
+
+// let results = doc.query("a > b").expect("failed to parse query");
+// assert_eq!(results, Some(&doc.nodes()[0].children().unwrap().nodes()[0]));
+
+// let results = doc.query_get("e", "prop").expect("failed to parse query");
+// assert_eq!(results, Some(&"hello".into()));
+
+// let results = doc.query_get_all("a > []", 0).expect("failed to parse query").collect::<Vec<_>>();
+// assert_eq!(results, vec![&1.into(), &2.into(), &3.into()]);
+// ```
+
 #![deny(missing_debug_implementations, nonstandard_style)]
-#![warn(missing_docs, unreachable_pub, rust_2018_idioms, unreachable_pub)]
-#![cfg_attr(test, deny(warnings))]
+#![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
+// #![cfg_attr(test, deny(warnings))]
 #![doc(html_favicon_url = "https://kdl.dev/favicon.ico")]
 #![doc(html_logo_url = "https://kdl.dev/logo.svg")]
 
@@ -168,7 +173,7 @@ pub use entry::*;
 pub use error::*;
 pub use identifier::*;
 pub use node::*;
-pub use query::*;
+// pub use query::*;
 pub use value::*;
 
 mod document;
@@ -177,8 +182,10 @@ mod error;
 mod fmt;
 mod identifier;
 mod node;
-mod nom_compat;
-mod parser;
-mod query;
-mod query_parser;
+// mod nom_compat;
+// mod query;
+// mod query_parser;
+// mod v1_parser;
 mod value;
+
+mod v2_parser;

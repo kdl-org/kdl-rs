@@ -1,4 +1,7 @@
-use std::num::{ParseFloatError, ParseIntError};
+use std::{
+    num::{ParseFloatError, ParseIntError},
+    sync::Arc,
+};
 
 use miette::{Diagnostic, SourceSpan};
 use nom::error::{ContextError, ErrorKind, FromExternalError, ParseError};
@@ -10,11 +13,12 @@ use {
     std::convert::{TryFrom, TryInto},
 };
 
-/// An error that occurs when parsing a KDL document.
+/// The toplevel `Error` type for KDL: this is returned when a KDL document
+/// failed to parse entirely.
 ///
-/// This error implements [`miette::Diagnostic`] and can be used to display
-/// detailed, pretty-printed diagnostic messages when using [`miette::Result`]
-/// and the `"fancy"` feature flag for `miette`:
+/// This diagnostic implements [`miette::Diagnostic`] and can be used to
+/// display detailed, pretty-printed diagnostic messages when using
+/// [`miette::Result`] and the `"fancy"` feature flag for `miette`:
 ///
 /// ```no_run
 /// fn main() -> miette::Result<()> {
@@ -35,11 +39,26 @@ use {
 ///   help: Floating point numbers must be base 10, and have numbers after the decimal point.
 /// ```
 #[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
-#[error("{kind}")]
-pub struct KdlError {
-    /// Source string for the KDL document that failed to parse.
+#[error("Failed to parse KDL.")]
+pub struct KdlParseFailure {
+    /// Original input that this failure came from.
     #[source_code]
-    pub input: String,
+    pub input: Arc<String>,
+
+    /// Sub-diagnostics for this failure.
+    #[related]
+    pub diagnostics: Vec<KdlDiagnostic>,
+}
+
+/// An individual diagnostic message for a KDL parsing issue.
+///
+/// While generally signifying errors, they can also be treated as warnings.
+#[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
+#[error("{kind}")]
+pub struct KdlDiagnostic {
+    /// Shared source for the diagnostic.
+    #[source_code]
+    pub input: Arc<String>,
 
     /// Offset in chars of the error.
     #[label("{}", label.unwrap_or("here"))]
@@ -51,6 +70,10 @@ pub struct KdlError {
     /// Suggestion for fixing the parser error.
     #[help]
     pub help: Option<&'static str>,
+
+    /// Severity level for the Diagnostic.
+    #[diagnostic(severity)]
+    pub severity: miette::Severity,
 
     /// Specific error kind for this parser error.
     pub kind: KdlErrorKind,
@@ -77,7 +100,7 @@ pub enum KdlErrorKind {
 
     /// Generic unspecified error. If this is returned, the call site should
     /// be annotated with context, if possible.
-    #[error("An unspecified error occurred.")]
+    #[error("An unspecified parse error occurred.")]
     #[diagnostic(code(kdl::other))]
     Other,
 }
