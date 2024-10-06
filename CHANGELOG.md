@@ -1,5 +1,26 @@
 # `kdl` Release Changelog
 
+<a name="6.0.0-alpha.1"></a>
+## 6.0.0-alpha.1 (2024-10-06)
+
+The long-awaited KDL v2 parser is upon us! This is a major rewrite of kdl-rs to make it comply with the [KDL v2 spec](https://github.com/kdl-org/kdl/pull/286)).
+
+It also comes with some shiny new features and some significant API changes:
+
+* The parser can now handle multiple errors per parse operation, continuing the parse and moving on to the next error when something doesn't go quite right.
+* Value types have been simplified. You'll need to rely on `KdlEntry.value_repr` to change how a value is actually rendered.
+
+There's a big caveat with this release: There's some known bugs around autoformatting when comments or `;` terminators are present, and the error reporting on the parser is _pretty bad_ right now (but will be fixed by release time).
+
+This alpha is meant as an initial preview for folks who want to get an actual feel for KDL v2, and to make additional comments on the language before it's finalized.
+
+### Features
+
+* **parser:** v2 parser (#70) ([c9898cdb](https://github.com/kdl-org/kdl-rs/commit/c9898cdbd28f61eef482fb2703fe85552dc58e4c))
+### Bug Fixes
+
+* **api:** Fix `insert` and `remove` behavior for `KdlNode` ([be0dc170](https://github.com/kdl-org/kdl-rs/commit/be0dc1708d93b496815f8850e211f697fcb7244c))
+
 <a name="5.0.0-alpha.1"></a>
 ## 5.0.0-alpha.1 (2023-04-01)
 
