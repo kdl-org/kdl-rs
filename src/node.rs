@@ -501,12 +501,7 @@ impl FromStr for KdlNode {
     type Err = KdlParseFailure;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        let (maybe_val, errs) = v2_parser::try_parse(v2_parser::padded_node, input);
-        if let (Some(v), true) = (maybe_val, errs.is_empty()) {
-            Ok(v)
-        } else {
-            Err(v2_parser::failure_from_errs(errs, input))
-        }
+        v2_parser::try_parse(v2_parser::padded_node, input)
     }
 }
 

@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::fmt::Display;
 
-use crate::{KdlNode, KdlValue};
+use crate::{KdlNode, KdlParseFailure, KdlValue};
 
 /// Represents a KDL
 /// [`Document`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#document).
@@ -309,6 +309,14 @@ impl KdlDocument {
     //         .query_all(query)?
     //         .filter_map(move |node| node.get(key.clone())))
     // }
+}
+
+impl std::str::FromStr for KdlDocument {
+    type Err = KdlParseFailure;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        crate::v2_parser::try_parse(crate::v2_parser::document, s)
+    }
 }
 
 impl Display for KdlDocument {

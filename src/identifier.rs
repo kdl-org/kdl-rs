@@ -131,12 +131,7 @@ impl FromStr for KdlIdentifier {
     type Err = KdlParseFailure;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (maybe_val, errs) = v2_parser::try_parse(v2_parser::identifier, s);
-        if let Some(v) = maybe_val {
-            Ok(v)
-        } else {
-            Err(v2_parser::failure_from_errs(errs, s))
-        }
+        v2_parser::try_parse(v2_parser::identifier, s)
     }
 }
 

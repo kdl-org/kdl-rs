@@ -7,7 +7,9 @@ use miette::{Severity, SourceSpan};
 
 use winnow::{
     ascii::{digit1, hex_digit1, oct_digit1, Caseless},
-    combinator::{alt, cut_err, eof, not, opt, peek, preceded, repeat, repeat_till, terminated},
+    combinator::{
+        alt, cut_err, eof, fail, not, opt, peek, preceded, repeat, repeat_till, terminated,
+    },
     error::{
         AddContext, ContextError, ErrorKind, FromExternalError, FromRecoverableError, ParserError,
         StrContext, StrContextValue,
@@ -26,25 +28,16 @@ use crate::{
 type Input<'a> = Recoverable<Located<&'a str>, KdlParseError>;
 type PResult<T> = winnow::PResult<T, KdlParseError>;
 
-impl std::str::FromStr for KdlDocument {
-    type Err = KdlParseFailure;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (maybe_val, errs) = try_parse(document, s);
-        if let (Some(v), true) = (maybe_val, errs.is_empty()) {
-            Ok(v)
-        } else {
-            Err(failure_from_errs(errs, s))
-        }
-    }
-}
-
 pub(crate) fn try_parse<'a, P: Parser<Input<'a>, T, KdlParseError>, T>(
     mut parser: P,
     input: &'a str,
-) -> (Option<T>, Vec<KdlParseError>) {
+) -> Result<T, KdlParseFailure> {
     let (_, maybe_val, errs) = parser.recoverable_parse(Located::new(input));
-    (maybe_val, errs)
+    if let (Some(v), true) = (maybe_val, errs.is_empty()) {
+        Ok(v)
+    } else {
+        Err(failure_from_errs(errs, input))
+    }
 }
 
 pub(crate) fn failure_from_errs(errs: Vec<KdlParseError>, input: &str) -> KdlParseFailure {
@@ -201,7 +194,7 @@ fn new_input(s: &str) -> Input<'_> {
 }
 
 /// `document := bom? nodes`
-fn document(input: &mut Input<'_>) -> PResult<KdlDocument> {
+pub(crate) fn document(input: &mut Input<'_>) -> PResult<KdlDocument> {
     let bom = opt(bom.take()).parse_next(input)?;
     let mut doc = nodes.parse_next(input)?;
     if let Some(bom) = bom {
@@ -373,7 +366,7 @@ fn final_node(input: &mut Input<'_>) -> PResult<KdlNode> {
     Ok(node)
 }
 
-pub(crate) fn padded_node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
+pub(crate) fn padded_node_entry(input: &mut Input<'_>) -> PResult<KdlEntry> {
     let ((leading, entry, trailing), _span) = (
         repeat(0.., line_space).map(|_: ()| ()).take(),
         node_entry,
@@ -383,7 +376,7 @@ pub(crate) fn padded_node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntr
     )
         .with_span()
         .parse_next(input)?;
-    Ok(entry.map(|mut val| {
+    if let Some(entry) = entry.map(|mut val| {
         if let Some(fmt) = val.format_mut() {
             fmt.leading = format!("{leading}{}", fmt.leading);
             fmt.trailing = format!("{}{trailing}", fmt.trailing);
@@ -393,7 +386,11 @@ pub(crate) fn padded_node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntr
             val.span = _span.into();
         }
         val
-    }))
+    }) {
+        Ok(entry)
+    } else {
+        fail.parse_next(input)?
+    }
 }
 
 /// `node-prop-or-arg := prop | value`
