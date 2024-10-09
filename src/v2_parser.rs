@@ -5,6 +5,7 @@ use std::{
 
 use miette::{Severity, SourceSpan};
 
+use num::CheckedMul;
 use winnow::{
     ascii::{digit1, hex_digit1, oct_digit1, Caseless},
     combinator::{
@@ -124,6 +125,24 @@ impl<'a> FromExternalError<Input<'a>, ParseFloatError> for KdlParseError {
             help: None,
             context: None,
             kind: Some(KdlErrorKind::ParseFloatError(e)),
+        }
+    }
+}
+
+struct NegativeUnsignedError;
+
+impl<'a> FromExternalError<Input<'a>, NegativeUnsignedError> for KdlParseError {
+    fn from_external_error(
+        _input: &Input<'a>,
+        _kind: ErrorKind,
+        _e: NegativeUnsignedError,
+    ) -> Self {
+        KdlParseError {
+            span: None,
+            label: None,
+            help: None,
+            context: None,
+            kind: Some(KdlErrorKind::NegativeUnsignedError),
         }
     }
 }
@@ -639,7 +658,7 @@ fn signed_ident(input: &mut Input<'_>) -> PResult<()> {
 /// `dotted-ident := sign? '.' ((identifier-char - digit) identifier-char*)?`
 fn dotted_ident(input: &mut Input<'_>) -> PResult<()> {
     (
-        opt(sign),
+        opt(signum),
         ".",
         not(digit1),
         repeat(0.., identifier_char).map(|_: ()| ()),
@@ -1214,30 +1233,30 @@ fn multi_line_comment_test() {
 
 /// `number := keyword-number | hex | octal | binary | decimal`
 fn number(input: &mut Input<'_>) -> PResult<KdlValue> {
-    alt((hex, octal, binary, float, integer)).parse_next(input)
+    alt((float_value, integer_value)).parse_next(input)
 }
 
 /// ```text
 /// decimal := sign? integer ('.' integer)? exponent?
 /// exponent := ('e' | 'E') sign? integer
 /// ```
-fn float(input: &mut Input<'_>) -> PResult<KdlValue> {
+fn float_value(input: &mut Input<'_>) -> PResult<KdlValue> {
+    float.map(KdlValue::Float).parse_next(input)
+}
+
+fn float<T: ParseFloat>(input: &mut Input<'_>) -> PResult<T> {
     alt((
         (
-            integer,
-            opt(preceded('.', cut_err(integer_base))),
+            decimal::<i128>,
+            opt(preceded('.', cut_err(udecimal::<i128>))),
             Caseless("e"),
             opt(one_of(['-', '+'])),
-            cut_err(integer_base),
+            cut_err(udecimal::<i128>),
         )
             .take(),
-        (integer, '.', cut_err(integer_base)).take(),
+        (decimal::<i128>, '.', cut_err(udecimal::<i128>)).take(),
     ))
-    .try_map(|float_str| {
-        str::replace(float_str, "_", "")
-            .parse::<f64>()
-            .map(KdlValue::Float)
-    })
+    .try_map(|float_str| T::parse_float(&str::replace(float_str, "_", "")))
     .context(lbl("float"))
     .parse_next(input)
 }
@@ -1248,19 +1267,21 @@ fn float_test() {
     use winnow::token::take;
 
     assert_eq!(
-        float.parse(new_input("12_34.56")).unwrap(),
+        float_value.parse(new_input("12_34.56")).unwrap(),
         KdlValue::Float(1234.56)
     );
     assert_eq!(
-        float.parse(new_input("1234_.56")).unwrap(),
+        float_value.parse(new_input("1234_.56")).unwrap(),
         KdlValue::Float(1234.56)
     );
     assert_eq!(
-        (float, take(1usize)).parse(new_input("1234.56c")).unwrap(),
+        (float_value, take(1usize))
+            .parse(new_input("1234.56c"))
+            .unwrap(),
         (KdlValue::Float(1234.56), "c")
     );
-    assert!(float.parse(new_input("_1234.56")).is_err());
-    assert!(float.parse(new_input("1234a.56")).is_err());
+    assert!(float_value.parse(new_input("_1234.56")).is_err());
+    assert!(float_value.parse(new_input("1234a.56")).is_err());
     assert_eq!(
         value
             .parse(new_input("2.5"))
@@ -1270,32 +1291,37 @@ fn float_test() {
     );
 }
 
+fn integer_value(input: &mut Input<'_>) -> PResult<KdlValue> {
+    alt((hex, octal, binary, decimal))
+        .map(KdlValue::Integer)
+        .parse_next(input)
+}
+
 /// Non-float decimal
-fn integer(input: &mut Input<'_>) -> PResult<KdlValue> {
-    let mult = sign.parse_next(input)?;
-    integer_base
-        .map(|x| KdlValue::Integer(x * mult))
-        .context(lbl("integer"))
+fn decimal<T: FromStrRadix + MaybeNegatable>(input: &mut Input<'_>) -> PResult<T> {
+    let positive = signum.parse_next(input)?;
+    udecimal::<T>
+        .try_map(|x| {
+            if positive {
+                Ok(x)
+            } else {
+                x.negated().ok_or(NegativeUnsignedError)
+            }
+        })
         .parse_next(input)
 }
 
 #[cfg(test)]
 #[test]
-fn integer_test() {
-    assert_eq!(
-        integer.parse(new_input("12_34")).unwrap(),
-        KdlValue::Integer(1234)
-    );
-    assert_eq!(
-        integer.parse(new_input("1234_")).unwrap(),
-        KdlValue::Integer(1234)
-    );
-    assert!(integer.parse(new_input("_1234")).is_err());
-    assert!(integer.parse(new_input("1234a")).is_err());
+fn decimal_test() {
+    assert_eq!(decimal::<i128>.parse(new_input("12_34")).unwrap(), 1234);
+    assert_eq!(decimal::<i128>.parse(new_input("1234_")).unwrap(), 1234);
+    assert!(decimal::<i128>.parse(new_input("_1234")).is_err());
+    assert!(decimal::<i128>.parse(new_input("1234a")).is_err());
 }
 
 /// `integer := digit (digit | '_')*`
-fn integer_base(input: &mut Input<'_>) -> PResult<i128> {
+fn udecimal<T: FromStrRadix>(input: &mut Input<'_>) -> PResult<T> {
     (
         digit1,
         cut_err(repeat(
@@ -1304,14 +1330,26 @@ fn integer_base(input: &mut Input<'_>) -> PResult<i128> {
         )),
     )
         .try_map(|(l, r): (&str, Vec<&str>)| {
-            format!("{l}{}", str::replace(&r.join(""), "_", "")).parse()
+            T::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 10)
         })
         .parse_next(input)
 }
 
 /// `hex := sign? '0x' hex-digit (hex-digit | '_')*`
-fn hex(input: &mut Input<'_>) -> PResult<KdlValue> {
-    let mult = sign.parse_next(input)?;
+fn hex<T: FromStrRadix + MaybeNegatable>(input: &mut Input<'_>) -> PResult<T> {
+    let positive = signum.parse_next(input)?;
+    uhex::<T>
+        .try_map(|x| {
+            if positive {
+                Ok(x)
+            } else {
+                x.negated().ok_or(NegativeUnsignedError)
+            }
+        })
+        .parse_next(input)
+}
+
+fn uhex<T: FromStrRadix>(input: &mut Input<'_>) -> PResult<T> {
     alt(("0x", "0X")).parse_next(input)?;
     cut_err((
         hex_digit1,
@@ -1321,9 +1359,7 @@ fn hex(input: &mut Input<'_>) -> PResult<KdlValue> {
         ),
     ))
     .try_map(|(l, r): (&str, Vec<&str>)| {
-        i128::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 16)
-            .map(|x| x * mult)
-            .map(KdlValue::Integer)
+        T::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 16)
     })
     .context(lbl("hexadecimal"))
     .parse_next(input)
@@ -1333,30 +1369,43 @@ fn hex(input: &mut Input<'_>) -> PResult<KdlValue> {
 #[test]
 fn test_hex() {
     assert_eq!(
-        hex.parse(new_input("0xdead_beef123")).unwrap(),
-        KdlValue::Integer(0xdeadbeef123)
+        hex::<i128>.parse(new_input("0xdead_beef123")).unwrap(),
+        0xdeadbeef123
     );
     assert_eq!(
-        hex.parse(new_input("0xDeAd_BeEf123")).unwrap(),
-        KdlValue::Integer(0xdeadbeef123)
+        hex::<i128>.parse(new_input("0xDeAd_BeEf123")).unwrap(),
+        0xdeadbeef123
     );
     assert_eq!(
-        hex.parse(new_input("0xdeadbeef123_")).unwrap(),
-        KdlValue::Integer(0xdeadbeef123)
+        hex::<i128>.parse(new_input("0xdeadbeef123_")).unwrap(),
+        0xdeadbeef123
     );
     assert!(
-        hex.parse(new_input("0xABCDEF0123456789abcdef0123456789"))
+        hex::<i128>
+            .parse(new_input("0xABCDEF0123456789abcdef0123456789"))
             .is_err(),
-        "i128 overflow"
+         "i128 overflow"
     );
-    assert!(hex.parse(new_input("0x_deadbeef123")).is_err());
+    assert!(hex::<i128>.parse(new_input("0x_deadbeef123")).is_err());
 
-    assert!(hex.parse(new_input("0xbeefg1")).is_err());
+    assert!(hex::<i128>.parse(new_input("0xbeefg1")).is_err());
 }
 
 /// `octal := sign? '0o' [0-7] [0-7_]*`
-fn octal(input: &mut Input<'_>) -> PResult<KdlValue> {
-    let mult = sign.parse_next(input)?;
+fn octal<T: FromStrRadix + MaybeNegatable>(input: &mut Input<'_>) -> PResult<T> {
+    let positive = signum.parse_next(input)?;
+    uoctal::<T>
+        .try_map(|x| {
+            if positive {
+                Ok(x)
+            } else {
+                x.negated().ok_or(NegativeUnsignedError)
+            }
+        })
+        .parse_next(input)
+}
+
+fn uoctal<T: FromStrRadix>(input: &mut Input<'_>) -> PResult<T> {
     alt(("0o", "0O")).parse_next(input)?;
     cut_err((
         oct_digit1,
@@ -1366,9 +1415,7 @@ fn octal(input: &mut Input<'_>) -> PResult<KdlValue> {
         ),
     ))
     .try_map(|(l, r): (&str, Vec<&str>)| {
-        i128::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 8)
-            .map(|x| x * mult)
-            .map(KdlValue::Integer)
+        T::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 8)
     })
     .context(lbl("octal"))
     .parse_next(input)
@@ -1377,28 +1424,32 @@ fn octal(input: &mut Input<'_>) -> PResult<KdlValue> {
 #[cfg(test)]
 #[test]
 fn test_octal() {
-    assert_eq!(
-        octal.parse(new_input("0o12_34")).unwrap(),
-        KdlValue::Integer(0o1234)
-    );
-    assert_eq!(
-        octal.parse(new_input("0o1234_")).unwrap(),
-        KdlValue::Integer(0o1234)
-    );
-    assert!(octal.parse(new_input("0o_12_34")).is_err());
-    assert!(octal.parse(new_input("0o89")).is_err());
+    assert_eq!(octal::<i128>.parse(new_input("0o12_34")).unwrap(), 0o1234);
+    assert_eq!(octal::<i128>.parse(new_input("0o1234_")).unwrap(), 0o1234);
+    assert!(octal::<i128>.parse(new_input("0o_12_34")).is_err());
+    assert!(octal::<i128>.parse(new_input("0o89")).is_err());
 }
 
 /// `binary := sign? '0b' ('0' | '1') ('0' | '1' | '_')*`
-fn binary(input: &mut Input<'_>) -> PResult<KdlValue> {
-    let mult = sign.parse_next(input)?;
+fn binary<T: FromStrRadix + MaybeNegatable>(input: &mut Input<'_>) -> PResult<T> {
+    let positive = signum.parse_next(input)?;
+    ubinary::<T>
+        .try_map(|x| {
+            if positive {
+                Ok(x)
+            } else {
+                x.negated().ok_or(NegativeUnsignedError)
+            }
+        })
+        .parse_next(input)
+}
+
+fn ubinary<T: FromStrRadix>(input: &mut Input<'_>) -> PResult<T> {
     alt(("0b", "0B")).parse_next(input)?;
     cut_err(
         (alt(("0", "1")), repeat(0.., alt(("0", "1", "_")))).try_map(
             move |(x, xs): (&str, Vec<&str>)| {
-                i128::from_str_radix(&format!("{x}{}", str::replace(&xs.join(""), "_", "")), 2)
-                    .map(|x| x * mult)
-                    .map(KdlValue::Integer)
+                T::from_str_radix(&format!("{x}{}", str::replace(&xs.join(""), "_", "")), 2)
             },
         ),
     )
@@ -1411,32 +1462,96 @@ fn binary(input: &mut Input<'_>) -> PResult<KdlValue> {
 fn test_binary() {
     use winnow::token::take;
 
+    assert_eq!(binary::<i128>.parse(new_input("0b10_01")).unwrap(), 0b1001);
+    assert_eq!(binary::<i128>.parse(new_input("0b1001_")).unwrap(), 0b1001);
+    assert!(binary::<i128>.parse(new_input("0b_10_01")).is_err());
     assert_eq!(
-        binary.parse(new_input("0b10_01")).unwrap(),
-        KdlValue::Integer(0b1001)
+        (binary::<i128>, take(4usize))
+            .parse(new_input("0b12389"))
+            .unwrap(),
+        (1, "2389")
     );
-    assert_eq!(
-        binary.parse(new_input("0b1001_")).unwrap(),
-        KdlValue::Integer(0b1001)
-    );
-    assert!(binary.parse(new_input("0b_10_01")).is_err());
-    assert_eq!(
-        (binary, take(4usize)).parse(new_input("0b12389")).unwrap(),
-        (KdlValue::Integer(1), "2389")
-    );
-    assert!(binary.parse(new_input("123")).is_err());
+    assert!(binary::<i128>.parse(new_input("123")).is_err());
 }
 
-fn sign(input: &mut Input<'_>) -> PResult<i128> {
+fn signum(input: &mut Input<'_>) -> PResult<bool> {
     let sign = opt(alt(('+', '-'))).parse_next(input)?;
     let mult = if let Some(sign) = sign {
         if sign == '+' {
-            1
+            true
         } else {
-            -1
+            false
         }
     } else {
-        1
+        true
     };
     Ok(mult)
 }
+
+trait FromStrRadix {
+    fn from_str_radix(s: &str, radix: u32) -> Result<Self, ParseIntError>
+    where
+        Self: Sized;
+}
+
+macro_rules! impl_from_str_radix {
+    ($($t:ty),*) => {
+        $(
+            impl FromStrRadix for $t {
+                fn from_str_radix(s: &str, radix: u32) -> Result<Self, ParseIntError> {
+                    <$t>::from_str_radix(s, radix)
+                }
+            }
+        )*
+    };
+}
+
+impl_from_str_radix!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
+
+trait MaybeNegatable: CheckedMul {
+    fn negated(&self) -> Option<Self>;
+}
+
+macro_rules! impl_negatable_signed {
+    ($($t:ty),*) => {
+        $(
+            impl MaybeNegatable for $t {
+                fn negated(&self) -> Option<Self> {
+                    Some(self * -1)
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! impl_negatable_unsigned {
+    ($($t:ty),*) => {
+        $(
+            impl MaybeNegatable for $t {
+                fn negated(&self) -> Option<Self> {
+                    None
+                }
+            }
+        )*
+    };
+}
+
+trait ParseFloat {
+    fn parse_float(input: &str) -> Result<Self, ParseFloatError>
+    where
+        Self: Sized;
+}
+
+impl ParseFloat for f32 {
+    fn parse_float(input: &str) -> Result<Self, ParseFloatError> {
+        input.parse()
+    }
+}
+impl ParseFloat for f64 {
+    fn parse_float(input: &str) -> Result<Self, ParseFloatError> {
+        input.parse()
+    }
+}
+
+impl_negatable_signed!(i8, i16, i32, i64, i128, isize);
+impl_negatable_unsigned!(u8, u16, u32, u64, u128, usize);

@@ -78,7 +78,7 @@ pub struct KdlDiagnostic {
     pub kind: KdlErrorKind,
 }
 
-/// A type reprenting additional information specific to the type of error being returned.
+/// A type representing additional information specific to the type of error being returned.
 #[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
 pub enum KdlErrorKind {
     /// An error occurred while parsing an integer.
@@ -90,6 +90,11 @@ pub enum KdlErrorKind {
     #[error(transparent)]
     #[diagnostic(code(kdl::parse_float))]
     ParseFloatError(ParseFloatError),
+
+    /// Tried to parse a negative number as an unsigned integer.
+    #[error("Tried to parse a negative number as an unsigned integer.")]
+    #[diagnostic(code(kdl::negative_unsigned))]
+    NegativeUnsignedError,
 
     /// Generic parsing error. The given context string denotes the component
     /// that failed to parse.
