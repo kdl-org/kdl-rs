@@ -17,7 +17,6 @@ span = []
 
 [dependencies]
 miette = "7.2.0"
-nom = "7.1.1"
 thiserror = "1.0.40"
 winnow = { version = "0.6.20", features = ["alloc", "unstable-recover"] }
 

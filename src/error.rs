@@ -4,7 +4,6 @@ use std::{
 };
 
 use miette::{Diagnostic, SourceSpan};
-use nom::error::{ContextError, ErrorKind, FromExternalError, ParseError};
 use thiserror::Error;
 
 #[cfg(doc)]
@@ -103,68 +102,4 @@ pub enum KdlErrorKind {
     #[error("An unspecified parse error occurred.")]
     #[diagnostic(code(kdl::other))]
     Other,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct KdlParseError<I> {
-    pub(crate) input: I,
-    pub(crate) context: Option<&'static str>,
-    pub(crate) len: usize,
-    pub(crate) label: Option<&'static str>,
-    pub(crate) help: Option<&'static str>,
-    pub(crate) kind: Option<KdlErrorKind>,
-    pub(crate) touched: bool,
-}
-
-impl<I> ParseError<I> for KdlParseError<I> {
-    fn from_error_kind(input: I, _kind: nom::error::ErrorKind) -> Self {
-        Self {
-            input,
-            len: 0,
-            label: None,
-            help: None,
-            context: None,
-            kind: None,
-            touched: false,
-        }
-    }
-
-    fn append(_input: I, _kind: nom::error::ErrorKind, other: Self) -> Self {
-        other
-    }
-}
-
-impl<I> ContextError<I> for KdlParseError<I> {
-    fn add_context(_input: I, ctx: &'static str, mut other: Self) -> Self {
-        other.context = other.context.or(Some(ctx));
-        other
-    }
-}
-
-impl<'a> FromExternalError<&'a str, ParseIntError> for KdlParseError<&'a str> {
-    fn from_external_error(input: &'a str, _kind: ErrorKind, e: ParseIntError) -> Self {
-        KdlParseError {
-            input,
-            len: 0,
-            label: None,
-            help: None,
-            context: None,
-            kind: Some(KdlErrorKind::ParseIntError(e)),
-            touched: false,
-        }
-    }
-}
-
-impl<'a> FromExternalError<&'a str, ParseFloatError> for KdlParseError<&'a str> {
-    fn from_external_error(input: &'a str, _kind: ErrorKind, e: ParseFloatError) -> Self {
-        KdlParseError {
-            input,
-            len: 0,
-            label: None,
-            help: None,
-            context: None,
-            kind: Some(KdlErrorKind::ParseFloatError(e)),
-            touched: false,
-        }
-    }
 }
