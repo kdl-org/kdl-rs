@@ -127,7 +127,7 @@
 //! ## License
 //!
 //! The code in this repository is covered by [the Apache-2.0
-//! License](LICENSE.md).
+//! License](LICENSE).
 
 // TODO(@zkat): bring this back later.
 // ### Query Engine

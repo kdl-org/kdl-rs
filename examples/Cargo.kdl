@@ -3,7 +3,7 @@ package {
     version "0.0.0"
     description "The kdl document language"
     authors "Kat Marchán <kzm@zkat.tech>"
-    license-file LICENSE.md
+    license-file LICENSE
     edition "2018"
 }
 
