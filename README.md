@@ -129,7 +129,7 @@ You must be at least `1.70.0` tall to get on this ride.
 ### License
 
 The code in this repository is covered by [the Apache-2.0
-License](LICENSE.md).
+License](LICENSE).
 
 [`KdlDocument`]: https://docs.rs/kdl/latest/kdl/struct.KdlDocument.html
 [`KdlNode`]: https://docs.rs/kdl/latest/kdl/struct.KdlNode.html
