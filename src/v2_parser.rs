@@ -1295,7 +1295,7 @@ fn integer_test() {
 }
 
 /// `integer := digit (digit | '_')*`
-fn integer_base(input: &mut Input<'_>) -> PResult<i64> {
+fn integer_base(input: &mut Input<'_>) -> PResult<i128> {
     (
         digit1,
         cut_err(repeat(
@@ -1321,7 +1321,7 @@ fn hex(input: &mut Input<'_>) -> PResult<KdlValue> {
         ),
     ))
     .try_map(|(l, r): (&str, Vec<&str>)| {
-        i64::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 16)
+        i128::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 16)
             .map(|x| x * mult)
             .map(KdlValue::Integer)
     })
@@ -1345,8 +1345,9 @@ fn test_hex() {
         KdlValue::Integer(0xdeadbeef123)
     );
     assert!(
-        hex.parse(new_input("0xABCDEF0123456789abcdef")).is_err(),
-        "i64 overflow"
+        hex.parse(new_input("0xABCDEF0123456789abcdef0123456789"))
+            .is_err(),
+        "i128 overflow"
     );
     assert!(hex.parse(new_input("0x_deadbeef123")).is_err());
 
@@ -1365,7 +1366,7 @@ fn octal(input: &mut Input<'_>) -> PResult<KdlValue> {
         ),
     ))
     .try_map(|(l, r): (&str, Vec<&str>)| {
-        i64::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 8)
+        i128::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 8)
             .map(|x| x * mult)
             .map(KdlValue::Integer)
     })
@@ -1395,7 +1396,7 @@ fn binary(input: &mut Input<'_>) -> PResult<KdlValue> {
     cut_err(
         (alt(("0", "1")), repeat(0.., alt(("0", "1", "_")))).try_map(
             move |(x, xs): (&str, Vec<&str>)| {
-                i64::from_str_radix(&format!("{x}{}", str::replace(&xs.join(""), "_", "")), 2)
+                i128::from_str_radix(&format!("{x}{}", str::replace(&xs.join(""), "_", "")), 2)
                     .map(|x| x * mult)
                     .map(KdlValue::Integer)
             },
@@ -1426,7 +1427,7 @@ fn test_binary() {
     assert!(binary.parse(new_input("123")).is_err());
 }
 
-fn sign(input: &mut Input<'_>) -> PResult<i64> {
+fn sign(input: &mut Input<'_>) -> PResult<i128> {
     let sign = opt(alt(('+', '-'))).parse_next(input)?;
     let mult = if let Some(sign) = sign {
         if sign == '+' {

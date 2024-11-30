@@ -8,7 +8,7 @@ pub enum KdlValue {
 
     /// A non-float [KDL
     /// Number](https://github.com/kdl-org/kdl/blob/main/SPEC.md#number)
-    Integer(i64),
+    Integer(i128),
 
     /// A floating point [KDL
     /// Number](https://github.com/kdl-org/kdl/blob/main/SPEC.md#number)
@@ -76,8 +76,8 @@ impl std::hash::Hash for KdlValue {
                     *val
                 };
                 // Good enough to be close-ish for our purposes.
-                (val.trunc() as i64).hash(state);
-                (val.fract() as i64).hash(state);
+                (val.trunc() as i128).hash(state);
+                (val.fract() as i128).hash(state);
             }
             KdlValue::Bool(val) => val.hash(state),
             KdlValue::Null => core::mem::discriminant(self).hash(state),
@@ -121,9 +121,9 @@ impl KdlValue {
         }
     }
 
-    /// Returns `Some(i64)` if the `KdlValue` is a [`KdlValue::Integer`],
+    /// Returns `Some(i128)` if the `KdlValue` is a [`KdlValue::Integer`],
     /// otherwise returns `None`.
-    pub fn as_integer(&self) -> Option<i64> {
+    pub fn as_integer(&self) -> Option<i128> {
         use KdlValue::*;
         match self {
             Integer(i) => Some(*i),
@@ -219,8 +219,8 @@ impl KdlValue {
     }
 }
 
-impl From<i64> for KdlValue {
-    fn from(value: i64) -> Self {
+impl From<i128> for KdlValue {
+    fn from(value: i128) -> Self {
         KdlValue::Integer(value)
     }
 }

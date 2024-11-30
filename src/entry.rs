@@ -163,7 +163,17 @@ impl KdlEntry {
 
     /// Auto-formats this entry.
     pub fn autoformat(&mut self) {
-        self.format = None;
+        // TODO once MSRV allows:
+        //self.format.take_if(|f| !f.autoformat_keep);
+        if !self
+            .format
+            .as_ref()
+            .map(|f| f.autoformat_keep)
+            .unwrap_or(false)
+        {
+            self.format = None
+        }
+
         if let Some(name) = &mut self.name {
             name.autoformat();
         }
@@ -265,6 +275,8 @@ pub struct KdlEntryFormat {
     pub after_key: String,
     /// Whitespace and comments between an entry's equals sign and its value.
     pub after_eq: String,
+    /// Do not clobber this format during autoformat
+    pub autoformat_keep: bool,
 }
 
 #[cfg(test)]
@@ -378,6 +390,7 @@ mod test {
                     after_ty: "".into(),
                     after_key: "".into(),
                     after_eq: "".into(),
+                    autoformat_keep: false
                 }),
                 ty: Some("\"m\\\"eh\"".parse()?),
                 value: KdlValue::Integer(0xdeadbeef),
