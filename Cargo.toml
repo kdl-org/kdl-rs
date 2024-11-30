@@ -1,6 +1,6 @@
 [package]
 name = "kdl"
-version = "6.0.0-alpha.1"
+version = "6.0.0-alpha.2"
 description = "Document-oriented KDL parser and API. Allows formatting/whitespace/comment-preserving parsing and modification of KDL text."
 authors = ["Kat Marchán <kzm@zkat.tech>", "KDL Community"]
 license = "Apache-2.0"
