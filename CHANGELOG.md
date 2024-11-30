@@ -1,5 +1,25 @@
 # `kdl` Release Changelog
 
+<a name="6.0.0-alpha.2"></a>
+## 6.0.0-alpha.2 (2024-11-30)
+
+### Features
+
+* **value,entry:** i128 for integers, autoformat safe KdlEntryFormat (#91) ([05959558](https://github.com/kdl-org/kdl-rs/commit/059595585079ed4b9f9f47042b7b2238ecb29151))
+
+### Bug Fixes
+
+* **deps:** remove nom ([d013ece7](https://github.com/kdl-org/kdl-rs/commit/d013ece76a7053828d325a592e6a7ee8ff2218b1))
+* **fmt:** fix formatting error in CI (#88) ([11e11926](https://github.com/kdl-org/kdl-rs/commit/11e119263d78260f090d6f5c0223e465be6692d2))
+
+### Documentation
+
+* **license:** fix format of license file (#87) ([cc2995d7](https://github.com/kdl-org/kdl-rs/commit/cc2995d72be85f2b96be9e958fda7f969ebbe7ee))
+
+### Refactor
+
+* **parser:** refactor try_parse to be lift more weight ([a6419952](https://github.com/kdl-org/kdl-rs/commit/a641995293ffa93c7958f4f5462bb2aa5c8a2c45))
+
 <a name="6.0.0-alpha.1"></a>
 ## 6.0.0-alpha.1 (2024-10-06)
 
