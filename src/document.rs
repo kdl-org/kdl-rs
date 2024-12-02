@@ -436,7 +436,7 @@ second_node /* This time, the comment is here */ param=153 {
             /- comment
             /* block comment */
             inline /*comment*/ here
-            another /-commend there
+            another /-comment there
             
             
             after some whitespace

@@ -76,7 +76,7 @@ fn spec_compliance() -> miette::Result<()> {
 fn validate_res(
     res: Result<KdlDocument, KdlParseFailure>,
     path: &Path,
-    src: &String,
+    src: &str,
 ) -> Result<(), ComplianceDiagnostic> {
     let file_name = path.file_name().unwrap();
     let expected_dir = path
@@ -94,9 +94,9 @@ fn validate_res(
         if actual != expected {
             return Err(ComplianceDiagnostic::ExpectationMismatch {
                 file: path.into(),
-                original: src.clone(),
-                expected,
-                actual,
+                original: src.into(),
+                expected: expected.replace('\n', "\\n").replace(" ", "."),
+                actual: actual.replace('\n', "\\n").replace(" ", "."),
             });
         }
     } else if underscored.exists() {
