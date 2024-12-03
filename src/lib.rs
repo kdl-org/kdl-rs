@@ -190,3 +190,8 @@ mod node;
 mod value;
 
 mod v2_parser;
+
+#[cfg(feature = "serde")]
+pub mod de;
+#[cfg(feature = "serde")]
+pub mod se;
