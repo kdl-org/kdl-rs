@@ -515,28 +515,30 @@ impl KdlNode {
     pub(crate) fn autoformat_impl(&mut self, indent: usize, no_comments: bool) {
         if let Some(KdlNodeFormat {
             leading,
+            before_terminator,
+            terminator,
             trailing,
             before_children,
             ..
         }) = self.format_mut()
         {
             crate::fmt::autoformat_leading(leading, indent, no_comments);
+            crate::fmt::autoformat_trailing(before_terminator, no_comments);
             crate::fmt::autoformat_trailing(trailing, no_comments);
             *trailing = trailing.trim().into();
-            if trailing.starts_with(';') {
-                trailing.remove(0);
+            if !terminator.starts_with('\n') {
+                *terminator = "\n".into();
             }
             if let Some(c) = trailing.chars().next() {
                 if !c.is_whitespace() {
                     trailing.insert(0, ' ');
                 }
             }
-            trailing.push('\n');
 
             *before_children = " ".into();
         } else {
             self.set_format(KdlNodeFormat {
-                trailing: "\n".into(),
+                terminator: "\n".into(),
                 ..Default::default()
             })
         }
@@ -598,8 +600,14 @@ impl KdlNode {
             }
             write!(f, "}}")?;
         }
-        if let Some(KdlNodeFormat { trailing, .. }) = self.format() {
-            write!(f, "{}", trailing)?;
+        if let Some(KdlNodeFormat {
+            before_terminator,
+            terminator,
+            trailing,
+            ..
+        }) = self.format()
+        {
+            write!(f, "{before_terminator}{terminator}{trailing}")?;
         }
         Ok(())
     }
@@ -618,8 +626,11 @@ pub struct KdlNodeFormat {
     pub after_ty: String,
     /// Whitespace and comments preceding the node's children block.
     pub before_children: String,
-    /// Whitespace and comments following the node itself, including the
-    /// optional semicolon.
+    /// Whitespace and comments right before the node's terminator.
+    pub before_terminator: String,
+    /// The terminator for the node.
+    pub terminator: String,
+    /// Whitespace and comments following the node itself, after the terminator.
     pub trailing: String,
 }
 
@@ -652,7 +663,9 @@ mod test {
             node.format(),
             Some(&KdlNodeFormat {
                 leading: "\n\t  ".into(),
-                trailing: ";\n".into(),
+                before_terminator: "".into(),
+                terminator: ";".into(),
+                trailing: "\n".into(),
                 before_ty_name: "".into(),
                 after_ty_name: "".into(),
                 after_ty: "".into(),

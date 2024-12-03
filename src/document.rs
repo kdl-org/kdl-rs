@@ -436,7 +436,7 @@ second_node /* This time, the comment is here */ param=153 {
             /- comment
             /* block comment */
             inline /*comment*/ here
-            another /-commend there
+            another /-comment there
             
             
             after some whitespace
@@ -485,7 +485,7 @@ final;";
         );
 
         let foo = doc.get("foo").expect("expected a foo node");
-        assert_eq!(foo.format().map(|f| &f.trailing[..]), Some("\n"));
+        assert_eq!(foo.format().map(|f| &f.terminator[..]), Some("\n"));
         assert_eq!(&foo[2], &"three".into());
         assert_eq!(&foo["bar"], &"baz".into());
         assert_eq!(
@@ -527,6 +527,7 @@ final;";
         // if you're making KdlEntries this way, you need to inject
         // your own whitespace (or format the node)
         node.push(" \"blah\"=0xDEADbeef".parse::<KdlEntry>()?);
+        dbg!(&node);
         doc.nodes_mut().push(node);
 
         assert_eq!(
@@ -714,7 +715,8 @@ this {
 }
 // that's
 nice
-inline { time; to; live "our" "dreams"; "y;all"; }
+inline { time; to; live "our" "dreams"; "y;all" }
+
 "####;
 
         let doc: KdlDocument = input.parse()?;
@@ -724,8 +726,9 @@ inline { time; to; live "our" "dreams"; "y;all"; }
 
         // Now check some more interesting concrete spans
 
-        // The whole document should presumably be "the input" again?
-        check_span(input, doc.span(), &input);
+        // The whole document should be everything from the first node until the
+        // last before_terminator whitespace.
+        check_span(&input[1..(input.len() - 2)], doc.span(), &input);
 
         // This one-liner node should be the whole line without leading whitespace
         let is_node = doc
@@ -772,13 +775,11 @@ inline { time; to; live "our" "dreams"; "y;all"; }
         );
 
         // The child document is a little weird, it's the contents *inside* the braces
-        // with extra newlines on both ends.
+        // without the surrounding whitespace/comments. Just the actual contents.
         check_span(
-            r####"{
-        "it" /*shh*/ "has"="💯" ##"the"##
+            r####""it" /*shh*/ "has"="💯" ##"the"##
         Best🎊est
-        "syntax ever"
-    }"####,
+        "syntax ever""####,
             and_node.children().unwrap().span(),
             &input,
         );
@@ -807,14 +808,14 @@ inline { time; to; live "our" "dreams"; "y;all"; }
         // Make sure inline nodes work ok
         let inline_node = doc.get("inline").unwrap();
         check_span(
-            r#"inline { time; to; live "our" "dreams"; "y;all"; }"#,
+            r#"inline { time; to; live "our" "dreams"; "y;all" }"#,
             inline_node.span(),
             &input,
         );
 
         let inline_children = inline_node.children().unwrap();
         check_span(
-            r#"{ time; to; live "our" "dreams"; "y;all"; }"#,
+            r#"time; to; live "our" "dreams"; "y;all" "#,
             inline_children.span(),
             &input,
         );

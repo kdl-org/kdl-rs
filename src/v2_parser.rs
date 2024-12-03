@@ -9,7 +9,8 @@ use num::CheckedMul;
 use winnow::{
     ascii::{digit1, hex_digit1, oct_digit1, Caseless},
     combinator::{
-        alt, cut_err, eof, fail, not, opt, peek, preceded, repeat, repeat_till, terminated,
+        alt, cut_err, delimited, eof, fail, not, opt, peek, preceded, repeat, repeat_till,
+        separated, terminated,
     },
     error::{
         AddContext, ContextError, ErrorKind, FromExternalError, FromRecoverableError, ParserError,
@@ -226,12 +227,16 @@ pub(crate) fn document(input: &mut Input<'_>) -> PResult<KdlDocument> {
 
 /// `nodes := (line-space* node)* line-space*`
 fn nodes(input: &mut Input<'_>) -> PResult<KdlDocument> {
-    let ((leading, nodes, trailing), _span) = (
-        repeat(0.., line_space).map(|()| ()).take(),
-        repeat(0.., node),
-        repeat(0.., line_space).map(|()| ()).take(),
+    let (leading, (nodes, _span), _final_terminator, trailing) = (
+        repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
+            .map(|()| ())
+            .take(),
+        separated(0.., node, node_terminator).with_span(),
+        opt(node_terminator),
+        repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
+            .map(|()| ())
+            .take(),
     )
-        .with_span()
         .parse_next(input)?;
     Ok(KdlDocument {
         nodes,
@@ -244,59 +249,74 @@ fn nodes(input: &mut Input<'_>) -> PResult<KdlDocument> {
     })
 }
 
-/// `base-node := type? optional-node-space string (required-node-space node-prop-or-arg)* (required-node-space node-children)?`
+/// base-node := slashdash? type? node-space* string
+///      (node-space+ slashdash? node-prop-or-arg)*
+///      (node-space+ slashdash node-children)*
+///      (node-space+ node-children)?
+///      (node-space+ slashdash node-children)*
+///      node-space*
+/// node := base-node node-space* node-terminator
+/// final-node := base-node node-space* node-terminator?
+fn node(input: &mut Input<'_>) -> PResult<KdlNode> {
+    let leading = repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
+        .map(|()| ())
+        .take()
+        .parse_next(input)?;
+    let mut nd = base_node.parse_next(input)?;
+    if let Some(fmt) = nd.format_mut() {
+        fmt.leading = leading.into();
+    }
+    Ok(nd)
+}
+
 fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
     let ((ty, after_ty, name, entries, children), _span) = (
         opt(ty),
-        optional_node_space.take(),
+        node_space0.take(),
         identifier,
         repeat(
             0..,
-            (peek(required_node_space), node_entry).map(|(_, e): ((), _)| e),
+            (peek(node_space1), node_entry).map(|(_, e): ((), _)| e),
         )
         .map(|e: Vec<Option<KdlEntry>>| e.into_iter().flatten().collect::<Vec<KdlEntry>>()),
-        opt((optional_node_space.take(), node_children)),
+        opt((before_node_children.take(), node_children)),
     )
         .with_span()
         .parse_next(input)?;
+    let (before_terminator, terminator) = if children.is_some() {
+        (
+            opt(slashdashed_children).take(),
+            peek(opt(node_terminator).take()),
+        )
+            .parse_next(input)?
+    } else {
+        (
+            before_node_children.take(),
+            peek(opt(node_terminator).take()),
+        )
+            .parse_next(input)?
+    };
     let (before_inner_ty, ty, after_inner_ty) = ty.unwrap_or_default();
     let (before_children, children) = children
-        .map(|(before_children, children)| (before_children, Some(children)))
-        .unwrap_or(("", None));
+        .map(|(before_children, children)| (before_children.into(), Some(children)))
+        .unwrap_or(("".into(), None));
     Ok(KdlNode {
         ty,
         name,
         entries,
         children,
         format: Some(KdlNodeFormat {
-            after_ty: after_ty.into(),
             before_ty_name: before_inner_ty.into(),
             after_ty_name: after_inner_ty.into(),
-            before_children: before_children.into(),
+            after_ty: after_ty.into(),
+            before_children,
+            before_terminator: before_terminator.into(),
+            terminator: terminator.into(),
             ..Default::default()
         }),
         #[cfg(feature = "span")]
         span: _span.into(),
     })
-}
-
-/// `node := base-node optional-node-space node-terminator`
-fn node(input: &mut Input<'_>) -> PResult<KdlNode> {
-    let (leading, (mut node, _span), (trailing, terminator)) = (
-        repeat(0.., line_space).map(|()| ()).take(),
-        base_node.with_span(),
-        (optional_node_space.take(), node_terminator.take()),
-    )
-        .parse_next(input)?;
-    if let Some(fmt) = node.format_mut() {
-        fmt.leading = leading.into();
-        fmt.trailing = format!("{trailing}{terminator}");
-    }
-    #[cfg(feature = "span")]
-    {
-        node.span = _span.into();
-    }
-    Ok(node)
 }
 
 #[cfg(test)]
@@ -313,20 +333,13 @@ fn test_node() {
             },
             entries: vec![],
             children: None,
-            format: Some(KdlNodeFormat {
-                after_ty: "".into(),
-                before_ty_name: "".into(),
-                after_ty_name: "".into(),
-                before_children: "".into(),
-                leading: "".into(),
-                trailing: "".into()
-            }),
+            format: Some(Default::default()),
             span: (0..7).into()
         }
     );
 
     assert_eq!(
-        base_node.parse(new_input("foo bar")).unwrap(),
+        node.parse(new_input("foo bar")).unwrap(),
         KdlNode {
             ty: None,
             name: KdlIdentifier {
@@ -349,17 +362,15 @@ fn test_node() {
             format: Some(KdlNodeFormat {
                 ..Default::default()
             }),
-            span: (0..7).into()
+            span: (0..8).into()
         }
     );
 }
 
 pub(crate) fn padded_node(input: &mut Input<'_>) -> PResult<KdlNode> {
-    let ((leading, mut node, trailing), _span) = (
-        repeat(0.., alt((line_space, node_space)))
-            .map(|_: ()| ())
-            .take(),
+    let ((mut node, _terminator, trailing), _span) = (
         node,
+        opt(node_terminator),
         repeat(0.., alt((line_space, node_space)))
             .map(|_: ()| ())
             .take(),
@@ -367,21 +378,12 @@ pub(crate) fn padded_node(input: &mut Input<'_>) -> PResult<KdlNode> {
         .with_span()
         .parse_next(input)?;
     if let Some(fmt) = node.format_mut() {
-        fmt.leading = format!("{leading}{}", fmt.leading);
-        fmt.trailing = format!("{}{trailing}", fmt.trailing);
+        fmt.trailing = trailing.into();
     }
     #[cfg(feature = "span")]
     {
         node.span = _span.into();
     }
-    Ok(node)
-}
-
-/// `final-node := base-node optional-node-space node-terminator?`
-fn final_node(input: &mut Input<'_>) -> PResult<KdlNode> {
-    let node = base_node.parse_next(input)?;
-    optional_node_space.parse_next(input)?;
-    opt(node_terminator).parse_next(input)?;
     Ok(node)
 }
 
@@ -414,8 +416,11 @@ pub(crate) fn padded_node_entry(input: &mut Input<'_>) -> PResult<KdlEntry> {
 
 /// `node-prop-or-arg := prop | value`
 fn node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
-    let (leading, mut entry) =
-        (optional_node_space.take(), alt((prop, value))).parse_next(input)?;
+    let (leading, mut entry) = (
+        (node_space0, opt((slashdashed_entries, node_space1))).take(),
+        alt((prop, value)),
+    )
+        .parse_next(input)?;
     entry = entry.map(|mut e| {
         if let Some(fmt) = e.format_mut() {
             fmt.leading = leading.into();
@@ -423,6 +428,15 @@ fn node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
         e
     });
     Ok(entry)
+}
+
+fn slashdashed_entries(input: &mut Input<'_>) -> PResult<()> {
+    separated(1.., (slashdash, node_entry), node_space1)
+        .map(|()| ())
+        .take()
+        .map(|x| x.to_string())
+        .parse_next(input)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -455,37 +469,127 @@ fn entry_test() {
             span: (0..3).into()
         })
     );
+
+    assert_eq!(
+        node_entry.parse(new_input("/-foo bar")).unwrap(),
+        Some(KdlEntry {
+            ty: None,
+            value: KdlValue::String("bar".into()),
+            name: None,
+            format: Some(KdlEntryFormat {
+                value_repr: "bar".into(),
+                leading: "/-foo ".into(),
+                ..Default::default()
+            }),
+            span: (6..9).into()
+        })
+    );
+
+    assert_eq!(
+        node_entry.parse(new_input("/- foo=1 bar = 2")).unwrap(),
+        Some(KdlEntry {
+            ty: None,
+            value: 2.into(),
+            name: Some(KdlIdentifier {
+                value: "bar".into(),
+                repr: Some("bar".into()),
+                span: (9..12).into(),
+            }),
+            format: Some(KdlEntryFormat {
+                value_repr: "2".into(),
+                leading: "/- foo=1 ".into(),
+                after_ty: " ".into(),
+                after_eq: " ".into(),
+                ..Default::default()
+            }),
+            span: (9..16).into()
+        })
+    );
+
+    assert_eq!(
+        node_entry.parse(new_input("/- \nfoo = 1 bar = 2")).unwrap(),
+        Some(KdlEntry {
+            ty: None,
+            value: 2.into(),
+            name: Some(KdlIdentifier {
+                value: "bar".into(),
+                repr: Some("bar".into()),
+                span: (12..16).into(),
+            }),
+            format: Some(KdlEntryFormat {
+                value_repr: "2".into(),
+                leading: "/- \nfoo = 1 ".into(),
+                after_ty: " ".into(),
+                after_eq: " ".into(),
+                ..Default::default()
+            }),
+            span: (12..18).into()
+        })
+    );
+}
+
+fn before_node_children(input: &mut Input<'_>) -> PResult<()> {
+    alt((
+        (
+            node_space1,
+            slashdashed_entries,
+            // This second one will fail if `node_entry_leading` is empty.
+            node_space1,
+            slashdashed_children,
+        )
+            .take(),
+        (node_space1, slashdashed_entries).take(),
+        (node_space1, slashdashed_children).take(),
+        node_space0.take(),
+    ))
+    .void()
+    .parse_next(input)?;
+    node_space0.parse_next(input)?;
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn before_node_children_test() {
+    assert!(before_node_children.parse(new_input(" /- { }")).is_ok());
+    assert!(before_node_children.parse(new_input(" /- { bar }")).is_ok());
+}
+
+fn slashdashed_children(input: &mut Input<'_>) -> PResult<()> {
+    node_space0.parse_next(input)?;
+    separated(
+        1..,
+        (slashdash.void(), node_children.void()).void(),
+        node_space1,
+    )
+    .map(|()| ())
+    .parse_next(input)
+}
+
+#[cfg(test)]
+#[test]
+fn around_children_test() {
+    assert!(slashdashed_children.parse(new_input("/- { }")).is_ok());
+    assert!(slashdashed_children.parse(new_input("/- { bar }")).is_ok());
 }
 
 /// `node-children := '{' nodes final-node? '}'`
 fn node_children(input: &mut Input<'_>) -> PResult<KdlDocument> {
-    let _start = input.location();
-    "{".parse_next(input)?;
-    let mut ns = nodes.parse_next(input)?;
-    let fin = opt(final_node).parse_next(input)?;
-    if let Some(fin) = fin {
-        ns.nodes.push(fin);
-    }
-    cut_err("}").parse_next(input)?;
-    #[cfg(feature = "span")]
-    {
-        ns.span = (_start..input.location()).into();
-    }
-    Ok(ns)
+    delimited("{", nodes, cut_err("}")).parse_next(input)
 }
 
 /// `node-terminator := single-line-comment | newline | ';' | eof`
 fn node_terminator(input: &mut Input<'_>) -> PResult<()> {
-    alt((eof.void(), ";".void(), newline, single_line_comment)).parse_next(input)
+    alt((";".void(), newline, single_line_comment)).parse_next(input)
 }
 
 /// `prop := string optional-node-space equals-sign optional-node-space value`
 fn prop(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
     let ((key, after_key, _eqa, after_eq, value), _span) = (
         identifier,
-        optional_node_space.take(),
+        node_space0.take(),
         equals_sign.take(),
-        optional_node_space.take(),
+        node_space0.take(),
         cut_err(value),
     )
         .with_span()
@@ -507,7 +611,7 @@ fn prop(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
 /// `value := type? optional-node-space (string | number | keyword)`
 fn value(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
     let ((ty, (value, raw)), _span) = (
-        opt((ty, optional_node_space.take())),
+        opt((ty, node_space0.take())),
         alt((keyword.map(Some), number.map(Some), string)).with_taken(),
     )
         .with_span()
@@ -533,69 +637,32 @@ fn value(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
 fn ty<'s>(input: &mut Input<'s>) -> PResult<(&'s str, Option<KdlIdentifier>, &'s str)> {
     "(".parse_next(input)?;
     let (before_ty, ty, after_ty) = (
-        optional_node_space.take(),
+        node_space0.take(),
         cut_err(identifier.context(lbl("type name")))
             .resume_after((badval, peek(")").void(), badval).void()),
-        optional_node_space.take(),
+        node_space0.take(),
     )
         .parse_next(input)?;
     cut_err(")").parse_next(input)?;
     Ok((before_ty, ty, after_ty))
 }
 
-/// `plain-line-space := newline | ws | single-line-comment`
-fn plain_line_space(input: &mut Input<'_>) -> PResult<()> {
+/// `line-space := newline | ws | single-line-comment`
+fn line_space(input: &mut Input<'_>) -> PResult<()> {
     alt((newline, ws, single_line_comment)).parse_next(input)
 }
 
-/// `plain-node-space := ws* escline ws* | ws+`
-fn plain_node_space(input: &mut Input<'_>) -> PResult<()> {
+/// `node-space := ws* escline ws* | ws+`
+fn node_space(input: &mut Input<'_>) -> PResult<()> {
     alt(((wss, escline, wss).void(), wsp)).parse_next(input)
 }
 
-/// `line-space := plain-line-space+ | '/-' plain-node-space* node`
-fn line_space(input: &mut Input<'_>) -> PResult<()> {
-    alt((
-        repeat(1.., plain_line_space).map(|_: ()| ()).void(),
-        (
-            "/-",
-            repeat(0.., plain_node_space).map(|_: ()| ()),
-            cut_err(node),
-        )
-            .void()
-            .context(lbl("slashdashed node")),
-    ))
-    .parse_next(input)
-}
-
-/// `node-space := plain-node-space+ ('/-' plain-node-space* (node-prop-or-arg | node-children))?`
-fn node_space(input: &mut Input<'_>) -> PResult<()> {
-    repeat(1.., plain_node_space)
-        .map(|_: ()| ())
-        .parse_next(input)?;
-    opt((
-        "/-",
-        repeat(0.., plain_node_space).map(|_: ()| ()),
-        cut_err(alt((
-            node_entry.void().context(lbl("slashdashed entry")),
-            node_children.void().context(lbl("slashdashed children")),
-        ))),
-    ))
-    .void()
-    .parse_next(input)
-}
-
-/// `required-node-space := node-space* plain-node-space+`
-fn required_node_space(input: &mut Input<'_>) -> PResult<()> {
-    repeat(0.., (node_space, peek(plain_node_space)))
-        .map(|_: ()| ())
-        .parse_next(input)?;
-    repeat(1.., plain_node_space).parse_next(input)
-}
-
-/// `optional-node-space := node-space*`
-fn optional_node_space(input: &mut Input<'_>) -> PResult<()> {
+fn node_space0(input: &mut Input<'_>) -> PResult<()> {
     repeat(0.., node_space).parse_next(input)
+}
+
+fn node_space1(input: &mut Input<'_>) -> PResult<()> {
+    repeat(1.., node_space).parse_next(input)
 }
 
 /// `string := identifier-string | quoted-string | raw-string`
@@ -1134,7 +1201,7 @@ fn escline(input: &mut Input<'_>) -> PResult<()> {
 #[cfg(test)]
 #[test]
 fn escline_test() {
-    let node = node.parse(new_input("foo bar\\\n   baz\n")).unwrap();
+    let node = node.parse(new_input("foo bar\\\n   baz")).unwrap();
     assert_eq!(node.entries().len(), 2);
 }
 
@@ -1228,6 +1295,32 @@ fn multi_line_comment_test() {
     assert!(multi_line_comment.parse(new_input("/* foo\n*/")).is_ok());
     assert!(multi_line_comment
         .parse(new_input("/* /*bar*/ foo\n*/"))
+        .is_ok());
+}
+
+/// slashdash := '/-' line-space*
+fn slashdash(input: &mut Input<'_>) -> PResult<()> {
+    ("/-", repeat(0.., line_space).map(|()| ()))
+        .void()
+        .parse_next(input)
+}
+
+#[cfg(test)]
+#[test]
+fn slashdash_tests() {
+    assert!(document.parse(new_input("/- foo bar")).is_ok());
+    assert!(node.parse(new_input("/- foo\nbar baz")).is_ok());
+    assert!(node_entry.parse(new_input("/-commented tada")).is_ok());
+    assert!(node.parse(new_input("foo /- { }")).is_ok());
+    assert!(node.parse(new_input("foo /- { bar }")).is_ok());
+    assert!(node
+        .parse(new_input("/- foo bar\nnode /-1 2 { x }"))
+        .is_ok());
+    assert!(node
+        .parse(new_input("/- foo bar\nnode 2 /-3 { x }"))
+        .is_ok());
+    assert!(node
+        .parse(new_input("/- foo bar\nnode /-1 2 /-3 { x }"))
         .is_ok());
 }
 
@@ -1384,7 +1477,7 @@ fn test_hex() {
         hex::<i128>
             .parse(new_input("0xABCDEF0123456789abcdef0123456789"))
             .is_err(),
-         "i128 overflow"
+        "i128 overflow"
     );
     assert!(hex::<i128>.parse(new_input("0x_deadbeef123")).is_err());
 
@@ -1477,11 +1570,7 @@ fn test_binary() {
 fn signum(input: &mut Input<'_>) -> PResult<bool> {
     let sign = opt(alt(('+', '-'))).parse_next(input)?;
     let mult = if let Some(sign) = sign {
-        if sign == '+' {
-            true
-        } else {
-            false
-        }
+        sign == '+'
     } else {
         true
     };
