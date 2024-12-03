@@ -1,5 +1,15 @@
 # `kdl` Release Changelog
 
+<a name="4.7.0"></a>
+## 4.7.0 (2024-12-03)
+
+This is a quick maintenance release to bump the miette version for folks still
+using kdl v1.
+
+### Features
+
+* **deps:** bump miette to 7.4.0 ([b5fa2e1c](https://github.com/kdl-org/kdl-rs/commit/b5fa2e1c70e522b6929559b9382b34368d2f41da))
+
 <a name="4.6.0"></a>
 ## 4.6.0 (2022-10-09)
 
