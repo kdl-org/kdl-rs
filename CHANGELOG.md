@@ -1,5 +1,16 @@
 # `kdl` Release Changelog
 
+<a name="6.0.0-alpha.3"></a>
+## 6.0.0-alpha.3 (2024-12-03)
+
+### Features
+
+* **parser:** update to 2.0.0-draft.5 (#90) ([2802578b](https://github.com/kdl-org/kdl-rs/commit/2802578ba07e669236e5d346433f191f090d22d0))
+
+### Refactor
+
+* **parser:** refactor number parsing to support generic number types ([fb7c92b5](https://github.com/kdl-org/kdl-rs/commit/fb7c92b59f9570f460ae3008ec43975739fb35db))
+
 <a name="6.0.0-alpha.2"></a>
 ## 6.0.0-alpha.2 (2024-11-30)
 
