@@ -120,6 +120,10 @@
 //!   you [`KdlDocument::fmt`] in which case the original representation will be
 //!   thrown away and the actual value will be used when serializing.
 //!
+//! ## Minimum Supported Rust Version (MSRV)
+//! 
+//! This crate requires Rust 1.70.0 or later.
+//! 
 //! ## License
 //!
 //! The code in this repository is covered by [the Apache-2.0
