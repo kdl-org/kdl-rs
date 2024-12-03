@@ -23,9 +23,11 @@ use kdl::KdlDocument;
 let doc_str = r#"
 hello 1 2 3
 
-world prop="value" {
+// Comment
+world prop=value {
     child 1
     child 2
+    child #inf
 }
 "#;
 
@@ -112,15 +114,14 @@ KDL itself does not specify a particular representation for numbers and
 accepts just about anything valid, no matter how large and how small. This
 means a few things:
 
-* Numbers without a decimal point are interpreted as [`u64`].
+* Numbers without a decimal point are interpreted as [`i128`].
 * Numbers with a decimal point are interpreted as [`f64`].
-* Floating point numbers that evaluate to [`f64::INFINITY`] or
-  [`f64::NEG_INFINITY`] or NaN will be represented as such in the values,
-  instead of the original numbers.
-* A similar restriction applies to overflowed [`u64`] values.
-* The original _representation_ of these numbers will be preserved, unless
-  you [`KdlDocument::fmt`] in which case the original representation will be
-  thrown away and the actual value will be used when serializing.
+* The keywords `#inf`, `#-inf`, and `#nan` evaluate to [`f64::INFINITY`],
+  [`f64::NEG_INFINITY`], and [`f64::NAN`].
+* The original _representation/text_ of these numbers will be preserved,
+  unless you [`KdlDocument::autoformat`] in which case the original
+  representation will be thrown away and the actual value will be used when
+  serializing.
 
 ### Minimum Supported Rust Version
 
