@@ -766,13 +766,13 @@ fn equals_sign(input: &mut Input<'_>) -> PResult<()> {
 }
 
 /// ```text
-/// quoted-string := '"' (single-line-string-body | newline multi-line-string-body newline unicode-space*) '"'
+/// quoted-string := '"' single-line-string-body '"' | '"""' newline multi-line-string-body newline unicode-space*) '"""'
 /// single-line-string-body := (string-character - newline)*
 /// multi-line-string-body := string-character*
 /// ```
 fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
-    "\"".parse_next(input)?;
-    let is_multiline = opt(newline).parse_next(input)?.is_some();
+    let quotes = alt((("\"\"\"", newline).take(), "\"")).parse_next(input)?;
+    let is_multiline = quotes.len() > 1;
     let ml_prefix: Option<String> = if is_multiline {
         Some(
             peek(preceded(
@@ -782,10 +782,13 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
                         repeat(0.., (not(newline), opt(ws_escape), string_char)).map(|()| ()),
                         newline,
                     ),
-                    peek(terminated(repeat(0.., unicode_space).map(|()| ()), "\"")),
+                    peek(terminated(
+                        repeat(0.., unicode_space).map(|()| ()),
+                        "\"\"\"",
+                    )),
                 )
                 .map(|((), ())| ()),
-                terminated(repeat(0.., unicode_space).map(|()| ()).take(), "\""),
+                terminated(repeat(0.., unicode_space).map(|()| ()).take(), "\"\"\""),
             ))
             .parse_next(input)?
             .to_string(),
@@ -814,7 +817,7 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
             (
                 &prefix[..],
                 repeat(0.., unicode_space).map(|()| ()).take(),
-                peek("\""),
+                peek("\"\"\""),
             ),
         )
         .map(|(s, _): (Vec<String>, (_, _, _))| {
@@ -836,9 +839,12 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
         .resume_after(quoted_string_badval)
         .parse_next(input)?
     };
-    cut_err("\"")
-        .context(lbl("closing quote"))
-        .parse_next(input)?;
+    let closing_quotes = if is_multiline {
+        "\"\"\"".context(lbl("multiline string closing quotes"))
+    } else {
+        "\"".context(lbl("string closing quote"))
+    };
+    cut_err(closing_quotes).parse_next(input)?;
     Ok(body.map(KdlValue::String))
 }
 
@@ -903,13 +909,15 @@ fn escaped_char(input: &mut Input<'_>) -> PResult<char> {
 }
 
 /// `raw-string := '#' raw-string-quotes '#' | '#' raw-string '#'`
-/// `raw-string-quotes := '"' (single-line-raw-string-body | newline multi-line-raw-string-body newline unicode-space*) '"'`
+/// `raw-string-quotes := '"' single-line-raw-string-body '"' | '"""' newline multi-line-raw-string-body newline unicode-space*) '"""'`
 /// `single-line-raw-string-body := (unicode - newline - disallowed-literal-code-points)*`
 /// `multi-line-raw-string-body := (unicode - disallowed-literal-code-points)`
 fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
     let hashes: String = repeat(1.., "#").parse_next(input)?;
-    "\"".parse_next(input)?;
-    let is_multiline = opt(newline).parse_next(input)?.is_some();
+    let quotes = alt((("\"\"\"", newline).take(), "\"")).parse_next(input)?;
+    let is_multiline = quotes.len() > 1;
+    dbg!(&quotes);
+    dbg!(is_multiline);
     let ml_prefix: Option<String> = if is_multiline {
         Some(
             peek(preceded(
@@ -921,7 +929,7 @@ fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
                             (
                                 not(newline),
                                 not(disallowed_unicode),
-                                not(("\"", &hashes[..])),
+                                not(("\"\"\"", &hashes[..])),
                                 any,
                             ),
                         )
@@ -930,13 +938,13 @@ fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
                     ),
                     peek(terminated(
                         repeat(0.., unicode_space).map(|()| ()),
-                        ("\"", &hashes[..]),
+                        ("\"\"\"", &hashes[..]),
                     )),
                 )
                 .map(|((), ())| ()),
                 terminated(
                     repeat(0.., unicode_space).map(|()| ()).take(),
-                    ("\"", &hashes[..]),
+                    ("\"\"\"", &hashes[..]),
                 ),
             ))
             .parse_next(input)?
@@ -945,6 +953,7 @@ fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
     } else {
         None
     };
+    dbg!(&ml_prefix);
     let body: Option<String> = if let Some(prefix) = ml_prefix {
         repeat_till(
             0..,
@@ -955,7 +964,7 @@ fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
                     newline.take().map(|_| "\n".to_string()),
                     repeat_till(
                         0..,
-                        (not(newline), not(("\"", &hashes[..])), any)
+                        (not(newline), not(("\"\"\"", &hashes[..])), any)
                             .map(|((), (), _)| ())
                             .take(),
                         newline,
@@ -968,7 +977,7 @@ fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
             (
                 &prefix[..],
                 repeat(0.., unicode_space).map(|()| ()).take(),
-                peek(("\"", &hashes[..])),
+                peek(("\"\"\"", &hashes[..])),
             ),
         )
         .map(|(s, _): (Vec<String>, (_, _, _))| {
@@ -996,9 +1005,12 @@ fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
         .resume_after(raw_string_badval)
         .parse_next(input)?
     };
-    cut_err(("\"", &hashes[..]))
-        .context(lbl("closing quote"))
-        .parse_next(input)?;
+    let closing_quotes = if is_multiline {
+        "\"\"\"".context(lbl("multiline raw string closing quotes"))
+    } else {
+        "\"".context(lbl("raw string closing quotes"))
+    };
+    cut_err((closing_quotes, &hashes[..])).parse_next(input)?;
     Ok(body.map(KdlValue::String))
 }
 
@@ -1044,40 +1056,46 @@ mod string_tests {
     #[test]
     fn multiline_quoted_string() {
         assert_eq!(
-            string.parse(new_input("\"\nfoo\nbar\nbaz\n\"")).unwrap(),
+            string
+                .parse(new_input("\"\"\"\nfoo\nbar\nbaz\n\"\"\""))
+                .unwrap(),
             Some(KdlValue::String("foo\nbar\nbaz".into()))
         );
         assert_eq!(
             string
-                .parse(new_input("\"\n  foo\n    bar\n  baz\n  \""))
+                .parse(new_input("\"\"\"\n  foo\n    bar\n  baz\n  \"\"\""))
                 .unwrap(),
             Some(KdlValue::String("foo\n  bar\nbaz".into()))
         );
         assert_eq!(
-            string.parse(new_input("\"\nfoo\r\nbar\nbaz\n\"")).unwrap(),
+            string
+                .parse(new_input("\"\"\"\nfoo\r\nbar\nbaz\n\"\"\""))
+                .unwrap(),
             Some(KdlValue::String("foo\nbar\nbaz".into()))
         );
         assert_eq!(
             string
-                .parse(new_input("\"\n  foo\n    bar\n   baz\n  \""))
+                .parse(new_input("\"\"\"\n  foo\n    bar\n   baz\n  \"\"\""))
                 .unwrap(),
             Some(KdlValue::String("foo\n  bar\n baz".into()))
         );
         assert_eq!(
             string
-                .parse(new_input("\"\n  \\     foo\n    \\  bar\n   \\ baz\n  \""))
+                .parse(new_input(
+                    "\"\"\"\n  \\     foo\n    \\  bar\n   \\ baz\n  \"\"\""
+                ))
                 .unwrap(),
             Some(KdlValue::String("foo\n  bar\n baz".into()))
         );
         assert_eq!(
             string
-                .parse(new_input("\"\n\n    string\t\n    \""))
+                .parse(new_input("\"\"\"\n\n    string\t\n    \"\"\""))
                 .unwrap(),
             Some(KdlValue::String("\nstring\t".into())),
             "Empty line without any indentation"
         );
         assert!(string
-            .parse(new_input("\"\nfoo\n  bar\n  baz\n  \""))
+            .parse(new_input("\"\"\"\nfoo\n  bar\n  baz\n  \"\"\""))
             .is_err());
     }
 
@@ -1092,30 +1110,35 @@ mod string_tests {
     #[test]
     fn multiline_raw_string() {
         assert_eq!(
-            string.parse(new_input("#\"\nfoo\nbar\nbaz\n\"#")).unwrap(),
-            Some(KdlValue::String("foo\nbar\nbaz".into()))
-        );
-        assert_eq!(
             string
-                .parse(new_input("#\"\nfoo\r\nbar\nbaz\n\"#"))
+                .parse(new_input("#\"\"\"\nfoo\nbar\nbaz\n\"\"\"#"))
                 .unwrap(),
             Some(KdlValue::String("foo\nbar\nbaz".into()))
         );
         assert_eq!(
             string
-                .parse(new_input("##\"\n  foo\n    bar\n  baz\n  \"##"))
+                .parse(new_input("#\"\"\"\nfoo\r\nbar\nbaz\n\"\"\"#"))
+                .unwrap(),
+            Some(KdlValue::String("foo\nbar\nbaz".into()))
+        );
+        assert_eq!(
+            string
+                .parse(new_input("##\"\"\"\n  foo\n    bar\n  baz\n  \"\"\"##"))
                 .unwrap(),
             Some(KdlValue::String("foo\n  bar\nbaz".into()))
         );
         assert_eq!(
             string
-                .parse(new_input("#\"\n  foo\n    \\nbar\n   baz\n  \"#"))
+                .parse(new_input("#\"\"\"\n  foo\n    \\nbar\n   baz\n  \"\"\"#"))
                 .unwrap(),
             Some(KdlValue::String("foo\n  \\nbar\n baz".into()))
         );
         assert!(string
-            .parse(new_input("#\"\nfoo\n  bar\n  baz\n  \"#"))
+            .parse(new_input("#\"\"\"\nfoo\n  bar\n  baz\n  \"\"\"#"))
             .is_err());
+
+        assert!(string.parse(new_input("#\"\nfoo\nbar\nbaz\n\"#")).is_err());
+        assert!(string.parse(new_input("\"\nfoo\nbar\nbaz\n\"")).is_err());
     }
 
     #[test]
