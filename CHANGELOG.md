@@ -1,5 +1,72 @@
 # `kdl` Release Changelog
 
+<a name="6.0.0-alpha.4"></a>
+## 6.0.0-alpha.4 (2024-12-04)
+
+### Features
+
+* **draft:** 2.0.0-draft.6 support (#92) ([4d4ef759](https://github.com/kdl-org/kdl-rs/commit/4d4ef7595479b1dd75a59b52f31f8e5417daaf67))
+
+<a name="v6.0.0-alpha.3"></a>
+## 6.0.0-alpha.3 (2024-12-03)
+
+### Features
+
+* **parser:** update to 2.0.0-draft.5 (#90) ([2802578b](https://github.com/kdl-org/kdl-rs/commit/2802578ba07e669236e5d346433f191f090d22d0))
+
+### Refactor
+
+* **parser:** refactor number parsing to support generic number types ([fb7c92b5](https://github.com/kdl-org/kdl-rs/commit/fb7c92b59f9570f460ae3008ec43975739fb35db))
+
+<a name="v6.0.0-alpha.2"></a>
+## 6.0.0-alpha.2 (2024-11-30)
+
+### Bug Fixes
+
+* **deps:** remove nom ([d013ece7](https://github.com/kdl-org/kdl-rs/commit/d013ece76a7053828d325a592e6a7ee8ff2218b1))
+* **fmt:** fix formatting error in CI (#88) ([11e11926](https://github.com/kdl-org/kdl-rs/commit/11e119263d78260f090d6f5c0223e465be6692d2))
+
+### Documentation
+
+* **license:** fix format of license file (#87) ([cc2995d7](https://github.com/kdl-org/kdl-rs/commit/cc2995d72be85f2b96be9e958fda7f969ebbe7ee))
+
+### Features
+
+* **value,entry:** i128 for integers, autoformat safe KdlEntryFormat (#91) ([05959558](https://github.com/kdl-org/kdl-rs/commit/059595585079ed4b9f9f47042b7b2238ecb29151))
+
+### Refactor
+
+* **parser:** refactor try_parse to be lift more weight ([a6419952](https://github.com/kdl-org/kdl-rs/commit/a641995293ffa93c7958f4f5462bb2aa5c8a2c45))
+
+<a name="v6.0.0-alpha.1"></a>
+## 6.0.0-alpha.1 (2024-10-06)
+
+### Bug Fixes
+
+* **api:** Fix `insert` and `remove` behavior for `KdlNode` ([be0dc170](https://github.com/kdl-org/kdl-rs/commit/be0dc1708d93b496815f8850e211f697fcb7244c))
+
+### Features
+
+* **parser:** v2 parser (#70) ([c9898cdb](https://github.com/kdl-org/kdl-rs/commit/c9898cdbd28f61eef482fb2703fe85552dc58e4c))
+
+<a name="v5.0.0-alpha.1"></a>
+## 5.0.0-alpha.1 (2023-04-01)
+
+### Features
+
+* **deps:** bump miette and thiserror ([db0a395f](https://github.com/kdl-org/kdl-rs/commit/db0a395fb4ecb4b35d67d281903a4ed89b9e9161))
+
+<a name="v5.0.0-alpha.0"></a>
+## 5.0.0-alpha.0 (2022-12-05)
+
+### Features
+
+* **api:** Improve .get()/.entry() APIs to be more consistent with Rust conventions ([3d8778a6](https://github.com/kdl-org/kdl-rs/commit/3d8778a610e65720ed5cf25bc612aada93349119))
+    * **BREAKING CHANGE**: KdlNode::get* are now KdlNode::entry*. Additionally, KdlDocument::get_dash_vals has been renamed to KdlDocument::get_dash_args.
+* **spans:** rework the span API to be strictly by-val (#60) ([04471a53](https://github.com/kdl-org/kdl-rs/commit/04471a537ecf97867e7dc8ee987cce0caba61982))
+    * **BREAKING CHANGE**: this removes all the `.span_mut()` methods and changes the signature for `.span()`.
+* **kql:** implement KQL query engine (#61) ([6d1a516e](https://github.com/kdl-org/kdl-rs/commit/6d1a516eb92415f99f7a5170ac61ce3252d6a4b5))
+
 <a name="6.0.0-alpha.3"></a>
 ## 6.0.0-alpha.3 (2024-12-03)
 
