@@ -1023,6 +1023,10 @@ mod string_tests {
             string.parse(new_input("foo")).unwrap(),
             Some(KdlValue::String("foo".into()))
         );
+        assert_eq!(
+            string.parse(new_input(",")).unwrap(),
+            Some(KdlValue::String(",".into()))
+        );
     }
 
     #[test]

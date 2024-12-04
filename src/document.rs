@@ -835,6 +835,9 @@ inline { time; to; live "our" "dreams"; "y;all" }
         include_str!("../examples/Cargo.kdl").parse::<KdlDocument>()?;
         include_str!("../examples/ci.kdl").parse::<KdlDocument>()?;
         include_str!("../examples/nuget.kdl").parse::<KdlDocument>()?;
+        include_str!("../examples/website.kdl").parse::<KdlDocument>()?;
+        include_str!("../examples/zellij.kdl").parse::<KdlDocument>()?;
+        include_str!("../examples/zellij-unquoted-bindings.kdl").parse::<KdlDocument>()?;
         Ok(())
     }
 }
