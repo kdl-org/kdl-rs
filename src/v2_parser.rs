@@ -10,14 +10,14 @@ use winnow::{
     ascii::{digit1, hex_digit1, oct_digit1, Caseless},
     combinator::{
         alt, cut_err, delimited, eof, fail, not, opt, peek, preceded, repeat, repeat_till,
-        separated, terminated,
+        separated, terminated, trace,
     },
     error::{
-        AddContext, ContextError, ErrorKind, FromExternalError, FromRecoverableError, ParserError,
-        StrContext, StrContextValue,
+        AddContext, ContextError, ErrMode, ErrorKind, FromExternalError, FromRecoverableError,
+        ParserError, StrContext, StrContextValue,
     },
     prelude::*,
-    stream::{AsChar, Location, Recoverable, Stream},
+    stream::{AsChar, Location, Recover, Recoverable, Stream},
     token::{any, none_of, one_of, take_while},
     Located,
 };
@@ -156,9 +156,17 @@ impl<I: Stream + Location> FromRecoverableError<I, Self> for KdlParseError {
         input: &I,
         mut e: Self,
     ) -> Self {
-        e.span = e.span.or_else(|| {
-            Some((input.offset_from(token_start).saturating_sub(1)..input.location()).into())
-        });
+        let offset = input.offset_from(token_start);
+        e.span = e
+            .span
+            .or_else(|| Some(((input.location() - offset)..input.location()).into()));
+        dbg!((
+            &e,
+            token_start,
+            _err_start,
+            input,
+            input.offset_from(token_start)
+        ));
         e
     }
 }
@@ -171,8 +179,9 @@ impl<I: Stream + Location> FromRecoverableError<I, ContextError> for KdlParseErr
         input: &I,
         e: ContextError,
     ) -> Self {
+        let offset = input.offset_from(token_start);
         KdlParseError {
-            span: Some((input.offset_from(token_start).saturating_sub(1)..input.location()).into()),
+            span: Some(((input.location() - offset)..input.location()).into()),
             label: None,
             help: None,
             context: e.context().next().and_then(|e| match e {
@@ -186,19 +195,73 @@ impl<I: Stream + Location> FromRecoverableError<I, ContextError> for KdlParseErr
     }
 }
 
+// This is just like the standard .resume_after(), except we only resume on Cut errors.
+fn resume_after_cut<Input, Output, Error, ParseNext, ParseRecover>(
+    mut parser: ParseNext,
+    mut recover: ParseRecover,
+) -> impl Parser<Input, Option<Output>, Error>
+where
+    Input: Stream + Recover<Error>,
+    Error: FromRecoverableError<Input, Error>,
+    ParseNext: Parser<Input, Output, Error>,
+    ParseRecover: Parser<Input, (), Error>,
+{
+    trace("resume_after_cut", move |input: &mut Input| {
+        resume_after_cut_inner(&mut parser, &mut recover, input)
+    })
+}
+
+fn resume_after_cut_inner<P, R, I, O, E>(
+    parser: &mut P,
+    recover: &mut R,
+    i: &mut I,
+) -> winnow::PResult<Option<O>, E>
+where
+    P: Parser<I, O, E>,
+    R: Parser<I, (), E>,
+    I: Stream,
+    I: Recover<E>,
+    E: FromRecoverableError<I, E>,
+{
+    let token_start = i.checkpoint();
+    let mut err = match parser.parse_next(i) {
+        Ok(o) => {
+            return Ok(Some(o));
+        }
+        Err(ErrMode::Incomplete(e)) => return Err(ErrMode::Incomplete(e)),
+        Err(ErrMode::Backtrack(e)) => return Err(ErrMode::Backtrack(e)),
+        Err(err) => err,
+    };
+    let err_start = i.checkpoint();
+    if recover.parse_next(i).is_ok() {
+        if let Err(err_) = i.record_err(&token_start, &err_start, err) {
+            err = err_;
+        } else {
+            return Ok(None);
+        }
+    }
+
+    i.reset(&err_start);
+    err = err.map(|err| E::from_recoverable_error(&token_start, &err_start, i, err));
+    Err(err)
+}
+
 /// Consumes the rest of a value we've cut_err on, so we can contine the parse.
 // TODO: maybe use this for detecting invalid codepoints with useful errors?
 fn badval(input: &mut Input<'_>) -> PResult<()> {
-    repeat_till(
-        0..,
-        (
-            not(alt((ws, node_terminator.void(), "{".void(), "}".void()))),
-            any,
+    trace(
+        "badval",
+        repeat_till(
+            1..,
+            (
+                not(alt((ws, node_terminator.void(), "{".void(), "}".void()))),
+                any,
+            ),
+            alt((
+                eof.void(),
+                peek(alt((ws, node_terminator.void(), "{".void(), "}".void()))),
+            )),
         ),
-        alt((
-            eof.void(),
-            peek(alt((ws, node_terminator.void(), "{".void(), "}".void()))),
-        )),
     )
     .map(|(_, _): ((), _)| ())
     .parse_next(input)
@@ -616,6 +679,7 @@ fn value(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
     )
         .with_span()
         .parse_next(input)?;
+    value_terminator_check.parse_next(input)?;
     let ((before_ty_name, ty, after_ty_name), after_ty) = ty.unwrap_or_default();
     Ok(value.map(|value| KdlEntry {
         ty,
@@ -638,8 +702,10 @@ fn ty<'s>(input: &mut Input<'s>) -> PResult<(&'s str, Option<KdlIdentifier>, &'s
     "(".parse_next(input)?;
     let (before_ty, ty, after_ty) = (
         node_space0.take(),
-        cut_err(identifier.context(lbl("type name")))
-            .resume_after((badval, peek(")").void(), badval).void()),
+        resume_after_cut(
+            cut_err(identifier.context(lbl("type name"))),
+            (badval, peek(")").void()).void(),
+        ),
         node_space0.take(),
     )
         .parse_next(input)?;
@@ -667,28 +733,80 @@ fn node_space1(input: &mut Input<'_>) -> PResult<()> {
 
 /// `string := identifier-string | quoted-string | raw-string`
 pub(crate) fn string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
-    alt((identifier_string, raw_string, quoted_string))
-        .context("string")
-        .parse_next(input)
+    trace(
+        "string",
+        alt((identifier_string, raw_string, quoted_string)),
+    )
+    .context("string")
+    .parse_next(input)
 }
 
 pub(crate) fn identifier(input: &mut Input<'_>) -> PResult<KdlIdentifier> {
-    let ((mut ident, raw), _span) = string
-        .verify_map(|i| {
-            i.and_then(|v| match v {
-                KdlValue::String(s) => Some(KdlIdentifier::from(s)),
-                _ => None,
-            })
-        })
-        .with_taken()
-        .with_span()
-        .parse_next(input)?;
+    let ((mut ident, raw), _span) = resume_after_cut(
+        (string, identifier_terminator_check).context(lbl("identifier")),
+        trace(
+            "identifier recovery",
+            repeat(0.., (not(identifier_terminator), any)).map(|()| ()),
+        ),
+    )
+    .verify_map(|ident| match ident {
+        Some((i, _)) => i.and_then(|v| match v {
+            KdlValue::String(s) => Some(KdlIdentifier::from(s)),
+            _ => None,
+        }),
+        None => Some(KdlIdentifier::from("<<RECOVERED_PARSE_ERROR>>")),
+    })
+    .context(lbl("identifier"))
+    .with_taken()
+    .with_span()
+    .parse_next(input)?;
     ident.set_repr(raw);
     #[cfg(feature = "span")]
     {
         ident.set_span(_span);
     }
     Ok(ident)
+}
+
+fn node_terminator_check(input: &mut Input<'_>) -> PResult<()> {
+    trace(
+        "node terminator check",
+        cut_err(peek(alt((node_terminator, eof.void())))),
+    )
+    .void()
+    .parse_next(input)
+}
+
+fn identifier_terminator(input: &mut Input<'_>) -> PResult<()> {
+    alt((
+        node_terminator,
+        node_space,
+        "=".void(),
+        ")".void(),
+        "{".void(),
+        "}".void(),
+        eof.void(),
+    ))
+    .parse_next(input)
+}
+
+fn identifier_terminator_check(input: &mut Input<'_>) -> PResult<()> {
+    trace(
+        "node terminator check",
+        cut_err(peek(identifier_terminator)),
+    )
+    .void()
+    .parse_next(input)
+}
+
+fn value_terminator(input: &mut Input<'_>) -> PResult<()> {
+    alt((node_terminator, node_space, eof.void())).parse_next(input)
+}
+
+fn value_terminator_check(input: &mut Input<'_>) -> PResult<()> {
+    trace("value terminator check", peek(value_terminator))
+        .void()
+        .parse_next(input)
 }
 
 /// `identifier-string := unambiguous-ident | signed-ident | dotted-ident`
@@ -701,18 +819,31 @@ fn identifier_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
 
 /// `unambiguous-ident := ((identifier-char - digit - sign - '.') identifier-char*) - 'true' - 'false' - 'null' - 'inf' - '-inf' - 'nan'`
 fn unambiguous_ident(input: &mut Input<'_>) -> PResult<()> {
-    not(alt((digit1.void(), alt(("-", "+")).void(), ".".void()))).parse_next(input)?;
-    repeat(1.., identifier_char)
-        .verify_map(|s: String| {
-            if s == "true" || s == "false" || s == "null" || s == "inf" || s == "-inf" || s == "nan"
-            {
-                None
-            } else {
-                Some(s)
-            }
-        })
-        .void()
-        .parse_next(input)
+    trace(
+        "ambiguous prefix check",
+        not(alt((digit1.void(), alt(("-", "+")).void(), ".".void()))),
+    )
+    .parse_next(input)?;
+    trace("first char peek", peek(identifier_char)).parse_next(input)?;
+    trace(
+        "identifier chars",
+        repeat(1.., identifier_char)
+            .verify_map(|s: String| {
+                if s == "true"
+                    || s == "false"
+                    || s == "null"
+                    || s == "inf"
+                    || s == "-inf"
+                    || s == "nan"
+                {
+                    None
+                } else {
+                    Some(s)
+                }
+            })
+            .void(),
+    )
+    .parse_next(input)
 }
 
 /// `signed-ident := sign ((identifier-char - digit - '.') identifier-char*)?`
@@ -916,8 +1047,6 @@ fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
     let hashes: String = repeat(1.., "#").parse_next(input)?;
     let quotes = alt((("\"\"\"", newline).take(), "\"")).parse_next(input)?;
     let is_multiline = quotes.len() > 1;
-    dbg!(&quotes);
-    dbg!(is_multiline);
     let ml_prefix: Option<String> = if is_multiline {
         Some(
             peek(preceded(
@@ -953,7 +1082,6 @@ fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
     } else {
         None
     };
-    dbg!(&ml_prefix);
     let body: Option<String> = if let Some(prefix) = ml_prefix {
         repeat_till(
             0..,
@@ -1444,10 +1572,10 @@ fn decimal_test() {
 fn udecimal<T: FromStrRadix>(input: &mut Input<'_>) -> PResult<T> {
     (
         digit1,
-        cut_err(repeat(
+        repeat(
             0..,
             alt(("_", take_while(1.., AsChar::is_dec_digit).take())),
-        )),
+        ),
     )
         .try_map(|(l, r): (&str, Vec<&str>)| {
             T::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 10)
@@ -1671,3 +1799,35 @@ impl ParseFloat for f64 {
 
 impl_negatable_signed!(i8, i16, i32, i64, i128, isize);
 impl_negatable_unsigned!(u8, u16, u32, u64, u128, usize);
+
+#[cfg(test)]
+mod failure_tests {
+    use crate::{KdlDiagnostic, KdlDocument, KdlErrorKind, KdlParseFailure};
+    use std::sync::Arc;
+
+    #[test]
+    fn basic_badval() -> miette::Result<()> {
+        let input = Arc::new("no/de 1 2 3".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        assert!(res.is_err());
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (0..5).into(),
+                    kind: KdlErrorKind::Context("identifier"),
+                    severity: miette::Severity::Error,
+                    label: None,
+                    help: None,
+                }]
+            ))
+        );
+        Ok(())
+    }
+
+    fn mkfail(input: Arc<String>, diagnostics: Vec<KdlDiagnostic>) -> KdlParseFailure {
+        KdlParseFailure { input, diagnostics }
+    }
+}
