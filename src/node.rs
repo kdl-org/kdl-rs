@@ -8,10 +8,9 @@ use std::{
 use miette::SourceSpan;
 
 use crate::{
-    v2_parser, KdlDocument, KdlDocumentFormat, KdlEntry, KdlIdentifier, KdlParseFailure, KdlValue,
+    v2_parser, FormatConfig, KdlDocument, KdlDocumentFormat, KdlEntry, KdlIdentifier,
+    KdlParseFailure, KdlValue,
 };
-
-static INDENT: usize = 4;
 
 /// Represents an individual KDL
 /// [`Node`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#node) inside a
@@ -388,12 +387,68 @@ impl KdlNode {
     }
     /// Auto-formats this node and its contents.
     pub fn autoformat(&mut self) {
-        self.autoformat_impl(0, false);
+        self.autoformat_config(&FormatConfig::default());
     }
 
     /// Auto-formats this node and its contents, stripping comments.
     pub fn autoformat_no_comments(&mut self) {
-        self.autoformat_impl(0, true);
+        self.autoformat_config(&FormatConfig {
+            no_comments: true,
+            ..Default::default()
+        });
+    }
+
+    /// Auto-formats this node and its contents according to `config`.
+    pub fn autoformat_config(&mut self, config: &FormatConfig<'_>) {
+        if let Some(KdlNodeFormat {
+            leading,
+            before_terminator,
+            terminator,
+            trailing,
+            before_children,
+            ..
+        }) = self.format_mut()
+        {
+            crate::fmt::autoformat_leading(leading, config);
+            crate::fmt::autoformat_trailing(before_terminator, config.no_comments);
+            crate::fmt::autoformat_trailing(trailing, config.no_comments);
+            *trailing = trailing.trim().into();
+            if !terminator.starts_with('\n') {
+                *terminator = "\n".into();
+            }
+            if let Some(c) = trailing.chars().next() {
+                if !c.is_whitespace() {
+                    trailing.insert(0, ' ');
+                }
+            }
+
+            *before_children = " ".into();
+        } else {
+            self.set_format(KdlNodeFormat {
+                terminator: "\n".into(),
+                ..Default::default()
+            })
+        }
+        self.name.clear_format();
+        if let Some(ty) = self.ty.as_mut() {
+            ty.clear_format()
+        }
+        for entry in &mut self.entries {
+            entry.autoformat();
+        }
+        if let Some(children) = self.children.as_mut() {
+            children.autoformat_config(&FormatConfig {
+                indent_level: config.indent_level + 1,
+                ..*config
+            });
+            if let Some(KdlDocumentFormat { leading, trailing }) = children.format_mut() {
+                *leading = leading.trim().into();
+                leading.push('\n');
+                for _ in 0..config.indent_level {
+                    trailing.push_str(config.indent);
+                }
+            }
+        }
     }
 
     // TODO(@zkat): These should all be moved into the query module, instead
@@ -512,53 +567,6 @@ impl Display for KdlNode {
 }
 
 impl KdlNode {
-    pub(crate) fn autoformat_impl(&mut self, indent: usize, no_comments: bool) {
-        if let Some(KdlNodeFormat {
-            leading,
-            before_terminator,
-            terminator,
-            trailing,
-            before_children,
-            ..
-        }) = self.format_mut()
-        {
-            crate::fmt::autoformat_leading(leading, indent, no_comments);
-            crate::fmt::autoformat_trailing(before_terminator, no_comments);
-            crate::fmt::autoformat_trailing(trailing, no_comments);
-            *trailing = trailing.trim().into();
-            if !terminator.starts_with('\n') {
-                *terminator = "\n".into();
-            }
-            if let Some(c) = trailing.chars().next() {
-                if !c.is_whitespace() {
-                    trailing.insert(0, ' ');
-                }
-            }
-
-            *before_children = " ".into();
-        } else {
-            self.set_format(KdlNodeFormat {
-                terminator: "\n".into(),
-                ..Default::default()
-            })
-        }
-        self.name.clear_format();
-        if let Some(ty) = self.ty.as_mut() {
-            ty.clear_format()
-        }
-        for entry in &mut self.entries {
-            entry.autoformat();
-        }
-        if let Some(children) = self.children.as_mut() {
-            children.autoformat_impl(indent + INDENT, no_comments);
-            if let Some(KdlDocumentFormat { leading, trailing }) = children.format_mut() {
-                *leading = leading.trim().into();
-                leading.push('\n');
-                trailing.push_str(format!("{:indent$}", "", indent = indent).as_str());
-            }
-        }
-    }
-
     pub(crate) fn stringify(
         &self,
         f: &mut std::fmt::Formatter<'_>,

@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::fmt::Display;
 
-use crate::{KdlNode, KdlParseFailure, KdlValue};
+use crate::{FormatConfig, KdlNode, KdlParseFailure, KdlValue};
 
 /// Represents a KDL
 /// [`Document`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#document).
@@ -232,12 +232,33 @@ impl KdlDocument {
     /// Auto-formats this Document, making everything nice while preserving
     /// comments.
     pub fn autoformat(&mut self) {
-        self.autoformat_impl(0, false);
+        self.autoformat_config(&FormatConfig::default());
     }
 
     /// Formats the document and removes all comments from the document.
     pub fn autoformat_no_comments(&mut self) {
-        self.autoformat_impl(0, true);
+        self.autoformat_config(&FormatConfig {
+            no_comments: true,
+            ..Default::default()
+        });
+    }
+
+    /// Formats the document according to `config`.
+    pub fn autoformat_config(&mut self, config: &FormatConfig<'_>) {
+        if let Some(KdlDocumentFormat { leading, .. }) = (&mut *self).format_mut() {
+            crate::fmt::autoformat_leading(leading, config);
+        }
+        let mut has_nodes = false;
+        for node in &mut (&mut *self).nodes {
+            has_nodes = true;
+            node.autoformat_config(config);
+        }
+        if let Some(KdlDocumentFormat { trailing, .. }) = (&mut *self).format_mut() {
+            crate::fmt::autoformat_trailing(trailing, config.no_comments);
+            if !has_nodes {
+                trailing.push('\n');
+            }
+        };
     }
 
     // TODO(@zkat): These should all be moved into the query module itself,
@@ -326,23 +347,6 @@ impl Display for KdlDocument {
 }
 
 impl KdlDocument {
-    pub(crate) fn autoformat_impl(&mut self, indent: usize, no_comments: bool) {
-        if let Some(KdlDocumentFormat { leading, .. }) = self.format_mut() {
-            crate::fmt::autoformat_leading(leading, indent, no_comments);
-        }
-        let mut has_nodes = false;
-        for node in &mut self.nodes {
-            has_nodes = true;
-            node.autoformat_impl(indent, no_comments);
-        }
-        if let Some(KdlDocumentFormat { trailing, .. }) = self.format_mut() {
-            crate::fmt::autoformat_trailing(trailing, no_comments);
-            if !has_nodes {
-                trailing.push('\n');
-            }
-        }
-    }
-
     pub(crate) fn stringify(
         &self,
         f: &mut std::fmt::Formatter<'_>,
@@ -634,6 +638,62 @@ foo 1 bar=0xdeadbeef {
     fn simple_autoformat() -> miette::Result<()> {
         let mut doc: KdlDocument = "a { b { c { }; }; }".parse().unwrap();
         KdlDocument::autoformat(&mut doc);
+        assert_eq!(
+            doc.to_string(),
+            r#"a {
+    b {
+        c {
+
+        }
+    }
+}
+"#
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn simple_autoformat_two_spaces() -> miette::Result<()> {
+        let mut doc: KdlDocument = "a { b { c { }; }; }".parse().unwrap();
+        KdlDocument::autoformat_config(
+            &mut doc,
+            &FormatConfig {
+                indent: "  ",
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            doc.to_string(),
+            r#"a {
+  b {
+    c {
+
+    }
+  }
+}
+"#
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn simple_autoformat_single_tabs() -> miette::Result<()> {
+        let mut doc: KdlDocument = "a { b { c { }; }; }".parse().unwrap();
+        KdlDocument::autoformat_config(
+            &mut doc,
+            &FormatConfig {
+                indent: "\t",
+                ..Default::default()
+            },
+        );
+        assert_eq!(doc.to_string(), "a {\n\tb {\n\t\tc {\n\n\t\t}\n\t}\n}\n");
+        Ok(())
+    }
+
+    #[test]
+    fn simple_autoformat_no_comments() -> miette::Result<()> {
+        let mut doc: KdlDocument = "// a comment\na {\n// another comment\n b { c { // another comment\n }; }; }".parse().unwrap();
+        KdlDocument::autoformat_no_comments(&mut doc);
         assert_eq!(
             doc.to_string(),
             r#"a {
