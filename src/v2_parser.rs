@@ -768,14 +768,14 @@ pub(crate) fn identifier(input: &mut Input<'_>) -> PResult<KdlIdentifier> {
     Ok(ident)
 }
 
-fn node_terminator_check(input: &mut Input<'_>) -> PResult<()> {
-    trace(
-        "node terminator check",
-        cut_err(peek(alt((node_terminator, eof.void())))),
-    )
-    .void()
-    .parse_next(input)
-}
+// fn node_terminator_check(input: &mut Input<'_>) -> PResult<()> {
+//     trace(
+//         "node terminator check",
+//         cut_err(peek(alt((node_terminator, eof.void())))),
+//     )
+//     .void()
+//     .parse_next(input)
+// }
 
 fn identifier_terminator(input: &mut Input<'_>) -> PResult<()> {
     alt((
