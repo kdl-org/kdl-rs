@@ -1,19 +1,131 @@
 use std::fmt::Write as _;
 
-pub(crate) fn autoformat_leading(leading: &mut String, indent: usize, no_comments: bool) {
+/// Formatting configuration for use with [`KdlDocument::autoformat_config`](`crate::KdlDocument::autoformat_config`)
+/// and [`KdlNode::autoformat_config`](`crate::KdlNode::autoformat_config`).
+#[non_exhaustive]
+#[derive(Debug)]
+pub struct FormatConfig<'a> {
+    /// How deeply to indent the overall node or document,
+    /// in repetitions of [`indent`](`FormatConfig::indent`).
+    /// Defaults to `0`.
+    pub indent_level: usize,
+
+    /// The indentation to use at each level. Defaults to four spaces.
+    pub indent: &'a str,
+
+    /// Whether to remove comments. Defaults to `false`.
+    pub no_comments: bool,
+}
+
+/// See field documentation for defaults.
+impl Default for FormatConfig<'_> {
+    fn default() -> Self {
+        Self::builder().build()
+    }
+}
+
+impl FormatConfig<'_> {
+    /// Creates a new [`FormatConfigBuilder`] with default configuration.
+    pub const fn builder() -> FormatConfigBuilder<'static> {
+        FormatConfigBuilder::new()
+    }
+}
+
+/// A [`FormatConfig`] builder.
+///
+/// Note that setters can be repeated.
+#[derive(Debug, Default)]
+pub struct FormatConfigBuilder<'a>(FormatConfig<'a>);
+
+impl<'a> FormatConfigBuilder<'a> {
+    /// Creates a new [`FormatConfig`] builder with default configuration.
+    pub const fn new() -> Self {
+        FormatConfigBuilder(FormatConfig {
+            indent_level: 0,
+            indent: "    ",
+            no_comments: false,
+        })
+    }
+
+    /// How deeply to indent the overall node or document,
+    /// in repetitions of [`indent`](`FormatConfig::indent`).
+    /// Defaults to `0` iff not specified.
+    pub const fn maybe_indent_level(mut self, indent_level: Option<usize>) -> Self {
+        if let Some(indent_level) = indent_level {
+            self.0.indent_level = indent_level;
+        }
+        self
+    }
+
+    /// How deeply to indent the overall node or document,
+    /// in repetitions of [`indent`](`FormatConfig::indent`).
+    /// Defaults to `0` iff not specified.
+    pub const fn indent_level(mut self, indent_level: usize) -> Self {
+        self.0.indent_level = indent_level;
+        self
+    }
+
+    /// The indentation to use at each level.
+    /// Defaults to four spaces iff not specified.
+    pub const fn maybe_indent<'b, 'c>(self, indent: Option<&'b str>) -> FormatConfigBuilder<'c>
+    where
+        'a: 'b,
+        'b: 'c,
+    {
+        if let Some(indent) = indent {
+            self.indent(indent)
+        } else {
+            self
+        }
+    }
+
+    /// The indentation to use at each level.
+    /// Defaults to four spaces if not specified.
+    pub const fn indent<'b>(self, indent: &'b str) -> FormatConfigBuilder<'b> {
+        FormatConfigBuilder(FormatConfig { indent, ..self.0 })
+    }
+
+    /// Whether to remove comments.
+    /// Defaults to `false` iff not specified.
+    pub const fn maybe_no_comments(mut self, no_comments: Option<bool>) -> Self {
+        if let Some(no_comments) = no_comments {
+            self.0.no_comments = no_comments;
+        }
+        self
+    }
+
+    /// Whether to remove comments.
+    /// Defaults to `false` iff not specified.
+    pub const fn no_comments(mut self, no_comments: bool) -> Self {
+        self.0.no_comments = no_comments;
+        self
+    }
+
+    /// Builds the [`FormatConfig`].
+    pub const fn build(self) -> FormatConfig<'a> {
+        self.0
+    }
+}
+
+pub(crate) fn autoformat_leading(leading: &mut String, config: &FormatConfig<'_>) {
     let mut result = String::new();
-    if !no_comments {
+    if !config.no_comments {
         let input = leading.trim();
         if !input.is_empty() {
             for line in input.lines() {
                 let trimmed = line.trim();
                 if !trimmed.is_empty() {
-                    writeln!(result, "{:indent$}{}", "", trimmed, indent = indent).unwrap();
+                    for _ in 0..config.indent_level {
+                        result.push_str(config.indent);
+                    }
+                    writeln!(result, "{}", trimmed).unwrap();
                 }
             }
         }
     }
-    write!(result, "{:indent$}", "", indent = indent).unwrap();
+    for _ in 0..config.indent_level {
+        result.push_str(config.indent);
+    }
     *leading = result;
 }
 
@@ -32,4 +144,27 @@ pub(crate) fn autoformat_trailing(decor: &mut String, no_comments: bool) {
         }
     }
     *decor = result;
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn builder() -> miette::Result<()> {
+        let built = FormatConfig::builder()
+            .indent_level(12)
+            .indent(" \t")
+            .no_comments(true)
+            .build();
+        assert!(matches!(
+            built,
+            FormatConfig {
+                indent_level: 12,
+                indent: " \t",
+                no_comments: true,
+            }
+        ));
+        Ok(())
+    }
 }

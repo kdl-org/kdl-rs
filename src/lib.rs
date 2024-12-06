@@ -175,6 +175,7 @@
 pub use document::*;
 pub use entry::*;
 pub use error::*;
+pub use fmt::*;
 pub use identifier::*;
 pub use node::*;
 // pub use query::*;
