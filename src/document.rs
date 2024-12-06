@@ -692,7 +692,10 @@ foo 1 bar=0xdeadbeef {
 
     #[test]
     fn simple_autoformat_no_comments() -> miette::Result<()> {
-        let mut doc: KdlDocument = "// a comment\na {\n// another comment\n b { c { // another comment\n }; }; }".parse().unwrap();
+        let mut doc: KdlDocument =
+            "// a comment\na {\n// another comment\n b { c { // another comment\n }; }; }"
+                .parse()
+                .unwrap();
         KdlDocument::autoformat_no_comments(&mut doc);
         assert_eq!(
             doc.to_string(),
