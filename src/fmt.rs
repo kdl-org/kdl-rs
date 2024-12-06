@@ -3,28 +3,27 @@ use std::fmt::Write as _;
 /// Formatting configuration for use with [`KdlDocument::autoformat_config`](`crate::KdlDocument::autoformat_config`)
 /// and [`KdlNode::autoformat_config`](`crate::KdlNode::autoformat_config`).
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, bon::Builder)]
 pub struct FormatConfig<'a> {
     /// How deeply to indent the overall node or document,
     /// in repetitions of [`indent`](`FormatConfig::indent`).
     /// Defaults to `0`.
+    #[builder(default = 0)]
     pub indent_level: usize,
 
     /// The indentation to use at each level. Defaults to four spaces.
+    #[builder(default = "    ")]
     pub indent: &'a str,
 
     /// Whether to remove comments. Defaults to `false`.
+    #[builder(default = false)]
     pub no_comments: bool,
 }
 
 /// See field documentation for defaults.
 impl Default for FormatConfig<'_> {
     fn default() -> Self {
-        Self {
-            indent_level: 0,
-            indent: "    ",
-            no_comments: false,
-        }
+        Self::builder().build()
     }
 }
 
@@ -65,4 +64,27 @@ pub(crate) fn autoformat_trailing(decor: &mut String, no_comments: bool) {
         }
     }
     *decor = result;
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn builder() -> miette::Result<()> {
+        let built = FormatConfig::builder()
+            .indent_level(12)
+            .indent(" \t")
+            .no_comments(true)
+            .build();
+        assert!(matches!(
+            built,
+            FormatConfig {
+                indent_level: 12,
+                indent: " \t",
+                no_comments: true,
+            }
+        ));
+        Ok(())
+    }
 }
