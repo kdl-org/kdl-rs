@@ -3,20 +3,17 @@ use std::fmt::Write as _;
 /// Formatting configuration for use with [`KdlDocument::autoformat_config`](`crate::KdlDocument::autoformat_config`)
 /// and [`KdlNode::autoformat_config`](`crate::KdlNode::autoformat_config`).
 #[non_exhaustive]
-#[derive(Debug, bon::Builder)]
+#[derive(Debug)]
 pub struct FormatConfig<'a> {
     /// How deeply to indent the overall node or document,
     /// in repetitions of [`indent`](`FormatConfig::indent`).
     /// Defaults to `0`.
-    #[builder(default = 0)]
     pub indent_level: usize,
 
     /// The indentation to use at each level. Defaults to four spaces.
-    #[builder(default = "    ")]
     pub indent: &'a str,
 
     /// Whether to remove comments. Defaults to `false`.
-    #[builder(default = false)]
     pub no_comments: bool,
 }
 
@@ -24,6 +21,89 @@ pub struct FormatConfig<'a> {
 impl Default for FormatConfig<'_> {
     fn default() -> Self {
         Self::builder().build()
+    }
+}
+
+impl FormatConfig<'_> {
+    /// Creates a new [`FormatConfigBuilder`] with default configuration.
+    pub const fn builder() -> FormatConfigBuilder<'static> {
+        FormatConfigBuilder::new()
+    }
+}
+
+/// A [`FormatConfig`] builder.
+///
+/// Note that setters can be repeated.
+#[derive(Debug, Default)]
+pub struct FormatConfigBuilder<'a>(FormatConfig<'a>);
+
+impl<'a> FormatConfigBuilder<'a> {
+    /// Creates a new [`FormatConfig`] builder with default configuration.
+    pub const fn new() -> Self {
+        FormatConfigBuilder(FormatConfig {
+            indent_level: 0,
+            indent: "    ",
+            no_comments: false,
+        })
+    }
+
+    /// How deeply to indent the overall node or document,
+    /// in repetitions of [`indent`](`FormatConfig::indent`).
+    /// Defaults to `0` iff not specified.
+    pub const fn maybe_indent_level(mut self, indent_level: Option<usize>) -> Self {
+        if let Some(indent_level) = indent_level {
+            self.0.indent_level = indent_level;
+        }
+        self
+    }
+
+    /// How deeply to indent the overall node or document,
+    /// in repetitions of [`indent`](`FormatConfig::indent`).
+    /// Defaults to `0` iff not specified.
+    pub const fn indent_level(mut self, indent_level: usize) -> Self {
+        self.0.indent_level = indent_level;
+        self
+    }
+
+    /// The indentation to use at each level.
+    /// Defaults to four spaces iff not specified.
+    pub const fn maybe_indent<'b, 'c>(self, indent: Option<&'b str>) -> FormatConfigBuilder<'c>
+    where
+        'a: 'b,
+        'b: 'c,
+    {
+        if let Some(indent) = indent {
+            self.indent(indent)
+        } else {
+            self
+        }
+    }
+
+    /// The indentation to use at each level.
+    /// Defaults to four spaces if not specified.
+    pub const fn indent<'b>(self, indent: &'b str) -> FormatConfigBuilder<'b> {
+        FormatConfigBuilder(FormatConfig { indent, ..self.0 })
+    }
+
+    /// Whether to remove comments.
+    /// Defaults to `false` iff not specified.
+    pub const fn maybe_no_comments(mut self, no_comments: Option<bool>) -> Self {
+        if let Some(no_comments) = no_comments {
+            self.0.no_comments = no_comments;
+        }
+        self
+    }
+
+    /// Whether to remove comments.
+    /// Defaults to `false` iff not specified.
+    pub const fn no_comments(mut self, no_comments: bool) -> Self {
+        self.0.no_comments = no_comments;
+        self
+    }
+
+    /// Builds the [`FormatConfig`].
+    pub const fn build(self) -> FormatConfig<'a> {
+        self.0
     }
 }
 
