@@ -15,7 +15,7 @@
 //!
 //! This crate supports parsing [KDL
 //! 2.0.0-draft.6](https://github.com/kdl-org/kdl/releases/tag/2.0.0-draft.6)
-//! 
+//!
 //! ## Example
 //!
 //! ```rust
