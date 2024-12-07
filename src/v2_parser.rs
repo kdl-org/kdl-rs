@@ -101,7 +101,7 @@ impl<I: Stream> AddContext<I> for KdlParseError {
         _token_start: &<I as Stream>::Checkpoint,
         ctx: &'static str,
     ) -> Self {
-        self.context = self.context.or(Some(ctx));
+        self.context = Some(ctx);
         self
     }
 }
@@ -160,13 +160,6 @@ impl<I: Stream + Location> FromRecoverableError<I, Self> for KdlParseError {
         e.span = e
             .span
             .or_else(|| Some(((input.location() - offset)..input.location()).into()));
-        dbg!((
-            &e,
-            token_start,
-            _err_start,
-            input,
-            input.offset_from(token_start)
-        ));
         e
     }
 }
@@ -246,27 +239,6 @@ where
     Err(err)
 }
 
-/// Consumes the rest of a value we've cut_err on, so we can contine the parse.
-// TODO: maybe use this for detecting invalid codepoints with useful errors?
-fn badval(input: &mut Input<'_>) -> PResult<()> {
-    trace(
-        "badval",
-        repeat_till(
-            1..,
-            (
-                not(alt((ws, node_terminator.void(), "{".void(), "}".void()))),
-                any,
-            ),
-            alt((
-                eof.void(),
-                peek(alt((ws, node_terminator.void(), "{".void(), "}".void()))),
-            )),
-        ),
-    )
-    .map(|(_, _): ((), _)| ())
-    .parse_next(input)
-}
-
 fn lbl(label: &'static str) -> &'static str {
     label
 }
@@ -336,7 +308,7 @@ fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
     let ((ty, after_ty, name, entries, children), _span) = (
         opt(ty),
         node_space0.take(),
-        identifier,
+        resume_after_cut(identifier.context(lbl("node name")), bad_entry),
         repeat(
             0..,
             (peek(node_space1), node_entry).map(|(_, e): ((), _)| e),
@@ -365,7 +337,7 @@ fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
         .unwrap_or(("".into(), None));
     Ok(KdlNode {
         ty,
-        name,
+        name: name.unwrap_or_else(|| KdlIdentifier::from("<<INVALID_NODE_NAME>>")),
         entries,
         children,
         format: Some(KdlNodeFormat {
@@ -453,7 +425,7 @@ pub(crate) fn padded_node(input: &mut Input<'_>) -> PResult<KdlNode> {
 pub(crate) fn padded_node_entry(input: &mut Input<'_>) -> PResult<KdlEntry> {
     let ((leading, entry, trailing), _span) = (
         repeat(0.., line_space).map(|_: ()| ()).take(),
-        node_entry,
+        trace("node entry", node_entry),
         repeat(0.., alt((line_space, node_space)))
             .map(|_: ()| ())
             .take(),
@@ -481,7 +453,13 @@ pub(crate) fn padded_node_entry(input: &mut Input<'_>) -> PResult<KdlEntry> {
 fn node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
     let (leading, mut entry) = (
         (node_space0, opt((slashdashed_entries, node_space1))).take(),
-        alt((prop, value)),
+        alt((
+            trace("prop", prop),
+            trace(
+                "standalone value",
+                resume_after_cut(value, bad_entry).map(|v| v.flatten()),
+            ),
+        )),
     )
         .parse_next(input)?;
     entry = entry.map(|mut e| {
@@ -679,7 +657,6 @@ fn value(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
     )
         .with_span()
         .parse_next(input)?;
-    value_terminator_check.parse_next(input)?;
     let ((before_ty_name, ty, after_ty_name), after_ty) = ty.unwrap_or_default();
     Ok(value.map(|value| KdlEntry {
         ty,
@@ -697,20 +674,51 @@ fn value(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
     }))
 }
 
+fn bad_entry(input: &mut Input<'_>) -> PResult<()> {
+    trace(
+        "badval",
+        repeat_till(1.., (not(value_terminator), any), peek(value_terminator)),
+    )
+    .map(|((), _)| ())
+    .parse_next(input)
+}
+
+fn value_terminator(input: &mut Input<'_>) -> PResult<()> {
+    alt((
+        eof.void(),
+        node_space,
+        node_terminator,
+        "=".void(),
+        ")".void(),
+        "{".void(),
+        "}".void(),
+    ))
+    .parse_next(input)
+}
+
+fn value_terminator_check(input: &mut Input<'_>) -> PResult<()> {
+    trace("value terminator check", cut_err(peek(value_terminator))).parse_next(input)
+}
+
 /// `type := '(' optional-node-space string optional-node-space ')'`
 fn ty<'s>(input: &mut Input<'s>) -> PResult<(&'s str, Option<KdlIdentifier>, &'s str)> {
     "(".parse_next(input)?;
     let (before_ty, ty, after_ty) = (
         node_space0.take(),
         resume_after_cut(
-            cut_err(identifier.context(lbl("type name"))),
-            (badval, peek(")").void()).void(),
-        ),
+            cut_err((identifier, peek(alt((node_space, ")".void())))).context(lbl("type name"))),
+            repeat_till(1.., (not(badval_ty_char), any), peek(badval_ty_char)).map(|((), _)| ()),
+        )
+        .map(|opt| opt.map(|(i, _)| i)),
         node_space0.take(),
     )
         .parse_next(input)?;
-    cut_err(")").parse_next(input)?;
+    ")".parse_next(input)?;
     Ok((before_ty, ty, after_ty))
+}
+
+fn badval_ty_char(input: &mut Input<'_>) -> PResult<()> {
+    alt((")".void(), "{".void(), node_space, node_terminator)).parse_next(input)
 }
 
 /// `line-space := newline | ws | single-line-comment`
@@ -735,31 +743,28 @@ fn node_space1(input: &mut Input<'_>) -> PResult<()> {
 pub(crate) fn string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
     trace(
         "string",
-        alt((identifier_string, raw_string, quoted_string)),
+        alt((
+            (identifier_string, value_terminator_check).context(lbl("identifier string")),
+            (raw_string, value_terminator_check).context(lbl("raw string")),
+            (quoted_string, value_terminator_check).context(lbl("quoted string")),
+        )),
     )
-    .context("string")
+    .map(|(s, _)| s)
     .parse_next(input)
 }
 
 pub(crate) fn identifier(input: &mut Input<'_>) -> PResult<KdlIdentifier> {
-    let ((mut ident, raw), _span) = resume_after_cut(
-        (string, identifier_terminator_check).context(lbl("identifier")),
-        trace(
-            "identifier recovery",
-            repeat(0.., (not(identifier_terminator), any)).map(|()| ()),
-        ),
-    )
-    .verify_map(|ident| match ident {
-        Some((i, _)) => i.and_then(|v| match v {
-            KdlValue::String(s) => Some(KdlIdentifier::from(s)),
-            _ => None,
-        }),
-        None => Some(KdlIdentifier::from("<<RECOVERED_PARSE_ERROR>>")),
-    })
-    .context(lbl("identifier"))
-    .with_taken()
-    .with_span()
-    .parse_next(input)?;
+    let ((mut ident, raw), _span) = string
+        .verify_map(|ident| {
+            ident.and_then(|v| match v {
+                KdlValue::String(s) => Some(KdlIdentifier::from(s)),
+                _ => None,
+            })
+        })
+        .context(lbl("identifier"))
+        .with_taken()
+        .with_span()
+        .parse_next(input)?;
     ident.set_repr(raw);
     #[cfg(feature = "span")]
     {
@@ -768,80 +773,38 @@ pub(crate) fn identifier(input: &mut Input<'_>) -> PResult<KdlIdentifier> {
     Ok(ident)
 }
 
-// fn node_terminator_check(input: &mut Input<'_>) -> PResult<()> {
-//     trace(
-//         "node terminator check",
-//         cut_err(peek(alt((node_terminator, eof.void())))),
-//     )
-//     .void()
-//     .parse_next(input)
-// }
-
-fn identifier_terminator(input: &mut Input<'_>) -> PResult<()> {
-    alt((
-        node_terminator,
-        node_space,
-        "=".void(),
-        ")".void(),
-        "{".void(),
-        "}".void(),
-        eof.void(),
-    ))
-    .parse_next(input)
-}
-
-fn identifier_terminator_check(input: &mut Input<'_>) -> PResult<()> {
-    trace(
-        "node terminator check",
-        cut_err(peek(identifier_terminator)),
-    )
-    .void()
-    .parse_next(input)
-}
-
-fn value_terminator(input: &mut Input<'_>) -> PResult<()> {
-    alt((node_terminator, node_space, eof.void())).parse_next(input)
-}
-
-fn value_terminator_check(input: &mut Input<'_>) -> PResult<()> {
-    trace("value terminator check", peek(value_terminator))
-        .void()
-        .parse_next(input)
-}
-
 /// `identifier-string := unambiguous-ident | signed-ident | dotted-ident`
 fn identifier_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
     alt((unambiguous_ident, signed_ident, dotted_ident))
         .take()
         .map(|s| Some(KdlValue::String(s.into())))
+        // .context(lbl("identifier string"))
         .parse_next(input)
 }
 
 /// `unambiguous-ident := ((identifier-char - digit - sign - '.') identifier-char*) - 'true' - 'false' - 'null' - 'inf' - '-inf' - 'nan'`
 fn unambiguous_ident(input: &mut Input<'_>) -> PResult<()> {
-    trace(
-        "ambiguous prefix check",
-        not(alt((digit1.void(), alt(("-", "+")).void(), ".".void()))),
-    )
-    .parse_next(input)?;
-    trace("first char peek", peek(identifier_char)).parse_next(input)?;
+    not(alt((digit1.void(), alt(("-", "+")).void(), ".".void()))).parse_next(input)?;
+    peek(identifier_char).parse_next(input)?;
     trace(
         "identifier chars",
-        repeat(1.., identifier_char)
-            .verify_map(|s: String| {
-                if s == "true"
-                    || s == "false"
-                    || s == "null"
-                    || s == "inf"
-                    || s == "-inf"
-                    || s == "nan"
-                {
-                    None
-                } else {
-                    Some(s)
-                }
-            })
-            .void(),
+        cut_err(
+            repeat(1.., identifier_char)
+                .verify_map(|s: String| {
+                    if s == "true"
+                        || s == "false"
+                        || s == "null"
+                        || s == "inf"
+                        || s == "-inf"
+                        || s == "nan"
+                    {
+                        None
+                    } else {
+                        Some(s)
+                    }
+                })
+                .void(),
+        ),
     )
     .parse_next(input)
 }
@@ -1493,20 +1456,23 @@ fn float_value(input: &mut Input<'_>) -> PResult<KdlValue> {
 }
 
 fn float<T: ParseFloat>(input: &mut Input<'_>) -> PResult<T> {
-    alt((
-        (
-            decimal::<i128>,
-            opt(preceded('.', cut_err(udecimal::<i128>))),
-            Caseless("e"),
-            opt(one_of(['-', '+'])),
-            cut_err(udecimal::<i128>),
-        )
-            .take(),
-        (decimal::<i128>, '.', cut_err(udecimal::<i128>)).take(),
-    ))
-    .try_map(|float_str| T::parse_float(&str::replace(float_str, "_", "")))
-    .context(lbl("float"))
-    .parse_next(input)
+    (
+        alt((
+            (
+                decimal::<i128>,
+                opt(preceded('.', cut_err(udecimal::<i128>))),
+                Caseless("e"),
+                opt(one_of(['-', '+'])),
+                cut_err(udecimal::<i128>),
+            )
+                .take(),
+            (decimal::<i128>, '.', cut_err(udecimal::<i128>)).take(),
+        )),
+        value_terminator_check,
+    )
+        .try_map(|(float_str, _)| T::parse_float(&str::replace(float_str, "_", "")))
+        .context(lbl("float"))
+        .parse_next(input)
 }
 
 #[cfg(test)]
@@ -1524,9 +1490,9 @@ fn float_test() {
     );
     assert_eq!(
         (float_value, take(1usize))
-            .parse(new_input("1234.56c"))
+            .parse(new_input("1234.56 "))
             .unwrap(),
-        (KdlValue::Float(1234.56), "c")
+        (KdlValue::Float(1234.56), " ")
     );
     assert!(float_value.parse(new_input("_1234.56")).is_err());
     assert!(float_value.parse(new_input("1234a.56")).is_err());
@@ -1540,9 +1506,14 @@ fn float_test() {
 }
 
 fn integer_value(input: &mut Input<'_>) -> PResult<KdlValue> {
-    alt((hex, octal, binary, decimal))
-        .map(KdlValue::Integer)
-        .parse_next(input)
+    alt((
+        (hex, value_terminator_check).context(lbl("hexadecimal number")),
+        (octal, value_terminator_check).context(lbl("octal number")),
+        (binary, value_terminator_check).context(lbl("binary number")),
+        (decimal, value_terminator_check).context(lbl("integer")),
+    ))
+    .map(|(val, _)| KdlValue::Integer(val))
+    .parse_next(input)
 }
 
 /// Non-float decimal
@@ -1806,18 +1777,116 @@ mod failure_tests {
     use std::sync::Arc;
 
     #[test]
-    fn basic_badval() -> miette::Result<()> {
-        let input = Arc::new("no/de 1 2 3".to_string());
+    fn bad_node_name_test() -> miette::Result<()> {
+        let input = Arc::new("no/de 1 {\n    bad#}".to_string());
         let res: Result<KdlDocument, KdlParseFailure> = input.parse();
-        assert!(res.is_err());
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (0..5).into(),
+                        kind: KdlErrorKind::Context("node name"),
+                        severity: miette::Severity::Error,
+                        label: None,
+                        help: None,
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (14..18).into(),
+                        kind: KdlErrorKind::Context("node name"),
+                        severity: miette::Severity::Error,
+                        label: None,
+                        help: None,
+                    }
+                ]
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn bad_entry_number_test() -> miette::Result<()> {
+        let input = Arc::new("node 1asdf 2".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
         assert_eq!(
             res,
             Err(mkfail(
                 input.clone(),
                 vec![KdlDiagnostic {
                     input: input.clone(),
-                    span: (0..5).into(),
-                    kind: KdlErrorKind::Context("identifier"),
+                    span: (5..10).into(),
+                    kind: KdlErrorKind::Context("integer"),
+                    severity: miette::Severity::Error,
+                    label: None,
+                    help: None,
+                }]
+            ))
+        );
+
+        let input = Arc::new("node 0x1asdf 2".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..12).into(),
+                    kind: KdlErrorKind::Context("hexadecimal number"),
+                    severity: miette::Severity::Error,
+                    label: None,
+                    help: None,
+                }]
+            ))
+        );
+
+        let input = Arc::new("node 0o1asdf 2".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..12).into(),
+                    kind: KdlErrorKind::Context("octal number"),
+                    severity: miette::Severity::Error,
+                    label: None,
+                    help: None,
+                }]
+            ))
+        );
+
+        let input = Arc::new("node 0b1asdf 2".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..12).into(),
+                    kind: KdlErrorKind::Context("binary number"),
+                    severity: miette::Severity::Error,
+                    label: None,
+                    help: None,
+                }]
+            ))
+        );
+
+        let input = Arc::new("node 1.0asdf 2".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..12).into(),
+                    kind: KdlErrorKind::Context("float"),
                     severity: miette::Severity::Error,
                     label: None,
                     help: None,
