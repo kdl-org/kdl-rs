@@ -531,7 +531,6 @@ final;";
         // if you're making KdlEntries this way, you need to inject
         // your own whitespace (or format the node)
         node.push(" \"blah\"=0xDEADbeef".parse::<KdlEntry>()?);
-        dbg!(&node);
         doc.nodes_mut().push(node);
 
         assert_eq!(
