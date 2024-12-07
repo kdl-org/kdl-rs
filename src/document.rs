@@ -735,6 +735,7 @@ foo 1 bar=0xdeadbeef {
             }
             if let Some(KdlEntryFormat { value_repr, .. }) = entry.format() {
                 if entry.name().is_none() && entry.ty().is_none() {
+                    dbg!(&entry);
                     check_span(value_repr, entry.span(), source);
                 }
             }
