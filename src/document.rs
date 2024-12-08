@@ -531,7 +531,6 @@ final;";
         // if you're making KdlEntries this way, you need to inject
         // your own whitespace (or format the node)
         node.push(" \"blah\"=0xDEADbeef".parse::<KdlEntry>()?);
-        dbg!(&node);
         doc.nodes_mut().push(node);
 
         assert_eq!(
@@ -736,6 +735,7 @@ foo 1 bar=0xdeadbeef {
             }
             if let Some(KdlEntryFormat { value_repr, .. }) = entry.format() {
                 if entry.name().is_none() && entry.ty().is_none() {
+                    dbg!(&entry);
                     check_span(value_repr, entry.span(), source);
                 }
             }

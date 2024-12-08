@@ -13,7 +13,6 @@ fn build_and_format() {
     doc.nodes_mut().push(a);
     doc.autoformat();
     let fmt = doc.to_string();
-    println!("{}", fmt);
     assert_eq!(
         fmt,
         r#"a {
