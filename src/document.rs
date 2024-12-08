@@ -735,7 +735,6 @@ foo 1 bar=0xdeadbeef {
             }
             if let Some(KdlEntryFormat { value_repr, .. }) = entry.format() {
                 if entry.name().is_none() && entry.ty().is_none() {
-                    dbg!(&entry);
                     check_span(value_repr, entry.span(), source);
                 }
             }
@@ -887,7 +886,7 @@ inline { time; to; live "our" "dreams"; "y;all" }
         check_span("time", inline_nodes[0].span(), &input);
         check_span("to", inline_nodes[1].span(), &input);
         check_span(r#"live "our" "dreams""#, inline_nodes[2].span(), &input);
-        check_span(r#""y;all""#, inline_nodes[3].span(), &input);
+        check_span(r#""y;all" "#, inline_nodes[3].span(), &input);
 
         Ok(())
     }

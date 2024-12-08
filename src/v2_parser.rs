@@ -51,7 +51,7 @@ pub(crate) fn failure_from_errs(errs: Vec<KdlParseError>, input: &str) -> KdlPar
                 message: e
                     .message
                     .or_else(|| e.label.clone().map(|l| format!("Expected {l}"))),
-                label: e.label.map(|l| format!("invalid {l}")),
+                label: e.label.map(|l| format!("not {l}")),
                 help: e.help,
                 severity: Severity::Error,
             })
@@ -69,17 +69,17 @@ struct KdlParseContext {
 
 impl KdlParseContext {
     fn msg(mut self, txt: impl AsRef<str>) -> Self {
-        self.message = Some(format!("{}", txt.as_ref()));
+        self.message = Some(txt.as_ref().to_string());
         self
     }
 
     fn lbl(mut self, txt: impl AsRef<str>) -> Self {
-        self.label = Some(format!("{}", txt.as_ref()));
+        self.label = Some(txt.as_ref().to_string());
         self
     }
 
     fn hlp(mut self, txt: impl AsRef<str>) -> Self {
-        self.help = Some(format!("{}", txt.as_ref()));
+        self.help = Some(txt.as_ref().to_string());
         self
     }
 
@@ -191,7 +191,6 @@ impl<I: Stream + Location> FromRecoverableError<I, Self> for KdlParseError {
         e.span = e
             .span
             .or_else(|| Some(span_from_checkpoint(input, token_start)));
-        // dbg!((&e, token_start, _err_start, input,));
         e
     }
 }
@@ -200,7 +199,7 @@ fn span_from_checkpoint<I: Stream + Location>(
     input: &I,
     start: &<I as Stream>::Checkpoint,
 ) -> SourceSpan {
-    let offset = input.offset_from(&start);
+    let offset = input.offset_from(start);
     ((input.location() - offset)..input.location()).into()
 }
 
@@ -278,7 +277,7 @@ fn nodes(input: &mut Input<'_>) -> PResult<KdlDocument> {
         repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
             .map(|()| ())
             .take(),
-        separated(0.., node.context(cx().lbl("node")), node_terminator).with_span(),
+        trace("nodes", separated(0.., node, node_terminator)).with_span(),
         opt(node_terminator),
         repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
             .map(|()| ())
@@ -317,7 +316,28 @@ fn node(input: &mut Input<'_>) -> PResult<KdlNode> {
 }
 
 fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
+    not(alt(("}".void(), eof.void()))).parse_next(input)?;
     let _start = input.checkpoint();
+    let open_curly = resume_after_cut(
+        cut_err(not("{").context(
+            cx().msg("Found child block instead of node name")
+                .lbl("node name")
+                .hlp("Did you forget to add the node name itself? Or perhaps terminated the node before its child block?"))),
+        "{".void(),
+    )
+    .parse_next(input)?;
+    if open_curly.is_none() {
+        // If we got a weird misplaces `{`, we consume the "child block" here,
+        // because otherwise the error message is going to include the entire
+        // child block as its span, but we only want to point to the offending
+        // curly.
+        input.reset(&_start);
+        node_children.parse_next(input)?;
+        opt(slashdashed_children).parse_next(input)?;
+        peek(opt(node_terminator)).parse_next(input)?;
+        // We also return a fake node here, for good measure.
+        return Ok(KdlNode::new("<<BAD_NODE>>"));
+    }
     let ty = opt(ty).parse_next(input)?;
     let after_ty = node_space0.take().parse_next(input)?;
     let _before_ident = input.checkpoint();
@@ -502,7 +522,11 @@ fn node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
         None
     };
     let entry = if let Some(after_key) = after_key {
-        let (after_eq, value) = (node_space0.take(), cut_err(value)).parse_next(input)?;
+        let (after_eq, value) = (
+            node_space0.take(),
+            cut_err(value.context(cx().lbl("property value"))),
+        )
+            .parse_next(input)?;
         value.map(|mut value| {
             value.name = maybe_ident;
             if let Some(fmt) = value.format_mut() {
@@ -687,7 +711,15 @@ fn around_children_test() {
 
 /// `node-children := '{' nodes final-node? '}'`
 fn node_children(input: &mut Input<'_>) -> PResult<KdlDocument> {
-    delimited("{", nodes, cut_err("}")).parse_next(input)
+    trace(
+        "node children",
+        delimited(
+            "{",
+            nodes,
+            cut_err("}").context(cx().msg("No closing '}' for child block").lbl("'}'")),
+        ),
+    )
+    .parse_next(input)
 }
 
 /// `node-terminator := single-line-comment | newline | ';' | eof`
@@ -1885,7 +1917,27 @@ mod failure_tests {
 
     #[test]
     fn bad_node_name_test() -> miette::Result<()> {
-        let input = Arc::new("no/de 1 {\n    1 2 foo\n    bad#}".to_string());
+        let input = Arc::new("foo { bar; { baz; }; }".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // super::_print_diagnostic(res);
+        // return Ok(());
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (11..12).into(),
+                        message: Some("Found child block instead of node name".into()),
+                        label: Some("not node name".into()),
+                        help: Some("Did you forget to add the node name itself? Or perhaps terminated the node before its child block?".into()),
+                        severity: Severity::Error
+                    }
+                ]
+            ))
+        );
+        let input = Arc::new("no/de 1 {\n    1 2 foo\n    bad#\n}".to_string());
         let res: Result<KdlDocument, KdlParseFailure> = input.parse();
         // super::_print_diagnostic(res);
         // return Ok(());
@@ -1898,7 +1950,7 @@ mod failure_tests {
                         input: input.clone(),
                         span: (0..5).into(),
                         message: Some("Expected identifier string".into()),
-                        label: Some("invalid identifier string".into()),
+                        label: Some("not identifier string".into()),
                         help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
                         severity: Severity::Error
                     },
@@ -1906,7 +1958,7 @@ mod failure_tests {
                         input: input.clone(),
                         span: (0..5).into(),
                         message: Some("Found invalid node name".into()),
-                        label: Some("invalid node name".into()),
+                        label: Some("not node name".into()),
                         help: Some("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.".into()),
                         severity: Severity::Error
                     },
@@ -1914,7 +1966,7 @@ mod failure_tests {
                         input: input.clone(),
                         span: (14..15).into(),
                         message: Some("Found invalid node name".into()),
-                        label: Some("invalid node name".into()),
+                        label: Some("not node name".into()),
                         help: Some("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.".into()),
                         severity: Severity::Error
                     },
@@ -1922,7 +1974,7 @@ mod failure_tests {
                         input: input.clone(),
                         span: (26..30).into(),
                         message: Some("Expected identifier string".into()),
-                        label: Some("invalid identifier string".into()),
+                        label: Some("not identifier string".into()),
                         help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
                         severity: Severity::Error
                     },
@@ -1930,7 +1982,7 @@ mod failure_tests {
                         input: input.clone(),
                         span: (26..30).into(),
                         message: Some("Found invalid node name".into()),
-                        label: Some("invalid node name".into()),
+                        label: Some("not node name".into()),
                         help: Some("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.".into()),
                         severity: Severity::Error
                     }
@@ -1944,6 +1996,8 @@ mod failure_tests {
     fn bad_entry_number_test() -> miette::Result<()> {
         let input = Arc::new("node 1asdf 2".to_string());
         let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // super::_print_diagnostic(res);
+        // return Ok(());
         assert_eq!(
             res,
             Err(mkfail(
@@ -1952,7 +2006,7 @@ mod failure_tests {
                     input: input.clone(),
                     span: (5..10).into(),
                     message: Some("Expected integer".into()),
-                    label: Some("invalid integer".into()),
+                    label: Some("not integer".into()),
                     severity: miette::Severity::Error,
                     help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
                 }]
@@ -1969,7 +2023,7 @@ mod failure_tests {
                     input: input.clone(),
                     span: (5..12).into(),
                     message: Some("Expected hexadecimal number".into()),
-                    label: Some("invalid hexadecimal number".into()),
+                    label: Some("not hexadecimal number".into()),
                     severity: miette::Severity::Error,
                     help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
                 }]
@@ -1986,7 +2040,7 @@ mod failure_tests {
                     input: input.clone(),
                     span: (5..12).into(),
                     message: Some("Expected octal number".into()),
-                    label: Some("invalid octal number".into()),
+                    label: Some("not octal number".into()),
                     severity: miette::Severity::Error,
                     help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
                 }]
@@ -2003,7 +2057,7 @@ mod failure_tests {
                     input: input.clone(),
                     span: (5..12).into(),
                     message: Some("Expected binary number".into()),
-                    label: Some("invalid binary number".into()),
+                    label: Some("not binary number".into()),
                     severity: miette::Severity::Error,
                     help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
                 }]
@@ -2020,7 +2074,7 @@ mod failure_tests {
                     input: input.clone(),
                     span: (5..12).into(),
                     message: Some("Expected float".into()),
-                    label: Some("invalid float".into()),
+                    label: Some("not float".into()),
                     severity: miette::Severity::Error,
                     help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
                 }]
@@ -2037,7 +2091,7 @@ mod failure_tests {
                     input: input.clone(),
                     span: (5..11).into(),
                     message: Some("Non-digit character found after the '.' of a float".into()),
-                    label: Some("invalid float".into()),
+                    label: Some("not float".into()),
                     severity: miette::Severity::Error,
                     help: None,
                 }]
@@ -2056,7 +2110,7 @@ mod failure_tests {
                     message: Some(
                         "Non-digit character found in the exponent part of a float".into()
                     ),
-                    label: Some("invalid float".into()),
+                    label: Some("not float".into()),
                     severity: miette::Severity::Error,
                     help: Some(
                         "Floats with exponent parts should look like '2.0e123', or '43.3E-4'."
@@ -2081,7 +2135,7 @@ mod failure_tests {
                     span: (5..8).into(),
                     severity: miette::Severity::Error,
                     message: Some("Expected quoted string".into()),
-                    label: Some("invalid quoted string".into()),
+                    label: Some("not quoted string".into()),
                     help: None,
                 }]
             ))
@@ -2101,7 +2155,7 @@ mod failure_tests {
                     span: (5..11).into(),
                     severity: miette::Severity::Error,
                     message: Some("Expected quoted string".into()),
-                    label: Some("invalid quoted string".into()),
+                    label: Some("not quoted string".into()),
                     help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
                 }]
             ))
@@ -2121,7 +2175,7 @@ mod failure_tests {
                         input: input.clone(),
                         span: (5..6).into(),
                         message: Some("Unexpected newline in single-line quoted string".into()),
-                        label: Some("invalid quoted string".into()),
+                        label: Some("not quoted string".into()),
                         help: Some("You can make a string multi-line by wrapping it in '\"\"\"', with a newline immediately after the opening quotes.".into()),
                         severity: Severity::Error
                     },
@@ -2129,7 +2183,7 @@ mod failure_tests {
                         input: input.clone(),
                         span: (16..27).into(),
                         message: Some("Expected identifier string".into()),
-                        label: Some("invalid identifier string".into()),
+                        label: Some("not identifier string".into()),
                         help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
                         severity: Severity::Error
                     }
