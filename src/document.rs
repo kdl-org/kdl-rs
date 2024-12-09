@@ -245,15 +245,15 @@ impl KdlDocument {
 
     /// Formats the document according to `config`.
     pub fn autoformat_config(&mut self, config: &FormatConfig<'_>) {
-        if let Some(KdlDocumentFormat { leading, .. }) = (&mut *self).format_mut() {
+        if let Some(KdlDocumentFormat { leading, .. }) = (*self).format_mut() {
             crate::fmt::autoformat_leading(leading, config);
         }
         let mut has_nodes = false;
-        for node in &mut (&mut *self).nodes {
+        for node in &mut self.nodes {
             has_nodes = true;
             node.autoformat_config(config);
         }
-        if let Some(KdlDocumentFormat { trailing, .. }) = (&mut *self).format_mut() {
+        if let Some(KdlDocumentFormat { trailing, .. }) = (*self).format_mut() {
             crate::fmt::autoformat_trailing(trailing, config.no_comments);
             if !has_nodes {
                 trailing.push('\n');

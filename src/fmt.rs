@@ -81,7 +81,7 @@ impl<'a> FormatConfigBuilder<'a> {
 
     /// The indentation to use at each level.
     /// Defaults to four spaces if not specified.
-    pub const fn indent<'b>(self, indent: &'b str) -> FormatConfigBuilder<'b> {
+    pub const fn indent(self, indent: &str) -> FormatConfigBuilder<'_> {
         FormatConfigBuilder(FormatConfig { indent, ..self.0 })
     }
 
