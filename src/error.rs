@@ -1,7 +1,4 @@
-use std::{
-    num::{ParseFloatError, ParseIntError},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
@@ -38,7 +35,7 @@ use {
 ///   help: Floating point numbers must be base 10, and have numbers after the decimal point.
 /// ```
 #[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
-#[error("Failed to parse KDL.")]
+#[error("Failed to parse KDL document")]
 pub struct KdlParseFailure {
     /// Original input that this failure came from.
     #[source_code]
@@ -53,58 +50,27 @@ pub struct KdlParseFailure {
 ///
 /// While generally signifying errors, they can also be treated as warnings.
 #[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
-#[error("{kind}")]
+#[error("{}", message.clone().unwrap_or_else(|| "Unexpected error".into()))]
 pub struct KdlDiagnostic {
     /// Shared source for the diagnostic.
     #[source_code]
     pub input: Arc<String>,
 
     /// Offset in chars of the error.
-    #[label("{}", label.unwrap_or("here"))]
+    #[label("{}", label.clone().unwrap_or_else(|| "here".into()))]
     pub span: SourceSpan,
 
+    /// Message for the error itself.
+    pub message: Option<String>,
+
     /// Label text for this span. Defaults to `"here"`.
-    pub label: Option<&'static str>,
+    pub label: Option<String>,
 
     /// Suggestion for fixing the parser error.
     #[help]
-    pub help: Option<&'static str>,
+    pub help: Option<String>,
 
     /// Severity level for the Diagnostic.
     #[diagnostic(severity)]
     pub severity: miette::Severity,
-
-    /// Specific error kind for this parser error.
-    pub kind: KdlErrorKind,
-}
-
-/// A type representing additional information specific to the type of error being returned.
-#[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
-pub enum KdlErrorKind {
-    /// An error occurred while parsing an integer.
-    #[error(transparent)]
-    #[diagnostic(code(kdl::parse_int))]
-    ParseIntError(ParseIntError),
-
-    /// An error occurred while parsing a floating point number.
-    #[error(transparent)]
-    #[diagnostic(code(kdl::parse_float))]
-    ParseFloatError(ParseFloatError),
-
-    /// Tried to parse a negative number as an unsigned integer.
-    #[error("Tried to parse a negative number as an unsigned integer.")]
-    #[diagnostic(code(kdl::negative_unsigned))]
-    NegativeUnsignedError,
-
-    /// Generic parsing error. The given context string denotes the component
-    /// that failed to parse.
-    #[error("Expected {0}.")]
-    #[diagnostic(code(kdl::parse_component))]
-    Context(&'static str),
-
-    /// Generic unspecified error. If this is returned, the call site should
-    /// be annotated with context, if possible.
-    #[error("An unspecified parse error occurred.")]
-    #[diagnostic(code(kdl::other))]
-    Other,
 }
