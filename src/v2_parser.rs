@@ -9,8 +9,8 @@ use num::CheckedMul;
 use winnow::{
     ascii::{digit1, hex_digit1, oct_digit1, Caseless},
     combinator::{
-        alt, cut_err, delimited, empty, eof, fail, not, opt, peek, preceded, repeat, repeat_till,
-        separated, terminated, trace,
+        alt, cut_err, empty, eof, fail, not, opt, peek, preceded, repeat, repeat_till, separated,
+        terminated, trace,
     },
     error::{AddContext, ErrMode, ErrorKind, FromExternalError, FromRecoverableError, ParserError},
     prelude::*,
@@ -263,6 +263,15 @@ fn new_input(s: &str) -> Input<'_> {
 pub(crate) fn document(input: &mut Input<'_>) -> PResult<KdlDocument> {
     let bom = opt(bom.take()).parse_next(input)?;
     let mut doc = nodes.parse_next(input)?;
+    let badend = resume_after_cut(
+        cut_err(eof).context(cx().lbl("EOF").msg("Expected end of document")),
+        any.void(),
+    )
+    .parse_next(input)?
+    .is_none();
+    if badend {
+        document.parse_next(input)?;
+    }
     if let Some(bom) = bom {
         if let Some(fmt) = doc.format_mut() {
             fmt.leading = format!("{bom}{}", fmt.leading);
@@ -273,25 +282,31 @@ pub(crate) fn document(input: &mut Input<'_>) -> PResult<KdlDocument> {
 
 /// `nodes := (line-space* node)* line-space*`
 fn nodes(input: &mut Input<'_>) -> PResult<KdlDocument> {
-    let (leading, (nodes, _span), _final_terminator, trailing) = (
-        repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
-            .map(|()| ())
-            .take(),
-        trace("nodes", separated(0.., node, node_terminator)).with_span(),
-        opt(node_terminator),
-        repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
-            .map(|()| ())
-            .take(),
+    let leading = repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
+        .map(|()| ())
+        .take()
+        .parse_next(input)?;
+    let _start = input.checkpoint();
+    let ns: Vec<KdlNode> = separated(
+        0..,
+        node,
+        alt((node_terminator.void(), (eof.void(), any.void()).void())),
     )
+    .parse_next(input)?;
+    let _span = span_from_checkpoint(input, &_start);
+    opt(node_terminator).parse_next(input)?;
+    let trailing = repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
+        .map(|()| ())
+        .take()
         .parse_next(input)?;
     Ok(KdlDocument {
-        nodes,
+        nodes: ns,
         format: Some(KdlDocumentFormat {
             leading: leading.into(),
             trailing: trailing.into(),
         }),
         #[cfg(feature = "span")]
-        span: _span.into(),
+        span: _span,
     })
 }
 
@@ -316,7 +331,7 @@ fn node(input: &mut Input<'_>) -> PResult<KdlNode> {
 }
 
 fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
-    not(alt(("}".void(), eof.void()))).parse_next(input)?;
+    trace("children closing check", not(alt(("}".void(), eof.void())))).parse_next(input)?;
     let _start = input.checkpoint();
     let open_curly = resume_after_cut(
         cut_err(not("{").context(
@@ -327,7 +342,7 @@ fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
     )
     .parse_next(input)?;
     if open_curly.is_none() {
-        // If we got a weird misplaces `{`, we consume the "child block" here,
+        // If we got a weird misplaced `{`, we consume the "child block" here,
         // because otherwise the error message is going to include the entire
         // child block as its span, but we only want to point to the offending
         // curly.
@@ -373,7 +388,11 @@ fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
     )
     .map(|e: Vec<Option<KdlEntry>>| e.into_iter().flatten().collect::<Vec<KdlEntry>>())
     .parse_next(input)?;
-    let children = opt((before_node_children.take(), node_children)).parse_next(input)?;
+    let children = opt((
+        before_node_children.take(),
+        trace("node children", node_children),
+    ))
+    .parse_next(input)?;
     let (before_terminator, terminator) = if children.is_some() {
         (
             opt(slashdashed_children).take(),
@@ -693,10 +712,13 @@ fn before_node_children_test() {
 
 fn slashdashed_children(input: &mut Input<'_>) -> PResult<()> {
     node_space0.parse_next(input)?;
-    separated(
-        1..,
-        (slashdash.void(), node_children.void()).void(),
-        node_space1,
+    trace(
+        "slashdashed children",
+        separated(
+            1..,
+            (slashdash.void(), node_children.void()).void(),
+            node_space1,
+        ),
     )
     .map(|()| ())
     .parse_next(input)
@@ -711,30 +733,71 @@ fn around_children_test() {
 
 /// `node-children := '{' nodes final-node? '}'`
 fn node_children(input: &mut Input<'_>) -> PResult<KdlDocument> {
-    trace(
-        "node children",
-        delimited(
-            "{",
-            nodes,
-            cut_err("}").context(cx().msg("No closing '}' for child block").lbl("'}'")),
-        ),
-    )
-    .parse_next(input)
+    let _before_open = input.checkpoint();
+    let _before_open_loc = input.location();
+    "{".parse_next(input)?;
+    let _after_open_loc = input.location();
+    let ns = trace("child nodes", nodes).parse_next(input)?;
+    let _after_nodes = input.checkpoint();
+    let _after_nodes_loc = input.location();
+    let close_res: PResult<_> = cut_err("}")
+        .context(cx().msg("No closing '}' for child block").lbl("closed"))
+        .parse_next(input);
+    if close_res.is_err() {
+        return close_res
+            .map(|_| KdlDocument::new())
+            .or_else(|mut e: ErrMode<KdlParseError>| {
+                e = match e {
+                    ErrMode::Cut(mut pe) => {
+                        #[cfg(feature = "span")]
+                        {
+                            pe.span = Some((_before_open_loc.._after_open_loc).into());
+                        }
+                        ErrMode::Cut(pe)
+                    }
+                    e => return Err(e),
+                };
+                input.record_err(&_before_open, &_before_open, e)?;
+                if !ns.is_empty() {
+                    input.record_err(
+                        &_after_nodes,
+                        &_after_nodes,
+                        ErrMode::Cut(KdlParseError {
+                            message: Some("Closing '}' was not found after nodes".into()),
+                            span: Some((_after_open_loc.._after_nodes_loc).into()),
+                            label: Some("closed".into()),
+                            help: None,
+                            severity: Some(Severity::Error),
+                        }),
+                    )?;
+                }
+                Ok(KdlDocument::new())
+            });
+    }
+    Ok(ns)
 }
 
 /// `node-terminator := single-line-comment | newline | ';' | eof`
 fn node_terminator(input: &mut Input<'_>) -> PResult<()> {
-    alt((";".void(), newline, single_line_comment)).parse_next(input)
+    trace(
+        "node_terminator",
+        alt((";".void(), newline, single_line_comment)),
+    )
+    .void()
+    .parse_next(input)
 }
 
 /// `value := type? optional-node-space (string | number | keyword)`
 fn value(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
-    let ((ty, (value, raw)), _span) = (
-        opt((ty, node_space0.take())),
-        alt((keyword.map(Some), number.map(Some), string)).with_taken(),
+    let ((ty, (value, raw)), _span) = trace(
+        "value",
+        (
+            opt((ty, node_space0.take())),
+            alt((keyword.map(Some), number.map(Some), string)).with_taken(),
+        ),
     )
-        .with_span()
-        .parse_next(input)?;
+    .with_span()
+    .parse_next(input)?;
     let ((before_ty_name, ty, after_ty_name), after_ty) = ty.unwrap_or_default();
     Ok(value.map(|value| KdlEntry {
         ty,
@@ -753,12 +816,9 @@ fn value(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
 }
 
 fn badval(input: &mut Input<'_>) -> PResult<()> {
-    trace(
-        "badval",
-        repeat_till(0.., (not(value_terminator), any), peek(value_terminator)),
-    )
-    .map(|((), _)| ())
-    .parse_next(input)
+    trace("badval", repeat_till(1.., any, peek(value_terminator)))
+        .map(|((), _)| ())
+        .parse_next(input)
 }
 
 fn value_terminator(input: &mut Input<'_>) -> PResult<()> {
@@ -2163,9 +2223,6 @@ mod failure_tests {
 
         let input = Arc::new("node \"\nlet's do multiline!\"".to_string());
         let res: Result<KdlDocument, KdlParseFailure> = input.parse();
-        // if let Err(e) = res {
-        //     println!("{:?}", miette::Report::from(e));
-        // }
         assert_eq!(
             res,
             Err(mkfail(
@@ -2190,6 +2247,182 @@ mod failure_tests {
                 ]
             ))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn bad_child_test() -> miette::Result<()> {
+        let input = Arc::new("node {".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // _print_diagnostic(res);
+        // return Ok(());
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..6).into(),
+                    severity: miette::Severity::Error,
+                    message: Some("No closing '}' for child block".into()),
+                    label: Some("not closed".into()),
+                    help: None,
+                }]
+            ))
+        );
+
+        let input = Arc::new("node {}}".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // _print_diagnostic(res);
+        // return Ok(());
+        // println!("{res:#?}");
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (7..8).into(),
+                    message: Some("Expected end of document".into()),
+                    label: Some("not EOF".into(),),
+                    help: None,
+                    severity: miette::Severity::Error,
+                }]
+            ))
+        );
+
+        let input = Arc::new("node }{".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // _print_diagnostic(res);
+        // return Ok(());
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (5..6).into(),
+                        message: Some(
+                            "Expected end of document".into()
+                        ),
+                        label: Some(
+                            "not EOF".into()
+                        ),
+                        help: None,
+                        severity: Severity::Error,
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (6..7).into(),
+                        message: Some(
+                            "Found child block instead of node name".into(),
+                        ),
+                        label: Some(
+                            "not node name".into(),
+                        ),
+                        help: Some(
+                            "Did you forget to add the node name itself? Or perhaps terminated the node before its child block?".into(),
+                        ),
+                        severity: Severity::Error,
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (6..7).into(),
+                        message: Some(
+                            "No closing '}' for child block".into(),
+                        ),
+                        label: Some(
+                            "not closed".into(),
+                        ),
+                        help: None,
+                        severity: Severity::Error,
+                    },
+                ]
+            ))
+        );
+
+        let input = Arc::new("node {\n".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // _print_diagnostic(res);
+        // return Ok(());
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (5..6).into(),
+                        message: Some("No closing '}' for child block".into()),
+                        label: Some("not closed".into()),
+                        help: None,
+                        severity: Severity::Error,
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (6..7).into(),
+                        message: Some("Closing '}' was not found after nodes".into()),
+                        label: Some("not closed".into()),
+                        help: None,
+                        severity: Severity::Error,
+                    },
+                ]
+            ))
+        );
+
+        let input = Arc::new("node {\nnode2{{}}".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // _print_diagnostic(res);
+        // return Ok(());
+        println!("{res:#?}");
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (13..14).into(),
+                        message: Some(
+                            "Found child block instead of node name".into()
+                        ),
+                        label: Some(
+                            "not node name".into()
+                        ),
+                        help: Some(
+                            "Did you forget to add the node name itself? Or perhaps terminated the node before its child block?".into()
+                        ),
+                        severity: Severity::Error,
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (5..6).into(),
+                        message: Some(
+                            "No closing '}' for child block".into(),
+                        ),
+                        label: Some(
+                            "not closed".into(),
+                        ),
+                        help: None,
+                        severity: Severity::Error,
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (6..16).into(),
+                        message: Some(
+                            "Closing '}' was not found after nodes".into()
+                        ),
+                        label: Some(
+                            "not closed".into()
+                        ),
+                        help: None,
+                        severity: Severity::Error,
+                    },
+               ]
+            ))
+        );
+
         Ok(())
     }
 
