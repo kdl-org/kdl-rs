@@ -9,22 +9,19 @@ use num::CheckedMul;
 use winnow::{
     ascii::{digit1, hex_digit1, oct_digit1, Caseless},
     combinator::{
-        alt, cut_err, delimited, eof, fail, not, opt, peek, preceded, repeat, repeat_till,
-        separated, terminated,
+        alt, cut_err, empty, eof, fail, not, opt, peek, preceded, repeat, repeat_till, separated,
+        terminated, trace,
     },
-    error::{
-        AddContext, ContextError, ErrorKind, FromExternalError, FromRecoverableError, ParserError,
-        StrContext, StrContextValue,
-    },
+    error::{AddContext, ErrMode, ErrorKind, FromExternalError, FromRecoverableError, ParserError},
     prelude::*,
-    stream::{AsChar, Location, Recoverable, Stream},
+    stream::{AsChar, Location, Recover, Recoverable, Stream},
     token::{any, none_of, one_of, take_while},
     Located,
 };
 
 use crate::{
-    KdlDiagnostic, KdlDocument, KdlDocumentFormat, KdlEntry, KdlEntryFormat, KdlErrorKind,
-    KdlIdentifier, KdlNode, KdlNodeFormat, KdlParseFailure, KdlValue,
+    KdlDiagnostic, KdlDocument, KdlDocumentFormat, KdlEntry, KdlEntryFormat, KdlIdentifier,
+    KdlNode, KdlNodeFormat, KdlParseFailure, KdlValue,
 };
 
 type Input<'a> = Recoverable<Located<&'a str>, KdlParseError>;
@@ -51,36 +48,68 @@ pub(crate) fn failure_from_errs(errs: Vec<KdlParseError>, input: &str) -> KdlPar
             .map(|e| KdlDiagnostic {
                 input: src.clone(),
                 span: e.span.unwrap_or_else(|| (0usize..0usize).into()),
-                label: e.label,
+                message: e
+                    .message
+                    .or_else(|| e.label.clone().map(|l| format!("Expected {l}"))),
+                label: e.label.map(|l| format!("not {l}")),
                 help: e.help,
                 severity: Severity::Error,
-                kind: if let Some(ctx) = e.context {
-                    KdlErrorKind::Context(ctx)
-                } else {
-                    KdlErrorKind::Other
-                },
             })
             .collect(),
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+struct KdlParseContext {
+    message: Option<String>,
+    label: Option<String>,
+    help: Option<String>,
+    severity: Option<Severity>,
+}
+
+impl KdlParseContext {
+    fn msg(mut self, txt: impl AsRef<str>) -> Self {
+        self.message = Some(txt.as_ref().to_string());
+        self
+    }
+
+    fn lbl(mut self, txt: impl AsRef<str>) -> Self {
+        self.label = Some(txt.as_ref().to_string());
+        self
+    }
+
+    fn hlp(mut self, txt: impl AsRef<str>) -> Self {
+        self.help = Some(txt.as_ref().to_string());
+        self
+    }
+
+    // fn sev(mut self, severity: Severity) -> Self {
+    //     self.severity = Some(severity);
+    //     self
+    // }
+}
+
+fn cx() -> KdlParseContext {
+    Default::default()
+}
+
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub(crate) struct KdlParseError {
-    pub(crate) context: Option<&'static str>,
+    pub(crate) message: Option<String>,
     pub(crate) span: Option<SourceSpan>,
-    pub(crate) label: Option<&'static str>,
-    pub(crate) help: Option<&'static str>,
-    pub(crate) kind: Option<KdlErrorKind>,
+    pub(crate) label: Option<String>,
+    pub(crate) help: Option<String>,
+    pub(crate) severity: Option<Severity>,
 }
 
 impl<I: Stream> ParserError<I> for KdlParseError {
     fn from_error_kind(_input: &I, _kind: ErrorKind) -> Self {
         Self {
+            message: None,
             span: None,
             label: None,
             help: None,
-            context: None,
-            kind: None,
+            severity: None,
         }
     }
 
@@ -94,14 +123,17 @@ impl<I: Stream> ParserError<I> for KdlParseError {
     }
 }
 
-impl<I: Stream> AddContext<I> for KdlParseError {
+impl<I: Stream> AddContext<I, KdlParseContext> for KdlParseError {
     fn add_context(
         mut self,
         _input: &I,
         _token_start: &<I as Stream>::Checkpoint,
-        ctx: &'static str,
+        ctx: KdlParseContext,
     ) -> Self {
-        self.context = self.context.or(Some(ctx));
+        self.message = ctx.message.or(self.message);
+        self.label = ctx.label.or(self.label);
+        self.help = ctx.help.or(self.help);
+        self.severity = ctx.severity.or(self.severity);
         self
     }
 }
@@ -110,10 +142,10 @@ impl<'a> FromExternalError<Input<'a>, ParseIntError> for KdlParseError {
     fn from_external_error(_: &Input<'a>, _kind: ErrorKind, e: ParseIntError) -> Self {
         KdlParseError {
             span: None,
-            label: None,
+            message: Some(format!("{e}")),
+            label: Some("invalid integer".into()),
             help: None,
-            context: None,
-            kind: Some(KdlErrorKind::ParseIntError(e)),
+            severity: Some(Severity::Error),
         }
     }
 }
@@ -122,10 +154,10 @@ impl<'a> FromExternalError<Input<'a>, ParseFloatError> for KdlParseError {
     fn from_external_error(_input: &Input<'a>, _kind: ErrorKind, e: ParseFloatError) -> Self {
         KdlParseError {
             span: None,
-            label: None,
+            label: Some("invalid float".into()),
             help: None,
-            context: None,
-            kind: Some(KdlErrorKind::ParseFloatError(e)),
+            message: Some(format!("{e}")),
+            severity: Some(Severity::Error),
         }
     }
 }
@@ -140,10 +172,10 @@ impl<'a> FromExternalError<Input<'a>, NegativeUnsignedError> for KdlParseError {
     ) -> Self {
         KdlParseError {
             span: None,
-            label: None,
+            message: Some("Tried to parse a negative number as an unsigned integer".into()),
+            label: Some("negative unsigned int".into()),
             help: None,
-            context: None,
-            kind: Some(KdlErrorKind::NegativeUnsignedError),
+            severity: Some(Severity::Error),
         }
     }
 }
@@ -156,56 +188,70 @@ impl<I: Stream + Location> FromRecoverableError<I, Self> for KdlParseError {
         input: &I,
         mut e: Self,
     ) -> Self {
-        e.span = e.span.or_else(|| {
-            Some((input.offset_from(token_start).saturating_sub(1)..input.location()).into())
-        });
+        e.span = e
+            .span
+            .or_else(|| Some(span_from_checkpoint(input, token_start)));
         e
     }
 }
 
-impl<I: Stream + Location> FromRecoverableError<I, ContextError> for KdlParseError {
-    #[inline]
-    fn from_recoverable_error(
-        token_start: &<I as Stream>::Checkpoint,
-        _err_start: &<I as Stream>::Checkpoint,
-        input: &I,
-        e: ContextError,
-    ) -> Self {
-        KdlParseError {
-            span: Some((input.offset_from(token_start).saturating_sub(1)..input.location()).into()),
-            label: None,
-            help: None,
-            context: e.context().next().and_then(|e| match e {
-                StrContext::Label(l) => Some(*l),
-                StrContext::Expected(StrContextValue::StringLiteral(s)) => Some(*s),
-                StrContext::Expected(StrContextValue::Description(s)) => Some(*s),
-                _ => None,
-            }),
-            kind: None,
+fn span_from_checkpoint<I: Stream + Location>(
+    input: &I,
+    start: &<I as Stream>::Checkpoint,
+) -> SourceSpan {
+    let offset = input.offset_from(start);
+    ((input.location() - offset)..input.location()).into()
+}
+
+// This is just like the standard .resume_after(), except we only resume on Cut errors.
+fn resume_after_cut<Input, Output, Error, ParseNext, ParseRecover>(
+    mut parser: ParseNext,
+    mut recover: ParseRecover,
+) -> impl Parser<Input, Option<Output>, Error>
+where
+    Input: Stream + Recover<Error>,
+    Error: FromRecoverableError<Input, Error>,
+    ParseNext: Parser<Input, Output, Error>,
+    ParseRecover: Parser<Input, (), Error>,
+{
+    trace("resume_after_cut", move |input: &mut Input| {
+        resume_after_cut_inner(&mut parser, &mut recover, input)
+    })
+}
+
+fn resume_after_cut_inner<P, R, I, O, E>(
+    parser: &mut P,
+    recover: &mut R,
+    i: &mut I,
+) -> winnow::PResult<Option<O>, E>
+where
+    P: Parser<I, O, E>,
+    R: Parser<I, (), E>,
+    I: Stream,
+    I: Recover<E>,
+    E: FromRecoverableError<I, E>,
+{
+    let token_start = i.checkpoint();
+    let mut err = match parser.parse_next(i) {
+        Ok(o) => {
+            return Ok(Some(o));
+        }
+        Err(ErrMode::Incomplete(e)) => return Err(ErrMode::Incomplete(e)),
+        Err(ErrMode::Backtrack(e)) => return Err(ErrMode::Backtrack(e)),
+        Err(err) => err,
+    };
+    let err_start = i.checkpoint();
+    if recover.parse_next(i).is_ok() {
+        if let Err(err_) = i.record_err(&token_start, &err_start, err) {
+            err = err_;
+        } else {
+            return Ok(None);
         }
     }
-}
 
-/// Consumes the rest of a value we've cut_err on, so we can contine the parse.
-// TODO: maybe use this for detecting invalid codepoints with useful errors?
-fn badval(input: &mut Input<'_>) -> PResult<()> {
-    repeat_till(
-        0..,
-        (
-            not(alt((ws, node_terminator.void(), "{".void(), "}".void()))),
-            any,
-        ),
-        alt((
-            eof.void(),
-            peek(alt((ws, node_terminator.void(), "{".void(), "}".void()))),
-        )),
-    )
-    .map(|(_, _): ((), _)| ())
-    .parse_next(input)
-}
-
-fn lbl(label: &'static str) -> &'static str {
-    label
+    i.reset(&err_start);
+    err = err.map(|err| E::from_recoverable_error(&token_start, &err_start, i, err));
+    Err(err)
 }
 
 #[cfg(test)]
@@ -217,6 +263,15 @@ fn new_input(s: &str) -> Input<'_> {
 pub(crate) fn document(input: &mut Input<'_>) -> PResult<KdlDocument> {
     let bom = opt(bom.take()).parse_next(input)?;
     let mut doc = nodes.parse_next(input)?;
+    let badend = resume_after_cut(
+        cut_err(eof).context(cx().lbl("EOF").msg("Expected end of document")),
+        any.void(),
+    )
+    .parse_next(input)?
+    .is_none();
+    if badend {
+        document.parse_next(input)?;
+    }
     if let Some(bom) = bom {
         if let Some(fmt) = doc.format_mut() {
             fmt.leading = format!("{bom}{}", fmt.leading);
@@ -227,25 +282,31 @@ pub(crate) fn document(input: &mut Input<'_>) -> PResult<KdlDocument> {
 
 /// `nodes := (line-space* node)* line-space*`
 fn nodes(input: &mut Input<'_>) -> PResult<KdlDocument> {
-    let (leading, (nodes, _span), _final_terminator, trailing) = (
-        repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
-            .map(|()| ())
-            .take(),
-        separated(0.., node, node_terminator).with_span(),
-        opt(node_terminator),
-        repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
-            .map(|()| ())
-            .take(),
+    let leading = repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
+        .map(|()| ())
+        .take()
+        .parse_next(input)?;
+    let _start = input.checkpoint();
+    let ns: Vec<KdlNode> = separated(
+        0..,
+        node,
+        alt((node_terminator.void(), (eof.void(), any.void()).void())),
     )
+    .parse_next(input)?;
+    let _span = span_from_checkpoint(input, &_start);
+    opt(node_terminator).parse_next(input)?;
+    let trailing = repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
+        .map(|()| ())
+        .take()
         .parse_next(input)?;
     Ok(KdlDocument {
-        nodes,
+        nodes: ns,
         format: Some(KdlDocumentFormat {
             leading: leading.into(),
             trailing: trailing.into(),
         }),
         #[cfg(feature = "span")]
-        span: _span.into(),
+        span: _span,
     })
 }
 
@@ -270,19 +331,68 @@ fn node(input: &mut Input<'_>) -> PResult<KdlNode> {
 }
 
 fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
-    let ((ty, after_ty, name, entries, children), _span) = (
-        opt(ty),
-        node_space0.take(),
-        identifier,
-        repeat(
-            0..,
-            (peek(node_space1), node_entry).map(|(_, e): ((), _)| e),
-        )
-        .map(|e: Vec<Option<KdlEntry>>| e.into_iter().flatten().collect::<Vec<KdlEntry>>()),
-        opt((before_node_children.take(), node_children)),
+    trace("children closing check", not(alt(("}".void(), eof.void())))).parse_next(input)?;
+    let _start = input.checkpoint();
+    let open_curly = resume_after_cut(
+        cut_err(not("{").context(
+            cx().msg("Found child block instead of node name")
+                .lbl("node name")
+                .hlp("Did you forget to add the node name itself? Or perhaps terminated the node before its child block?"))),
+        "{".void(),
     )
-        .with_span()
-        .parse_next(input)?;
+    .parse_next(input)?;
+    if open_curly.is_none() {
+        // If we got a weird misplaced `{`, we consume the "child block" here,
+        // because otherwise the error message is going to include the entire
+        // child block as its span, but we only want to point to the offending
+        // curly.
+        input.reset(&_start);
+        node_children.parse_next(input)?;
+        opt(slashdashed_children).parse_next(input)?;
+        peek(opt(node_terminator)).parse_next(input)?;
+        // We also return a fake node here, for good measure.
+        return Ok(KdlNode::new("<<BAD_NODE>>"));
+    }
+    let ty = opt(ty).parse_next(input)?;
+    let after_ty = node_space0.take().parse_next(input)?;
+    let _before_ident = input.checkpoint();
+    let name = resume_after_cut(cut_err(identifier).context(
+        cx().msg("Found invalid node name")
+                                  .lbl("node name")
+                                  .hlp("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.")
+
+    ), badval)
+        .parse_next(input)?
+        .unwrap_or_else(|| KdlIdentifier::from("/BAD_IDENT\\"));
+    let name_is_valid = name.repr.as_ref().map(|s| s.is_empty()) != Some(true);
+    // resume_after_cut() only picks up context from parsers passed into it. In
+    // order to add an error that's more specific about us wanting a _node name_
+    // here, we have to do some shenanigans with a "fake" parse here.
+    // While this does result in double errors, I think it's still useful to get
+    // _both_ the error message for a string/ident parser error _and_ the error
+    // message for a node name being expected.
+    if !name_is_valid {
+        resume_after_cut(|input: &mut Input<'_>| -> PResult<()> {
+                Err(ErrMode::Cut(KdlParseError {
+                   span: Some(span_from_checkpoint(input, &_before_ident)),
+                   ..Default::default()
+                }))
+            }.context(cx().msg("Found invalid node name")
+                          .lbl("node name")
+                          .hlp("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.")),
+        empty).parse_next(input)?;
+    }
+    let entries = repeat(
+        0..,
+        (peek(node_space1), node_entry).map(|(_, e): ((), _)| e),
+    )
+    .map(|e: Vec<Option<KdlEntry>>| e.into_iter().flatten().collect::<Vec<KdlEntry>>())
+    .parse_next(input)?;
+    let children = opt((
+        before_node_children.take(),
+        trace("node children", node_children),
+    ))
+    .parse_next(input)?;
     let (before_terminator, terminator) = if children.is_some() {
         (
             opt(slashdashed_children).take(),
@@ -315,7 +425,7 @@ fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
             ..Default::default()
         }),
         #[cfg(feature = "span")]
-        span: _span.into(),
+        span: span_from_checkpoint(input, &_start),
     })
 }
 
@@ -390,7 +500,7 @@ pub(crate) fn padded_node(input: &mut Input<'_>) -> PResult<KdlNode> {
 pub(crate) fn padded_node_entry(input: &mut Input<'_>) -> PResult<KdlEntry> {
     let ((leading, entry, trailing), _span) = (
         repeat(0.., line_space).map(|_: ()| ()).take(),
-        node_entry,
+        trace("node entry", node_entry),
         repeat(0.., alt((line_space, node_space)))
             .map(|_: ()| ())
             .take(),
@@ -415,19 +525,64 @@ pub(crate) fn padded_node_entry(input: &mut Input<'_>) -> PResult<KdlEntry> {
 }
 
 /// `node-prop-or-arg := prop | value`
+/// `prop := string optional-node-space equals-sign optional-node-space value`
 fn node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
-    let (leading, mut entry) = (
-        (node_space0, opt((slashdashed_entries, node_space1))).take(),
-        alt((prop, value)),
-    )
+    let leading = (node_space0, opt((slashdashed_entries, node_space1)))
+        .take()
         .parse_next(input)?;
-    entry = entry.map(|mut e| {
-        if let Some(fmt) = e.format_mut() {
+    let _start = input.checkpoint();
+    let maybe_ident = trace("prop name or string val", opt(identifier)).parse_next(input)?;
+    let ident_was_parsed = maybe_ident.is_some();
+    let after_key = if ident_was_parsed {
+        opt((node_space0.take(), equals_sign))
+            .parse_next(input)?
+            .map(|(after_key, _)| after_key)
+    } else {
+        None
+    };
+    let entry = if let Some(after_key) = after_key {
+        let (after_eq, value) = (
+            node_space0.take(),
+            cut_err(value.context(cx().lbl("property value"))),
+        )
+            .parse_next(input)?;
+        value.map(|mut value| {
+            value.name = maybe_ident;
+            if let Some(fmt) = value.format_mut() {
+                fmt.after_key = after_key.into();
+                fmt.after_eq = after_eq.into();
+            }
+            #[cfg(feature = "span")]
+            value
+        })
+    } else if let Some(ident) = maybe_ident {
+        // It was ambiguous, but this ident is actually a value.
+        Some(KdlEntry {
+            format: Some(KdlEntryFormat {
+                value_repr: ident.repr.unwrap_or_else(|| ident.value.clone()),
+                ..Default::default()
+            }),
+            value: KdlValue::String(ident.value),
+            name: None,
+            ty: None,
+            #[cfg(feature = "span")]
+            span: (0..0).into(),
+        })
+    } else {
+        trace("non-string value", resume_after_cut(value, badval))
+            .parse_next(input)?
+            .flatten()
+    };
+    Ok(entry.map(|mut value| {
+        if let Some(fmt) = value.format_mut() {
             fmt.leading = leading.into();
         }
-        e
-    });
-    Ok(entry)
+        #[cfg(feature = "span")]
+        {
+            value.span = span_from_checkpoint(input, &_start);
+        }
+        value
+    }))
 }
 
 fn slashdashed_entries(input: &mut Input<'_>) -> PResult<()> {
@@ -498,7 +653,7 @@ fn entry_test() {
             format: Some(KdlEntryFormat {
                 value_repr: "2".into(),
                 leading: "/- foo=1 ".into(),
-                after_ty: " ".into(),
+                after_key: " ".into(),
                 after_eq: " ".into(),
                 ..Default::default()
             }),
@@ -519,7 +674,7 @@ fn entry_test() {
             format: Some(KdlEntryFormat {
                 value_repr: "2".into(),
                 leading: "/- \nfoo = 1 ".into(),
-                after_ty: " ".into(),
+                after_key: " ".into(),
                 after_eq: " ".into(),
                 ..Default::default()
             }),
@@ -557,10 +712,13 @@ fn before_node_children_test() {
 
 fn slashdashed_children(input: &mut Input<'_>) -> PResult<()> {
     node_space0.parse_next(input)?;
-    separated(
-        1..,
-        (slashdash.void(), node_children.void()).void(),
-        node_space1,
+    trace(
+        "slashdashed children",
+        separated(
+            1..,
+            (slashdash.void(), node_children.void()).void(),
+            node_space1,
+        ),
     )
     .map(|()| ())
     .parse_next(input)
@@ -575,47 +733,71 @@ fn around_children_test() {
 
 /// `node-children := '{' nodes final-node? '}'`
 fn node_children(input: &mut Input<'_>) -> PResult<KdlDocument> {
-    delimited("{", nodes, cut_err("}")).parse_next(input)
+    let _before_open = input.checkpoint();
+    let _before_open_loc = input.location();
+    "{".parse_next(input)?;
+    let _after_open_loc = input.location();
+    let ns = trace("child nodes", nodes).parse_next(input)?;
+    let _after_nodes = input.checkpoint();
+    let _after_nodes_loc = input.location();
+    let close_res: PResult<_> = cut_err("}")
+        .context(cx().msg("No closing '}' for child block").lbl("closed"))
+        .parse_next(input);
+    if close_res.is_err() {
+        return close_res
+            .map(|_| KdlDocument::new())
+            .or_else(|mut e: ErrMode<KdlParseError>| {
+                e = match e {
+                    ErrMode::Cut(mut pe) => {
+                        #[cfg(feature = "span")]
+                        {
+                            pe.span = Some((_before_open_loc.._after_open_loc).into());
+                        }
+                        ErrMode::Cut(pe)
+                    }
+                    e => return Err(e),
+                };
+                input.record_err(&_before_open, &_before_open, e)?;
+                if !ns.is_empty() {
+                    input.record_err(
+                        &_after_nodes,
+                        &_after_nodes,
+                        ErrMode::Cut(KdlParseError {
+                            message: Some("Closing '}' was not found after nodes".into()),
+                            span: Some((_after_open_loc.._after_nodes_loc).into()),
+                            label: Some("closed".into()),
+                            help: None,
+                            severity: Some(Severity::Error),
+                        }),
+                    )?;
+                }
+                Ok(KdlDocument::new())
+            });
+    }
+    Ok(ns)
 }
 
 /// `node-terminator := single-line-comment | newline | ';' | eof`
 fn node_terminator(input: &mut Input<'_>) -> PResult<()> {
-    alt((";".void(), newline, single_line_comment)).parse_next(input)
-}
-
-/// `prop := string optional-node-space equals-sign optional-node-space value`
-fn prop(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
-    let ((key, after_key, _eqa, after_eq, value), _span) = (
-        identifier,
-        node_space0.take(),
-        equals_sign.take(),
-        node_space0.take(),
-        cut_err(value),
+    trace(
+        "node_terminator",
+        alt((";".void(), newline, single_line_comment)),
     )
-        .with_span()
-        .parse_next(input)?;
-    Ok(value.map(|mut value| {
-        value.name = Some(key);
-        if let Some(fmt) = value.format_mut() {
-            fmt.after_ty = after_key.into();
-            fmt.after_eq = after_eq.into();
-        }
-        #[cfg(feature = "span")]
-        {
-            value.span = _span.into();
-        }
-        value
-    }))
+    .void()
+    .parse_next(input)
 }
 
 /// `value := type? optional-node-space (string | number | keyword)`
 fn value(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
-    let ((ty, (value, raw)), _span) = (
-        opt((ty, node_space0.take())),
-        alt((keyword.map(Some), number.map(Some), string)).with_taken(),
+    let ((ty, (value, raw)), _span) = trace(
+        "value",
+        (
+            opt((ty, node_space0.take())),
+            alt((keyword.map(Some), number.map(Some), string)).with_taken(),
+        ),
     )
-        .with_span()
-        .parse_next(input)?;
+    .with_span()
+    .parse_next(input)?;
     let ((before_ty_name, ty, after_ty_name), after_ty) = ty.unwrap_or_default();
     Ok(value.map(|value| KdlEntry {
         ty,
@@ -633,18 +815,53 @@ fn value(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
     }))
 }
 
+fn badval(input: &mut Input<'_>) -> PResult<()> {
+    trace("badval", repeat_till(1.., any, peek(value_terminator)))
+        .map(|((), _)| ())
+        .parse_next(input)
+}
+
+fn value_terminator(input: &mut Input<'_>) -> PResult<()> {
+    alt((
+        eof.void(),
+        "=".void(),
+        ")".void(),
+        "{".void(),
+        "}".void(),
+        node_space,
+        node_terminator,
+    ))
+    .parse_next(input)
+}
+
+fn value_terminator_check(input: &mut Input<'_>) -> PResult<()> {
+    trace("value terminator check", cut_err(peek(value_terminator).context(cx().hlp("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?")))).parse_next(input)
+}
+
 /// `type := '(' optional-node-space string optional-node-space ')'`
 fn ty<'s>(input: &mut Input<'s>) -> PResult<(&'s str, Option<KdlIdentifier>, &'s str)> {
     "(".parse_next(input)?;
     let (before_ty, ty, after_ty) = (
         node_space0.take(),
-        cut_err(identifier.context(lbl("type name")))
-            .resume_after((badval, peek(")").void(), badval).void()),
+        resume_after_cut(
+            cut_err(
+                (identifier, peek(alt((node_space, ")".void())))).context(
+                    cx().lbl("type name")
+                        .msg("invalid contents inside type annotation"),
+                ),
+            ),
+            repeat_till(1.., (not(badval_ty_char), any), peek(badval_ty_char)).map(|((), _)| ()),
+        )
+        .map(|opt| opt.map(|(i, _)| i)),
         node_space0.take(),
     )
         .parse_next(input)?;
-    cut_err(")").parse_next(input)?;
+    ")".parse_next(input)?;
     Ok((before_ty, ty, after_ty))
+}
+
+fn badval_ty_char(input: &mut Input<'_>) -> PResult<()> {
+    alt((")".void(), "{".void(), node_space, node_terminator)).parse_next(input)
 }
 
 /// `line-space := newline | ws | single-line-comment`
@@ -667,23 +884,47 @@ fn node_space1(input: &mut Input<'_>) -> PResult<()> {
 
 /// `string := identifier-string | quoted-string | raw-string`
 pub(crate) fn string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
-    alt((identifier_string, raw_string, quoted_string))
-        .context("string")
-        .parse_next(input)
+    // TODO: shouldn't put the `resume_after_cut`s here, because they mess with context from higher levels.
+    trace(
+        "string",
+        alt((
+            resume_after_cut(
+                (identifier_string, value_terminator_check).context(cx().lbl("identifier string")),
+                badval,
+            ),
+            resume_after_cut(
+                (raw_string, value_terminator_check).context(cx().lbl("raw string")),
+                alt((raw_string_badval, badval)).void(),
+            ),
+            resume_after_cut(
+                (quoted_string, value_terminator_check).context(cx().lbl("quoted string")),
+                alt((quoted_string_badval, badval)).void(),
+            ),
+        )),
+    )
+    .map(|res| res.map(|(s, _)| s))
+    .parse_next(input)
 }
 
 pub(crate) fn identifier(input: &mut Input<'_>) -> PResult<KdlIdentifier> {
+    let mut bad_ident = false;
     let ((mut ident, raw), _span) = string
-        .verify_map(|i| {
-            i.and_then(|v| match v {
-                KdlValue::String(s) => Some(KdlIdentifier::from(s)),
-                _ => None,
-            })
+        .verify_map(|ident| {
+            ident
+                .or_else(|| {
+                    // This is a sentinel we use later for better error messages
+                    bad_ident = true;
+                    Some(KdlValue::String("/BAD_IDENT\\".into()))
+                })
+                .and_then(|v| match v {
+                    KdlValue::String(s) => Some(KdlIdentifier::from(s)),
+                    _ => None,
+                })
         })
         .with_taken()
         .with_span()
         .parse_next(input)?;
-    ident.set_repr(raw);
+    ident.set_repr(if bad_ident { "" } else { raw });
     #[cfg(feature = "span")]
     {
         ident.set_span(_span);
@@ -692,27 +933,38 @@ pub(crate) fn identifier(input: &mut Input<'_>) -> PResult<KdlIdentifier> {
 }
 
 /// `identifier-string := unambiguous-ident | signed-ident | dotted-ident`
-fn identifier_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
+fn identifier_string(input: &mut Input<'_>) -> PResult<KdlValue> {
     alt((unambiguous_ident, signed_ident, dotted_ident))
         .take()
-        .map(|s| Some(KdlValue::String(s.into())))
+        .map(|s| KdlValue::String(s.into()))
         .parse_next(input)
 }
 
 /// `unambiguous-ident := ((identifier-char - digit - sign - '.') identifier-char*) - 'true' - 'false' - 'null' - 'inf' - '-inf' - 'nan'`
 fn unambiguous_ident(input: &mut Input<'_>) -> PResult<()> {
     not(alt((digit1.void(), alt(("-", "+")).void(), ".".void()))).parse_next(input)?;
-    repeat(1.., identifier_char)
-        .verify_map(|s: String| {
-            if s == "true" || s == "false" || s == "null" || s == "inf" || s == "-inf" || s == "nan"
-            {
-                None
-            } else {
-                Some(s)
-            }
-        })
-        .void()
-        .parse_next(input)
+    peek(identifier_char).parse_next(input)?;
+    trace(
+        "identifier chars",
+        cut_err(
+            repeat(1.., identifier_char)
+                .verify_map(|s: String| {
+                    if s == "true"
+                        || s == "false"
+                        || s == "null"
+                        || s == "inf"
+                        || s == "-inf"
+                        || s == "nan"
+                    {
+                        None
+                    } else {
+                        Some(s)
+                    }
+                })
+                .void(),
+        ),
+    )
+    .parse_next(input)
 }
 
 /// `signed-ident := sign ((identifier-char - digit - '.') identifier-char*)?`
@@ -770,7 +1022,7 @@ fn equals_sign(input: &mut Input<'_>) -> PResult<()> {
 /// single-line-string-body := (string-character - newline)*
 /// multi-line-string-body := string-character*
 /// ```
-fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
+fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
     let quotes = alt((("\"\"\"", newline).take(), "\"")).parse_next(input)?;
     let is_multiline = quotes.len() > 1;
     let ml_prefix: Option<String> = if is_multiline {
@@ -796,12 +1048,12 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
     } else {
         None
     };
-    let body: Option<String> = if let Some(prefix) = ml_prefix {
-        repeat_till(
+    let body = if let Some(prefix) = ml_prefix {
+        let parser = repeat_till(
             0..,
             (
                 cut_err(alt((&prefix[..], peek(newline).take())))
-                    .context(lbl("matching multiline string prefix")),
+                    .context(cx().msg("matching multiline string prefix").lbl("bad prefix").hlp("Multi-line string bodies must be prefixed by the exact same whitespace as the leading whitespace before the closing '\"\"\"'")),
                 alt((
                     newline.take().map(|_| "\n".to_string()),
                     repeat_till(
@@ -826,36 +1078,58 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<Option<KdlValue>> {
             s.truncate(s.len() - 1);
             s
         })
-        .resume_after(quoted_string_badval)
-        .parse_next(input)?
+        .context(cx().lbl("multi-line quoted string"));
+        cut_err(parser).parse_next(input)?
     } else {
-        repeat_till(
+        let parser = repeat_till(
             0..,
-            (not(newline), opt(ws_escape), string_char).map(|(_, _, s)| s),
+            (
+                cut_err(
+                    not(newline).context(
+                        cx().msg("Unexpected newline in single-line quoted string")
+                            .hlp("You can make a string multi-line by wrapping it in '\"\"\"', with a newline immediately after the opening quotes."),
+                    ),
+                ),
+                opt(ws_escape),
+                string_char,
+            )
+                .map(|(_, _, s)| s),
             (repeat(0.., unicode_space).map(|()| ()).take(), peek("\"")),
         )
         .map(|(s, (end, _)): (String, (&'s str, _))| format!("{s}{end}"))
-        .context(lbl("quoted string"))
-        .resume_after(quoted_string_badval)
-        .parse_next(input)?
+        .context(cx().lbl("quoted string"));
+        cut_err(parser).parse_next(input)?
     };
     let closing_quotes = if is_multiline {
-        "\"\"\"".context(lbl("multiline string closing quotes"))
+        "\"\"\"".context(cx().msg("missing multiline string closing quotes").hlp("Multiline strings must be closed by '\"\"\"' on a standalone line, only prefixed by whitespace."))
     } else {
-        "\"".context(lbl("string closing quote"))
+        "\"".context(
+            cx().msg("missing string closing quote")
+                .hlp("Did you forget to escape something?"),
+        )
     };
     cut_err(closing_quotes).parse_next(input)?;
-    Ok(body.map(KdlValue::String))
+    Ok(KdlValue::String(body))
 }
 
 /// Like badval, but is able to slurp up invalid raw strings, which contain whitespace.
 fn quoted_string_badval(input: &mut Input<'_>) -> PResult<()> {
-    let terminator = (peek("\""), peek(alt((ws, newline, eof.void()))));
-    let terminator2 = (peek("\""), peek(alt((ws, newline, eof.void()))));
-    repeat_till(0.., (not(terminator), any), terminator2)
-        .map(|(v, _)| v)
+    (
+        repeat_till(
+            0..,
+            (not(quoted_string_terminator), any),
+            quoted_string_terminator,
+        ),
+        quoted_string_terminator,
+    )
+        .map(|(((), _), _)| ())
         .parse_next(input)
 }
+
+fn quoted_string_terminator(input: &mut Input<'_>) -> PResult<()> {
+    alt(("\"\"\"".void(), "\"".void(), peek(value_terminator))).parse_next(input)
+}
+
 /// ```text
 /// string-character := '\' escape | [^\\"] - disallowed-literal-code-points
 /// ```
@@ -898,7 +1172,7 @@ fn escaped_char(input: &mut Input<'_>) -> PResult<char> {
             cut_err(take_while(1..6, AsChar::is_hex_digit)),
             cut_err("}"),
         )
-            .context(lbl("unicode escape char"))
+            .context(cx().lbl("unicode escape char"))
             .verify_map(|(_, hx, _)| {
                 let val = u32::from_str_radix(hx, 16)
                     .expect("Should have already been validated to be a hex string.");
@@ -912,12 +1186,10 @@ fn escaped_char(input: &mut Input<'_>) -> PResult<char> {
 /// `raw-string-quotes := '"' single-line-raw-string-body '"' | '"""' newline multi-line-raw-string-body newline unicode-space*) '"""'`
 /// `single-line-raw-string-body := (unicode - newline - disallowed-literal-code-points)*`
 /// `multi-line-raw-string-body := (unicode - disallowed-literal-code-points)`
-fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
+fn raw_string(input: &mut Input<'_>) -> PResult<KdlValue> {
     let hashes: String = repeat(1.., "#").parse_next(input)?;
     let quotes = alt((("\"\"\"", newline).take(), "\"")).parse_next(input)?;
     let is_multiline = quotes.len() > 1;
-    dbg!(&quotes);
-    dbg!(is_multiline);
     let ml_prefix: Option<String> = if is_multiline {
         Some(
             peek(preceded(
@@ -953,13 +1225,12 @@ fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
     } else {
         None
     };
-    dbg!(&ml_prefix);
-    let body: Option<String> = if let Some(prefix) = ml_prefix {
+    let body = if let Some(prefix) = ml_prefix {
         repeat_till(
             0..,
             (
                 cut_err(alt((&prefix[..], peek(newline).take())))
-                    .context(lbl("matching multiline raw string prefix")),
+                    .context(cx().lbl("matching multiline raw string prefix")),
                 alt((
                     newline.take().map(|_| "\n".to_string()),
                     repeat_till(
@@ -986,7 +1257,6 @@ fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
             s.truncate(s.len() - 1);
             s
         })
-        .resume_after(raw_string_badval)
         .parse_next(input)?
     } else {
         repeat_till(
@@ -1001,17 +1271,16 @@ fn raw_string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
             peek(("\"", &hashes[..])),
         )
         .map(|(s, _): (String, _)| s)
-        .context(lbl("raw string"))
-        .resume_after(raw_string_badval)
+        .context(cx().lbl("raw string"))
         .parse_next(input)?
     };
     let closing_quotes = if is_multiline {
-        "\"\"\"".context(lbl("multiline raw string closing quotes"))
+        "\"\"\"".context(cx().lbl("multiline raw string closing quotes"))
     } else {
-        "\"".context(lbl("raw string closing quotes"))
+        "\"".context(cx().lbl("raw string closing quotes"))
     };
     cut_err((closing_quotes, &hashes[..])).parse_next(input)?;
-    Ok(body.map(KdlValue::String))
+    Ok(KdlValue::String(body))
 }
 
 /// Like badval, but is able to slurp up invalid raw strings, which contain whitespace.
@@ -1170,14 +1439,16 @@ fn keyword(input: &mut Input<'_>) -> PResult<KdlValue> {
     let _ = "#".parse_next(input)?;
     not(one_of(['#', '"'])).parse_next(input)?;
     cut_err(alt((
-        Caseless("true").value(KdlValue::Bool(true)),
-        Caseless("false").value(KdlValue::Bool(false)),
-        Caseless("null").value(KdlValue::Null),
-        Caseless("nan").value(KdlValue::Float(f64::NAN)),
-        Caseless("inf").value(KdlValue::Float(f64::INFINITY)),
-        Caseless("-inf").value(KdlValue::Float(f64::NEG_INFINITY)),
+        "true".value(KdlValue::Bool(true)),
+        "false".value(KdlValue::Bool(false)),
+        "null".value(KdlValue::Null),
+        "nan".value(KdlValue::Float(f64::NAN)),
+        "inf".value(KdlValue::Float(f64::INFINITY)),
+        "-inf".value(KdlValue::Float(f64::NEG_INFINITY)),
     )))
-    .context(lbl("keyword"))
+    .context(cx().lbl("keyword").hlp(
+        "Available keywords in KDL are '#true', '#false', '#null', '#nan', '#inf', and '#-inf'; they are case-sensitive.",
+    ))
     .parse_next(input)
 }
 
@@ -1246,7 +1517,7 @@ static NEWLINES: [&str; 7] = [
 fn newline(input: &mut Input<'_>) -> PResult<()> {
     alt(NEWLINES)
         .void()
-        .context(lbl("newline"))
+        .context(cx().lbl("newline"))
         .parse_next(input)
 }
 
@@ -1290,7 +1561,7 @@ fn single_line_comment(input: &mut Input<'_>) -> PResult<()> {
 fn multi_line_comment(input: &mut Input<'_>) -> PResult<()> {
     "/*".parse_next(input)?;
     cut_err(commented_block)
-        .context(lbl("closing of multi-line comment"))
+        .context(cx().lbl("closing of multi-line comment"))
         .parse_next(input)
 }
 
@@ -1365,20 +1636,40 @@ fn float_value(input: &mut Input<'_>) -> PResult<KdlValue> {
 }
 
 fn float<T: ParseFloat>(input: &mut Input<'_>) -> PResult<T> {
-    alt((
-        (
-            decimal::<i128>,
-            opt(preceded('.', cut_err(udecimal::<i128>))),
-            Caseless("e"),
-            opt(one_of(['-', '+'])),
-            cut_err(udecimal::<i128>),
-        )
-            .take(),
-        (decimal::<i128>, '.', cut_err(udecimal::<i128>)).take(),
-    ))
-    .try_map(|float_str| T::parse_float(&str::replace(float_str, "_", "")))
-    .context(lbl("float"))
-    .parse_next(input)
+    (
+        alt((
+            (
+                decimal::<i128>,
+                opt(preceded(
+                    '.',
+                    cut_err(
+                        udecimal::<i128>.context(
+                            cx().msg("Non-digit character found after the '.' of a float"),
+                        ),
+                    ),
+                )),
+                Caseless("e"),
+                opt(one_of(['-', '+'])),
+                cut_err(udecimal::<i128>.context(
+                    cx().msg("Non-digit character found in the exponent part of a float").hlp("Floats with exponent parts should look like '2.0e123', or '43.3E-4'."),
+                )),
+            )
+                .take(),
+            (
+                decimal::<i128>,
+                '.',
+                cut_err(
+                    udecimal::<i128>
+                        .context(cx().msg("Non-digit character found after the '.' of a float")),
+                ),
+            )
+                .take(),
+        )),
+        value_terminator_check,
+    )
+        .try_map(|(float_str, _)| T::parse_float(&str::replace(float_str, "_", "")))
+        .context(cx().lbl("float"))
+        .parse_next(input)
 }
 
 #[cfg(test)]
@@ -1396,9 +1687,9 @@ fn float_test() {
     );
     assert_eq!(
         (float_value, take(1usize))
-            .parse(new_input("1234.56c"))
+            .parse(new_input("1234.56 "))
             .unwrap(),
-        (KdlValue::Float(1234.56), "c")
+        (KdlValue::Float(1234.56), " ")
     );
     assert!(float_value.parse(new_input("_1234.56")).is_err());
     assert!(float_value.parse(new_input("1234a.56")).is_err());
@@ -1412,9 +1703,14 @@ fn float_test() {
 }
 
 fn integer_value(input: &mut Input<'_>) -> PResult<KdlValue> {
-    alt((hex, octal, binary, decimal))
-        .map(KdlValue::Integer)
-        .parse_next(input)
+    alt((
+        (hex, value_terminator_check).context(cx().lbl("hexadecimal number")),
+        (octal, value_terminator_check).context(cx().lbl("octal number")),
+        (binary, value_terminator_check).context(cx().lbl("binary number")),
+        (decimal, value_terminator_check).context(cx().lbl("integer")),
+    ))
+    .map(|(val, _)| KdlValue::Integer(val))
+    .parse_next(input)
 }
 
 /// Non-float decimal
@@ -1444,10 +1740,10 @@ fn decimal_test() {
 fn udecimal<T: FromStrRadix>(input: &mut Input<'_>) -> PResult<T> {
     (
         digit1,
-        cut_err(repeat(
+        repeat(
             0..,
             alt(("_", take_while(1.., AsChar::is_dec_digit).take())),
-        )),
+        ),
     )
         .try_map(|(l, r): (&str, Vec<&str>)| {
             T::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 10)
@@ -1481,7 +1777,7 @@ fn uhex<T: FromStrRadix>(input: &mut Input<'_>) -> PResult<T> {
     .try_map(|(l, r): (&str, Vec<&str>)| {
         T::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 16)
     })
-    .context(lbl("hexadecimal"))
+    .context(cx().lbl("hexadecimal"))
     .parse_next(input)
 }
 
@@ -1537,7 +1833,7 @@ fn uoctal<T: FromStrRadix>(input: &mut Input<'_>) -> PResult<T> {
     .try_map(|(l, r): (&str, Vec<&str>)| {
         T::from_str_radix(&format!("{l}{}", str::replace(&r.join(""), "_", "")), 8)
     })
-    .context(lbl("octal"))
+    .context(cx().lbl("octal"))
     .parse_next(input)
 }
 
@@ -1573,7 +1869,7 @@ fn ubinary<T: FromStrRadix>(input: &mut Input<'_>) -> PResult<T> {
             },
         ),
     )
-    .context(lbl("binary"))
+    .context(cx().lbl("binary"))
     .parse_next(input)
 }
 
@@ -1671,3 +1967,473 @@ impl ParseFloat for f64 {
 
 impl_negatable_signed!(i8, i16, i32, i64, i128, isize);
 impl_negatable_unsigned!(u8, u16, u32, u64, u128, usize);
+
+#[cfg(test)]
+mod failure_tests {
+    use miette::Severity;
+
+    use crate::{KdlDiagnostic, KdlDocument, KdlParseFailure};
+    use std::sync::Arc;
+
+    #[test]
+    fn bad_node_name_test() -> miette::Result<()> {
+        let input = Arc::new("foo { bar; { baz; }; }".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // super::_print_diagnostic(res);
+        // return Ok(());
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (11..12).into(),
+                        message: Some("Found child block instead of node name".into()),
+                        label: Some("not node name".into()),
+                        help: Some("Did you forget to add the node name itself? Or perhaps terminated the node before its child block?".into()),
+                        severity: Severity::Error
+                    }
+                ]
+            ))
+        );
+        let input = Arc::new("no/de 1 {\n    1 2 foo\n    bad#\n}".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // super::_print_diagnostic(res);
+        // return Ok(());
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (0..5).into(),
+                        message: Some("Expected identifier string".into()),
+                        label: Some("not identifier string".into()),
+                        help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
+                        severity: Severity::Error
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (0..5).into(),
+                        message: Some("Found invalid node name".into()),
+                        label: Some("not node name".into()),
+                        help: Some("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.".into()),
+                        severity: Severity::Error
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (14..15).into(),
+                        message: Some("Found invalid node name".into()),
+                        label: Some("not node name".into()),
+                        help: Some("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.".into()),
+                        severity: Severity::Error
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (26..30).into(),
+                        message: Some("Expected identifier string".into()),
+                        label: Some("not identifier string".into()),
+                        help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
+                        severity: Severity::Error
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (26..30).into(),
+                        message: Some("Found invalid node name".into()),
+                        label: Some("not node name".into()),
+                        help: Some("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.".into()),
+                        severity: Severity::Error
+                    }
+                ]
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn bad_entry_number_test() -> miette::Result<()> {
+        let input = Arc::new("node 1asdf 2".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // super::_print_diagnostic(res);
+        // return Ok(());
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..10).into(),
+                    message: Some("Expected integer".into()),
+                    label: Some("not integer".into()),
+                    severity: miette::Severity::Error,
+                    help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
+                }]
+            ))
+        );
+
+        let input = Arc::new("node 0x1asdf 2".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..12).into(),
+                    message: Some("Expected hexadecimal number".into()),
+                    label: Some("not hexadecimal number".into()),
+                    severity: miette::Severity::Error,
+                    help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
+                }]
+            ))
+        );
+
+        let input = Arc::new("node 0o1asdf 2".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..12).into(),
+                    message: Some("Expected octal number".into()),
+                    label: Some("not octal number".into()),
+                    severity: miette::Severity::Error,
+                    help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
+                }]
+            ))
+        );
+
+        let input = Arc::new("node 0b1asdf 2".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..12).into(),
+                    message: Some("Expected binary number".into()),
+                    label: Some("not binary number".into()),
+                    severity: miette::Severity::Error,
+                    help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
+                }]
+            ))
+        );
+
+        let input = Arc::new("node 1.0asdf 2".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..12).into(),
+                    message: Some("Expected float".into()),
+                    label: Some("not float".into()),
+                    severity: miette::Severity::Error,
+                    help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
+                }]
+            ))
+        );
+
+        let input = Arc::new("node 1.asdf 2".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..11).into(),
+                    message: Some("Non-digit character found after the '.' of a float".into()),
+                    label: Some("not float".into()),
+                    severity: miette::Severity::Error,
+                    help: None,
+                }]
+            ))
+        );
+
+        let input = Arc::new("node 1.0easdf 2".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..13).into(),
+                    message: Some(
+                        "Non-digit character found in the exponent part of a float".into()
+                    ),
+                    label: Some("not float".into()),
+                    severity: miette::Severity::Error,
+                    help: Some(
+                        "Floats with exponent parts should look like '2.0e123', or '43.3E-4'."
+                            .into()
+                    ),
+                }]
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn bad_string_test() -> miette::Result<()> {
+        let input = Arc::new("node \" 1".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..8).into(),
+                    severity: miette::Severity::Error,
+                    message: Some("Expected quoted string".into()),
+                    label: Some("not quoted string".into()),
+                    help: None,
+                }]
+            ))
+        );
+
+        let input = Arc::new("node \"foo\"1".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // if let Err(e) = res {
+        //     println!("{:?}", miette::Report::from(e));
+        // }
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..11).into(),
+                    severity: miette::Severity::Error,
+                    message: Some("Expected quoted string".into()),
+                    label: Some("not quoted string".into()),
+                    help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
+                }]
+            ))
+        );
+
+        let input = Arc::new("node \"\nlet's do multiline!\"".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (5..6).into(),
+                        message: Some("Unexpected newline in single-line quoted string".into()),
+                        label: Some("not quoted string".into()),
+                        help: Some("You can make a string multi-line by wrapping it in '\"\"\"', with a newline immediately after the opening quotes.".into()),
+                        severity: Severity::Error
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (16..27).into(),
+                        message: Some("Expected identifier string".into()),
+                        label: Some("not identifier string".into()),
+                        help: Some("A valid value was partially parsed, but was not followed by a value terminator. Did you want a space here?".into()),
+                        severity: Severity::Error
+                    }
+                ]
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn bad_child_test() -> miette::Result<()> {
+        let input = Arc::new("node {".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // _print_diagnostic(res);
+        // return Ok(());
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (5..6).into(),
+                    severity: miette::Severity::Error,
+                    message: Some("No closing '}' for child block".into()),
+                    label: Some("not closed".into()),
+                    help: None,
+                }]
+            ))
+        );
+
+        let input = Arc::new("node {}}".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // _print_diagnostic(res);
+        // return Ok(());
+        // println!("{res:#?}");
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![KdlDiagnostic {
+                    input: input.clone(),
+                    span: (7..8).into(),
+                    message: Some("Expected end of document".into()),
+                    label: Some("not EOF".into(),),
+                    help: None,
+                    severity: miette::Severity::Error,
+                }]
+            ))
+        );
+
+        let input = Arc::new("node }{".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // _print_diagnostic(res);
+        // return Ok(());
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (5..6).into(),
+                        message: Some(
+                            "Expected end of document".into()
+                        ),
+                        label: Some(
+                            "not EOF".into()
+                        ),
+                        help: None,
+                        severity: Severity::Error,
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (6..7).into(),
+                        message: Some(
+                            "Found child block instead of node name".into(),
+                        ),
+                        label: Some(
+                            "not node name".into(),
+                        ),
+                        help: Some(
+                            "Did you forget to add the node name itself? Or perhaps terminated the node before its child block?".into(),
+                        ),
+                        severity: Severity::Error,
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (6..7).into(),
+                        message: Some(
+                            "No closing '}' for child block".into(),
+                        ),
+                        label: Some(
+                            "not closed".into(),
+                        ),
+                        help: None,
+                        severity: Severity::Error,
+                    },
+                ]
+            ))
+        );
+
+        let input = Arc::new("node {\n".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // _print_diagnostic(res);
+        // return Ok(());
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (5..6).into(),
+                        message: Some("No closing '}' for child block".into()),
+                        label: Some("not closed".into()),
+                        help: None,
+                        severity: Severity::Error,
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (6..7).into(),
+                        message: Some("Closing '}' was not found after nodes".into()),
+                        label: Some("not closed".into()),
+                        help: None,
+                        severity: Severity::Error,
+                    },
+                ]
+            ))
+        );
+
+        let input = Arc::new("node {\nnode2{{}}".to_string());
+        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        // _print_diagnostic(res);
+        // return Ok(());
+        println!("{res:#?}");
+        assert_eq!(
+            res,
+            Err(mkfail(
+                input.clone(),
+                vec![
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (13..14).into(),
+                        message: Some(
+                            "Found child block instead of node name".into()
+                        ),
+                        label: Some(
+                            "not node name".into()
+                        ),
+                        help: Some(
+                            "Did you forget to add the node name itself? Or perhaps terminated the node before its child block?".into()
+                        ),
+                        severity: Severity::Error,
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (5..6).into(),
+                        message: Some(
+                            "No closing '}' for child block".into(),
+                        ),
+                        label: Some(
+                            "not closed".into(),
+                        ),
+                        help: None,
+                        severity: Severity::Error,
+                    },
+                    KdlDiagnostic {
+                        input: input.clone(),
+                        span: (6..16).into(),
+                        message: Some(
+                            "Closing '}' was not found after nodes".into()
+                        ),
+                        label: Some(
+                            "not closed".into()
+                        ),
+                        help: None,
+                        severity: Severity::Error,
+                    },
+               ]
+            ))
+        );
+
+        Ok(())
+    }
+
+    fn mkfail(input: Arc<String>, diagnostics: Vec<KdlDiagnostic>) -> KdlParseFailure {
+        KdlParseFailure { input, diagnostics }
+    }
+}
+
+#[cfg(test)]
+fn _print_diagnostic<T>(res: Result<T, KdlParseFailure>) {
+    if let Err(e) = res {
+        println!("{:?}", miette::Report::from(e));
+    }
+}

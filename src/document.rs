@@ -531,7 +531,6 @@ final;";
         // if you're making KdlEntries this way, you need to inject
         // your own whitespace (or format the node)
         node.push(" \"blah\"=0xDEADbeef".parse::<KdlEntry>()?);
-        dbg!(&node);
         doc.nodes_mut().push(node);
 
         assert_eq!(
@@ -887,7 +886,7 @@ inline { time; to; live "our" "dreams"; "y;all" }
         check_span("time", inline_nodes[0].span(), &input);
         check_span("to", inline_nodes[1].span(), &input);
         check_span(r#"live "our" "dreams""#, inline_nodes[2].span(), &input);
-        check_span(r#""y;all""#, inline_nodes[3].span(), &input);
+        check_span(r#""y;all" "#, inline_nodes[3].span(), &input);
 
         Ok(())
     }
