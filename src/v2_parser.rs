@@ -882,9 +882,8 @@ fn node_space1(input: &mut Input<'_>) -> PResult<()> {
     repeat(1.., node_space).parse_next(input)
 }
 
-/// `string := identifier-string | quoted-string | raw-string`
+/// string := identifier-string | quoted-string | raw-string ¶
 pub(crate) fn string(input: &mut Input<'_>) -> PResult<Option<KdlValue>> {
-    // TODO: shouldn't put the `resume_after_cut`s here, because they mess with context from higher levels.
     trace(
         "string",
         alt((
@@ -1018,32 +1017,65 @@ fn equals_sign(input: &mut Input<'_>) -> PResult<()> {
 }
 
 /// ```text
-/// quoted-string := '"' single-line-string-body '"' | '"""' newline multi-line-string-body newline unicode-space*) '"""'
+/// quoted-string := '"' single-line-string-body '"' | '"""' newline multi-line-string-body newline (unicode-space | ('\' (unicode-space | newline)+)*) '"""'
 /// single-line-string-body := (string-character - newline)*
-/// multi-line-string-body := string-character*
+/// multi-line-string-body := (('"' | '""')? string-character)*
 /// ```
-fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
-    let quotes = alt((("\"\"\"", newline).take(), "\"")).parse_next(input)?;
+fn quoted_string(input: &mut Input<'_>) -> PResult<KdlValue> {
+    let quotes =
+        alt((
+            (
+                "\"\"\"",
+                cut_err(newline).context(cx().lbl("multi-line string newline").msg(
+                    "Multi-line string opening quotes must be immediately followed by a newline",
+                )),
+            )
+                .take(),
+            "\"",
+        ))
+        .parse_next(input)?;
     let is_multiline = quotes.len() > 1;
     let ml_prefix: Option<String> = if is_multiline {
         Some(
-            peek(preceded(
+            cut_err(peek(preceded(
                 repeat_till(
                     0..,
                     (
-                        repeat(0.., (not(newline), opt(ws_escape), string_char)).map(|()| ()),
+                        repeat(
+                            0..,
+                            (
+                                not(newline),
+                                alt((
+                                    ws_escape.void(),
+                                    trace(
+                                        "valid string body char(s)",
+                                        alt((
+                                            ('\"', not("\"\"")).void(),
+                                            ('\"', not("\"")).void(),
+                                            string_char.void(),
+                                        )),
+                                    )
+                                    .void(),
+                                )),
+                            ),
+                        )
+                        .map(|()| ()),
                         newline,
                     ),
                     peek(terminated(
-                        repeat(0.., unicode_space).map(|()| ()),
+                        repeat(0.., alt((ws_escape, unicode_space))).map(|()| ()),
                         "\"\"\"",
                     )),
                 )
                 .map(|((), ())| ()),
-                terminated(repeat(0.., unicode_space).map(|()| ()).take(), "\"\"\""),
-            ))
-            .parse_next(input)?
-            .to_string(),
+                terminated(
+                    repeat(0.., alt((ws_escape.map(|_| ""), unicode_space.take())))
+                        .map(|s: String| s),
+                    "\"\"\"",
+                ),
+            )))
+            .context(cx().lbl("multi-line string"))
+            .parse_next(input)?,
         )
     } else {
         None
@@ -1052,30 +1084,40 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
         let parser = repeat_till(
             0..,
             (
-                cut_err(alt((&prefix[..], peek(newline).take())))
+                cut_err(alt(((&prefix[..]).void(), peek(empty_line).void())))
                     .context(cx().msg("matching multiline string prefix").lbl("bad prefix").hlp("Multi-line string bodies must be prefixed by the exact same whitespace as the leading whitespace before the closing '\"\"\"'")),
                 alt((
-                    newline.take().map(|_| "\n".to_string()),
+                    empty_line.map(|s| s.to_string()),
                     repeat_till(
                         0..,
-                        (not(newline), opt(ws_escape), string_char).map(|(_, _, s)| s),
+                        (
+                            not(newline),
+                            alt((
+                                ws_escape.map(|_| None),
+                                alt((
+                                    ('\"', not("\"\"")).map(|(c, ())| Some(c)),
+                                    ('\"', not("\"")).map(|(c, ())| Some(c)),
+                                    string_char.map(Some),
+                                ))
+                            ))
+                        ).map(|(_, c)| c),
                         newline,
                     )
                     // multiline string literal newlines are normalized to `\n`
-                    .map(|(s, _): (String, _)| format!("{s}\n")),
+                    .map(|(cs, _): (Vec<Option<char>>, _)| cs.into_iter().flatten().chain(vec!['\n']).collect::<String>()),
                 )),
             )
                 .map(|(_, s)| s),
             (
                 &prefix[..],
-                repeat(0.., unicode_space).map(|()| ()).take(),
+                repeat(0.., ws_escape.void()).map(|()| ()),
                 peek("\"\"\""),
             ),
         )
         .map(|(s, _): (Vec<String>, (_, _, _))| {
             let mut s = s.join("");
             // Slice off the `\n` at the end of the last line.
-            s.truncate(s.len() - 1);
+            s.truncate(s.len().saturating_sub(1));
             s
         })
         .context(cx().lbl("multi-line quoted string"));
@@ -1090,13 +1132,14 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
                             .hlp("You can make a string multi-line by wrapping it in '\"\"\"', with a newline immediately after the opening quotes."),
                     ),
                 ),
-                opt(ws_escape),
-                string_char,
-            )
-                .map(|(_, _, s)| s),
-            (repeat(0.., unicode_space).map(|()| ()).take(), peek("\"")),
+                alt((
+                    ws_escape.map(|_| None),
+                    string_char.map(Some),
+                ))
+                ).map(|(_, c)| c),
+            peek("\"")
         )
-        .map(|(s, (end, _)): (String, (&'s str, _))| format!("{s}{end}"))
+        .map(|(cs, _): (Vec<Option<char>>, _)| cs.into_iter().flatten().collect::<String>())
         .context(cx().lbl("quoted string"));
         cut_err(parser).parse_next(input)?
     };
@@ -1112,8 +1155,19 @@ fn quoted_string<'s>(input: &mut Input<'s>) -> PResult<KdlValue> {
     Ok(KdlValue::String(body))
 }
 
+fn empty_line(input: &mut Input<'_>) -> PResult<&'static str> {
+    repeat(0.., alt((ws_escape.void(), unicode_space.void())))
+        .map(|()| ())
+        .parse_next(input)?;
+    newline.parse_next(input)?;
+    Ok("\n")
+}
+
 /// Like badval, but is able to slurp up invalid raw strings, which contain whitespace.
 fn quoted_string_badval(input: &mut Input<'_>) -> PResult<()> {
+    // TODO(@zkat): this should have different behavior based on whether we're
+    // resuming a single or multi-line string. Right now, multi-liners end up
+    // with silly errors.
     (
         repeat_till(
             0..,
@@ -1135,19 +1189,25 @@ fn quoted_string_terminator(input: &mut Input<'_>) -> PResult<()> {
 /// ```
 fn string_char(input: &mut Input<'_>) -> PResult<char> {
     alt((
-        escaped_char,
-        (not(disallowed_unicode), none_of(['\\', '"'])).map(|(_, c)| c),
+        trace("escaped char", escaped_char),
+        trace(
+            "regular string char",
+            (not(disallowed_unicode), none_of(['\\', '"'])).map(|(_, c)| c),
+        ),
     ))
     .parse_next(input)
 }
 
 fn ws_escape(input: &mut Input<'_>) -> PResult<()> {
-    (
-        "\\",
-        repeat(1.., alt((unicode_space, newline))).map(|()| ()),
+    trace(
+        "ws_escape",
+        (
+            "\\",
+            repeat(1.., alt((unicode_space, newline))).map(|()| ()),
+        ),
     )
-        .void()
-        .parse_next(input)
+    .void()
+    .parse_next(input)
 }
 
 /// ```text
@@ -1182,10 +1242,13 @@ fn escaped_char(input: &mut Input<'_>) -> PResult<char> {
     .parse_next(input)
 }
 
-/// `raw-string := '#' raw-string-quotes '#' | '#' raw-string '#'`
-/// `raw-string-quotes := '"' single-line-raw-string-body '"' | '"""' newline multi-line-raw-string-body newline unicode-space*) '"""'`
-/// `single-line-raw-string-body := (unicode - newline - disallowed-literal-code-points)*`
-/// `multi-line-raw-string-body := (unicode - disallowed-literal-code-points)`
+/// ```text
+/// raw-string := '#' raw-string-quotes '#' | '#' raw-string '#'
+/// raw-string-quotes := '"' single-line-raw-string-body '"' | '"""' newline multi-line-raw-string-body '"""'
+/// single-line-raw-string-body := '' | (single-line-raw-string-char - '"') single-line-raw-string-char*? | '"' (single-line-raw-string-char - '"') single-line-raw-string-char*?
+/// single-line-raw-string-char := unicode - newline - disallowed-literal-code-points
+/// multi-line-raw-string-body := (unicode - disallowed-literal-code-points)*?
+/// ```
 fn raw_string(input: &mut Input<'_>) -> PResult<KdlValue> {
     let hashes: String = repeat(1.., "#").parse_next(input)?;
     let quotes = alt((("\"\"\"", newline).take(), "\"")).parse_next(input)?;
@@ -1229,10 +1292,10 @@ fn raw_string(input: &mut Input<'_>) -> PResult<KdlValue> {
         repeat_till(
             0..,
             (
-                cut_err(alt((&prefix[..], peek(newline).take())))
+                cut_err(alt(((&prefix[..]).void(), peek(empty_line).void())))
                     .context(cx().lbl("matching multiline raw string prefix")),
                 alt((
-                    newline.take().map(|_| "\n".to_string()),
+                    empty_line.map(|s| s.to_string()),
                     repeat_till(
                         0..,
                         (not(newline), not(("\"\"\"", &hashes[..])), any)
@@ -1254,7 +1317,7 @@ fn raw_string(input: &mut Input<'_>) -> PResult<KdlValue> {
         .map(|(s, _): (Vec<String>, (_, _, _))| {
             let mut s = s.join("");
             // Slice off the `\n` at the end of the last line.
-            s.truncate(s.len() - 1);
+            s.truncate(s.len().saturating_sub(1));
             s
         })
         .parse_next(input)?
@@ -1311,7 +1374,7 @@ mod string_tests {
     }
 
     #[test]
-    fn quoted_string() {
+    fn single_line_quoted_string() {
         assert_eq!(
             string.parse(new_input("\"foo\"")).unwrap(),
             Some(KdlValue::String("foo".into()))
@@ -1363,6 +1426,14 @@ mod string_tests {
             Some(KdlValue::String("\nstring\t".into())),
             "Empty line without any indentation"
         );
+        assert_eq!(
+            string
+                .parse(new_input("\"\"\"\n 	 \\\n          \n 	 \"\"\""))
+                .unwrap(),
+            Some(KdlValue::String("".into())),
+            "Escaped whitespace with proper prefix"
+        );
+
         assert!(string
             .parse(new_input("\"\"\"\nfoo\n  bar\n  baz\n  \"\"\""))
             .is_err());
@@ -1491,9 +1562,9 @@ fn disallowed_unicode(input: &mut Input<'_>) -> PResult<()> {
 /// `escline := '\\' ws* (single-line-comment | newline | eof)`
 fn escline(input: &mut Input<'_>) -> PResult<()> {
     "\\".parse_next(input)?;
-    repeat(0.., ws).map(|_: ()| ()).parse_next(input)?;
+    wss.parse_next(input)?;
     alt((single_line_comment, newline, eof.void())).parse_next(input)?;
-    repeat(0.., ws).map(|_: ()| ()).parse_next(input)
+    wss.parse_next(input)
 }
 
 #[cfg(test)]
@@ -1596,9 +1667,12 @@ fn multi_line_comment_test() {
         .is_ok());
 }
 
-/// slashdash := '/-' line-space*
+/// slashdash := '/-' (node-space | line-space)*
 fn slashdash(input: &mut Input<'_>) -> PResult<()> {
-    ("/-", repeat(0.., line_space).map(|()| ()))
+    (
+        "/-",
+        repeat(0.., alt((node_space, line_space))).map(|()| ()),
+    )
         .void()
         .parse_next(input)
 }
