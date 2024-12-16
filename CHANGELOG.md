@@ -1,5 +1,24 @@
 # `kdl` Release Changelog
 
+<a name="4.7.1"></a>
+## 4.7.1 (2024-12-16)
+
+The `miette` bump turned out to be a breaking change, so this release undoes it.
+With the imminent release of `6.0.0` and the upcoming support for v1 parsing in
+that version of the crate, it is unlikely this `kdl-rs` release line will
+receive a `miette` update.
+
+### Bug Fixes
+
+* **deps:** Back out "feat(deps): bump miette to 7.4.0" ([337e6ec3](https://github.com/kdl-org/kdl-rs/commit/337e6ec339d1661abb7e91d82f0ac3d03fe6f061))
+
+<a name="v4.7.0"></a>
+## 4.7.0 (2024-12-03)
+
+### Features
+
+* **deps:** bump miette to 7.4.0 ([b5fa2e1c](https://github.com/kdl-org/kdl-rs/commit/b5fa2e1c70e522b6929559b9382b34368d2f41da))
+
 <a name="4.7.0"></a>
 ## 4.7.0 (2024-12-03)
 
