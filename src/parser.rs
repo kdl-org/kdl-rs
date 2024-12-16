@@ -286,7 +286,7 @@ fn plain_identifier<'a: 'b, 'b>(
 
 fn quoted_identifier<'a: 'b, 'b>(
     kdl_parser: &'b KdlParser<'a>,
-) -> impl Fn(&'a str) -> IResult<&'a str, KdlIdentifier, KdlParseError<&'a str>> + 'b {
+) -> impl Fn(&'a str) -> IResult<&str, KdlIdentifier, KdlParseError<&str>> + 'b {
     move |input| {
         let start = input;
         let (input, (raw, val)) = alt((string, raw_string))(input)?;
