@@ -581,7 +581,7 @@ baz
 
  // child 2 comment
 
-        child2 2 // comment
+        child2 2 /-3 // comment
 
                child3    "
 
@@ -616,7 +616,7 @@ baz
 foo 1 bar=0xdeadbeef {
     child1 1
     // child 2 comment
-    child2 2 // comment
+    child2 2 /-3 // comment
     child3 "\nstring\t" {
         /*
 
