@@ -1,20 +1,20 @@
 //! `kdl` is a "document-oriented" parser and API for the [KDL Document
 //! Language](https://kdl.dev), a node-based, human-friendly configuration and
-//! serialization format. Unlike serde-based implementations, this crate
-//! preserves formatting when editing, as well as when inserting or changing
-//! values with custom formatting. This is most useful when working with
-//! human-maintained KDL files.
+//! serialization format.
+//! 
+//! Unlike serde-based implementations, this crate preserves formatting when
+//! editing, as well as when inserting or changing values with custom
+//! formatting. This is most useful when working with human-maintained KDL
+//! files.
 //!
 //! You can think of this crate as
 //! [`toml_edit`](https://crates.io/crates/toml_edit), but for KDL.
 //!
-//! If you don't care about formatting or programmatic manipulation, you might
-//! check out [`knuffel`](https://crates.io/crates/knuffel) or
-//! [`kaydle`](https://crates.io/crates/kaydle) instead for serde (or
-//! serde-like) parsing.
-//!
-//! This crate supports parsing [KDL
-//! 2.0.0-draft.6](https://github.com/kdl-org/kdl/releases/tag/2.0.0-draft.6)
+//! This crate supports parsing [the final KDL 2.0.0
+//! draft](https://github.com/kdl-org/kdl/pull/434), which might get a couple
+//! more small modifications before things are truly finalized. It does not
+//! support KDL 1.0 as of this release, but versions of this crate lower than
+//! 5.0 do.
 //!
 //! ## Example
 //!
@@ -107,7 +107,7 @@
 //! Multiple properties with the same name are allowed, and all duplicated
 //! **will be preserved**, meaning those documents will correctly round-trip.
 //! When using `node.get()`/`node["key"]` & company, the _last_ property with
-//! that name's value will be returned.
+//! that name's value will be returned (as per spec).
 //!
 //! ### Numbers
 //!
@@ -168,7 +168,7 @@
 
 #![deny(missing_debug_implementations, nonstandard_style)]
 #![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
-// #![cfg_attr(test, deny(warnings))]
+#![cfg_attr(test, deny(warnings))]
 #![doc(html_favicon_url = "https://kdl.dev/favicon.ico")]
 #![doc(html_logo_url = "https://kdl.dev/logo.svg")]
 
