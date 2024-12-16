@@ -441,8 +441,8 @@ second_node /* This time, the comment is here */ param=153 {
             /* block comment */
             inline /*comment*/ here
             another /-comment there
-            
-            
+
+
             after some whitespace
             trailing /* multiline */
             trailing // single line
