@@ -1,5 +1,19 @@
 # `kdl` Release Changelog
 
+<a name="6.0.0-alpha.5"></a>
+## 6.0.0-alpha.5 (2024-12-16)
+
+This version can now parse the "final" draft of 2.0.0, which is not quite
+released, but should represent what the final version will look like. Still,
+there might be last-minute changes based on major issues discovered in the next
+few days.
+
+### Features
+
+* **fmt:** Configurable autoformat with `FormatConfig` (#95) ([014c7c57](https://github.com/kdl-org/kdl-rs/commit/014c7c57a2089dae78cd9136ab9bbdf8aa3f049f))
+* **errors:** error collection/recovery and reporting improvements (#94) ([f31750a0](https://github.com/kdl-org/kdl-rs/commit/f31750a048e95c6ea6fe6df1820c463bae8fae81))
+* **parser:** Update parser to 2.0.0 (#100) ([a1919a0e](https://github.com/kdl-org/kdl-rs/commit/a1919a0e36fcf056ff0415561b8bac7c62ac3037))
+
 <a name="6.0.0-alpha.4"></a>
 ## 6.0.0-alpha.4 (2024-12-04)
 
