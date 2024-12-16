@@ -1433,6 +1433,10 @@ mod string_tests {
             Some(KdlValue::String("".into())),
             "Escaped whitespace with proper prefix"
         );
+        assert_eq!(
+            string.parse(new_input("\"\"\"\n\\\"\"\"\n\"\"\"")).unwrap(),
+            Some(KdlValue::String("\"\"\"".into()))
+        );
 
         assert!(string
             .parse(new_input("\"\"\"\nfoo\n  bar\n  baz\n  \"\"\""))
