@@ -1,7 +1,7 @@
 //! `kdl` is a "document-oriented" parser and API for the [KDL Document
 //! Language](https://kdl.dev), a node-based, human-friendly configuration and
 //! serialization format.
-//! 
+//!
 //! Unlike serde-based implementations, this crate preserves formatting when
 //! editing, as well as when inserting or changing values with custom
 //! formatting. This is most useful when working with human-maintained KDL
@@ -19,7 +19,7 @@
 //! ## Example
 //!
 //! ```rust
-//! use kdl::KdlDocument;
+//! use kdl::{KdlDocument, KdlValue};
 //!
 //! let doc_str = r#"
 //! hello 1 2 3
@@ -35,7 +35,7 @@
 //! let doc: KdlDocument = doc_str.parse().expect("failed to parse KDL");
 //!
 //! assert_eq!(
-//!     doc.get_args("hello"),
+//!     doc.iter_args("hello").collect::<Vec<&KdlValue>>(),
 //!     vec![&1.into(), &2.into(), &3.into()]
 //! );
 //!
