@@ -866,7 +866,7 @@ fn badval_ty_char(input: &mut Input<'_>) -> PResult<()> {
 
 /// `line-space := newline | ws | single-line-comment`
 fn line_space(input: &mut Input<'_>) -> PResult<()> {
-    alt((newline, ws, single_line_comment)).parse_next(input)
+    alt((node_space, newline, single_line_comment)).parse_next(input)
 }
 
 /// `node-space := ws* escline ws* | ws+`

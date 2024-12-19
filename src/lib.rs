@@ -1,7 +1,7 @@
 //! `kdl` is a "document-oriented" parser and API for the [KDL Document
 //! Language](https://kdl.dev), a node-based, human-friendly configuration and
 //! serialization format.
-//! 
+//!
 //! Unlike serde-based implementations, this crate preserves formatting when
 //! editing, as well as when inserting or changing values with custom
 //! formatting. This is most useful when working with human-maintained KDL
