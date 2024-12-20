@@ -168,7 +168,7 @@ impl KdlEntry {
             fmt.autoformat_keep = true;
         }
     }
-    
+
     /// Auto-formats this entry.
     pub fn autoformat(&mut self) {
         // TODO once MSRV allows:
@@ -225,7 +225,7 @@ impl KdlEntry {
                     // take care of that.
                     KdlValue::Bool(_) | KdlValue::Null => format!("{}", self.value),
                     // These should be fine as-is?
-                    KdlValue::Integer(_) | KdlValue::Float(_) => x.value_repr.clone(),
+                    KdlValue::Integer(_) | KdlValue::Float(_) => x.value_repr,
                 }
             });
 
