@@ -172,7 +172,7 @@ impl KdlEntry {
                     // but just in case.
                     let s = x.value_repr.trim();
                     // convert raw strings to new format
-                    let s = s.strip_prefix("r").unwrap_or(s);
+                    let s = s.strip_prefix('r').unwrap_or(s);
                     let s = if crate::value::is_plain_ident(val) {
                         val.to_string()
                     } else if s
@@ -186,16 +186,16 @@ impl KdlEntry {
                         } else {
                             // `"` -> `"""` but also extra newlines need to be
                             // added because v2 strips the first and last ones.
-                            let s = s.replacen("\"", "\"\"\"\n", 1);
+                            let s = s.replacen('\"', "\"\"\"\n", 1);
                             s.chars()
                                 .rev()
                                 .collect::<String>()
-                                .replacen("\"", "\"\"\"\n", 1)
+                                .replacen('\"', "\"\"\"\n", 1)
                                 .chars()
                                 .rev()
                                 .collect::<String>()
                         }
-                    } else if !s.starts_with("#") {
+                    } else if !s.starts_with('#') {
                         // `/` is no longer an escaped char in v2.
                         s.replace("\\/", "/")
                     } else {
