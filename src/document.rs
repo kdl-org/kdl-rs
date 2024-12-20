@@ -334,13 +334,53 @@ impl KdlDocument {
     //         .query_all(query)?
     //         .filter_map(move |node| node.get(key.clone())))
     // }
+
+    /// Parses a string into a document.
+    ///
+    /// If the `v1-fallback` feature is enabled, this method will first try to
+    /// parse the string as a KDL v2 document, and, if that fails, it will try
+    /// to parse again as a KDL v1 document. If both fail, only the v2 parse
+    /// errors will be returned.
+    pub fn parse(s: &str) -> Result<Self, KdlParseFailure> {
+        #[cfg(not(feature = "v1-fallback"))]
+        {
+            crate::v2_parser::try_parse(crate::v2_parser::document, s)
+        }
+        #[cfg(feature = "v1-fallback")]
+        {
+            crate::v2_parser::try_parse(crate::v2_parser::document, s)
+                .or_else(|e| KdlDocument::parse_v1(s).map_err(|_| e))
+        }
+    }
+
+    /// Parses a KDL v1 string into a document.
+    #[cfg(feature = "v1")]
+    pub fn parse_v1(s: &str) -> Result<Self, KdlParseFailure> {
+        let ret: Result<kdlv1::KdlDocument, kdlv1::KdlError> = s.parse();
+        ret.map(|x| x.into()).map_err(|e| e.into())
+    }
+}
+
+#[cfg(feature = "v1")]
+impl From<kdlv1::KdlDocument> for KdlDocument {
+    fn from(value: kdlv1::KdlDocument) -> Self {
+        KdlDocument {
+            nodes: value.nodes().iter().map(|x| x.clone().into()).collect(),
+            format: Some(KdlDocumentFormat {
+                leading: value.leading().unwrap_or("").into(),
+                trailing: value.trailing().unwrap_or("").into(),
+            }),
+            #[cfg(feature = "span")]
+            span: SourceSpan::new(value.span().offset().into(), value.span().len()),
+        }
+    }
 }
 
 impl std::str::FromStr for KdlDocument {
     type Err = KdlParseFailure;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        crate::v2_parser::try_parse(crate::v2_parser::document, s)
+        KdlDocument::parse(s)
     }
 }
 

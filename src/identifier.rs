@@ -87,6 +87,43 @@ impl KdlIdentifier {
     pub fn autoformat(&mut self) {
         self.repr = None;
     }
+
+    /// Parses a string into a entry.
+    ///
+    /// If the `v1-fallback` feature is enabled, this method will first try to
+    /// parse the string as a KDL v2 entry, and, if that fails, it will try
+    /// to parse again as a KDL v1 entry. If both fail, only the v2 parse
+    /// errors will be returned.
+    pub fn parse(s: &str) -> Result<Self, KdlParseFailure> {
+        #[cfg(not(feature = "v1-fallback"))]
+        {
+            v2_parser::try_parse(v2_parser::identifier, s)
+        }
+        #[cfg(feature = "v1-fallback")]
+        {
+            v2_parser::try_parse(v2_parser::identifier, s)
+                .or_else(|e| KdlIdentifier::parse_v1(s).map_err(|_| e))
+        }
+    }
+
+    /// Parses a KDL v1 string into an entry.
+    #[cfg(feature = "v1")]
+    pub fn parse_v1(s: &str) -> Result<Self, KdlParseFailure> {
+        let ret: Result<kdlv1::KdlIdentifier, kdlv1::KdlError> = s.parse();
+        ret.map(|x| x.into()).map_err(|e| e.into())
+    }
+}
+
+#[cfg(feature = "v1")]
+impl From<kdlv1::KdlIdentifier> for KdlIdentifier {
+    fn from(value: kdlv1::KdlIdentifier) -> Self {
+        KdlIdentifier {
+            value: value.value().into(),
+            repr: value.repr().map(|x| x.into()),
+            #[cfg(feature = "span")]
+            span: SourceSpan::new(value.span().offset().into(), value.span().len()),
+        }
+    }
 }
 
 impl Display for KdlIdentifier {
@@ -131,7 +168,7 @@ impl FromStr for KdlIdentifier {
     type Err = KdlParseFailure;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        v2_parser::try_parse(v2_parser::identifier, s)
+        KdlIdentifier::parse(s)
     }
 }
 
