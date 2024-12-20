@@ -1,6 +1,8 @@
 use std::{
+    cmp::Ordering,
     fmt::Display,
     ops::{Index, IndexMut},
+    slice::{Iter, IterMut},
     str::FromStr,
 };
 
@@ -123,16 +125,6 @@ impl KdlNode {
         &mut self.entries
     }
 
-    /// Length of this node when rendered as a string.
-    pub fn len(&self) -> usize {
-        format!("{}", self).len()
-    }
-
-    /// Returns true if this node is completely empty (including whitespace).
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     /// Clears leading and trailing text (whitespace, comments), as well as
     /// the space before the children block, if any. Individual entries and
     /// their formatting will be preserved.
@@ -155,12 +147,6 @@ impl KdlNode {
         for entry in self.entries.iter_mut() {
             entry.clear_format();
         }
-    }
-
-    /// Gets a value by key. Number keys will look up arguments, strings will
-    /// look up properties.
-    pub fn get(&self, key: impl Into<NodeKey>) -> Option<&KdlValue> {
-        self.entry_impl(key.into()).map(|e| &e.value)
     }
 
     /// Fetches an entry by key. Number keys will look up arguments, strings
@@ -197,12 +183,6 @@ impl KdlNode {
         }
     }
 
-    /// Fetches a mutable referene to an value by key. Number keys will look
-    /// up arguments, strings will look up properties.
-    pub fn get_mut(&mut self, key: impl Into<NodeKey>) -> Option<&mut KdlValue> {
-        self.entry_mut_impl(key.into()).map(|e| &mut e.value)
-    }
-
     /// Fetches a mutable referene to an entry by key. Number keys will look
     /// up arguments, strings will look up properties.
     pub fn entry_mut(&mut self, key: impl Into<NodeKey>) -> Option<&mut KdlEntry> {
@@ -235,111 +215,6 @@ impl KdlNode {
                 None
             }
         }
-    }
-
-    /// Inserts an entry into this node. If an entry already exists with the
-    /// same string key, it will be replaced and the previous entry will be
-    /// returned.
-    ///
-    /// Numerical keys will insert arguments, string keys will insert
-    /// properties.
-    pub fn insert(
-        &mut self,
-        key: impl Into<NodeKey>,
-        entry: impl Into<KdlEntry>,
-    ) -> Option<KdlEntry> {
-        self.insert_impl(key.into(), entry.into())
-    }
-
-    fn insert_impl(&mut self, key: NodeKey, mut entry: KdlEntry) -> Option<KdlEntry> {
-        match key {
-            NodeKey::Key(ref key_val) => {
-                if entry.name.is_none() {
-                    entry.name = Some(key_val.clone());
-                }
-                if entry.name.as_ref().map(|i| i.value()) != Some(key_val.value()) {
-                    panic!("Property name mismatch");
-                }
-                if let Some(existing) = self.entry_mut(key) {
-                    std::mem::swap(existing, &mut entry);
-                    Some(entry)
-                } else {
-                    self.entries.push(entry);
-                    None
-                }
-            }
-            NodeKey::Index(idx) => {
-                if entry.name.is_some() {
-                    panic!("Cannot insert property with name under a numerical key");
-                }
-                let mut current_idx = 0;
-                for (idx_existing, existing) in self.entries.iter().enumerate() {
-                    if existing.name.is_none() {
-                        if current_idx == idx {
-                            self.entries.insert(idx_existing, entry);
-                            return None;
-                        }
-                        current_idx += 1;
-                    }
-                }
-                if idx > current_idx {
-                    panic!(
-                        "Insertion index (is {}) should be <= len (is {})",
-                        idx, current_idx
-                    );
-                } else {
-                    self.entries.push(entry);
-                    None
-                }
-            }
-        }
-    }
-
-    /// Removes an entry from this node. If an entry already exists with the
-    /// same key, it will be returned.
-    ///
-    /// Numerical keys will remove arguments, string keys will remove
-    /// properties.
-    pub fn remove(&mut self, key: impl Into<NodeKey>) -> Option<KdlEntry> {
-        self.remove_impl(key.into())
-    }
-
-    fn remove_impl(&mut self, key: NodeKey) -> Option<KdlEntry> {
-        match key {
-            NodeKey::Key(key) => {
-                for (idx, entry) in self.entries.iter().enumerate() {
-                    if entry.name.is_some() && entry.name.as_ref() == Some(&key) {
-                        return Some(self.entries.remove(idx));
-                    }
-                }
-                None
-            }
-            NodeKey::Index(idx) => {
-                let mut current_idx = 0;
-                for (idx_entry, entry) in self.entries.iter().enumerate() {
-                    if entry.name.is_none() {
-                        if current_idx == idx {
-                            return Some(self.entries.remove(idx_entry));
-                        }
-                        current_idx += 1;
-                    }
-                }
-                panic!(
-                    "removal index (is {}) should be < number of index entries (is {})",
-                    idx, current_idx
-                );
-            }
-        }
-    }
-
-    /// Shorthand for `self.entries_mut().push(entry)`.
-    pub fn push(&mut self, entry: impl Into<KdlEntry>) {
-        self.entries.push(entry.into());
-    }
-
-    /// Shorthand for `self.entries_mut().clear()`
-    pub fn clear_entries(&mut self) {
-        self.entries.clear();
     }
 
     /// Returns a reference to this node's children, if any.
@@ -450,48 +325,324 @@ impl KdlNode {
             }
         }
     }
+}
 
-    // TODO(@zkat): These should all be moved into the query module, instead
-    // of being model methods.
-    //
-    // /// Queries this Node according to the KQL
-    // query language, /// returning an iterator over all matching nodes. pub
-    // fn query_all( &self, query: impl IntoKdlQuery, ) ->
-    //     Result<KdlQueryIterator<'_>, KdlDiagnostic> { let q =
-    //     query.into_query()?; Ok(KdlQueryIterator::new(Some(self), None, q))
-    // }
+// Query language
+// impl KdlNode {
+// /// Queries this Node according to the KQL
+// query language, /// returning an iterator over all matching nodes. pub
+// fn query_all( &self, query: impl IntoKdlQuery, ) ->
+//     Result<KdlQueryIterator<'_>, KdlDiagnostic> { let q =
+//     query.into_query()?; Ok(KdlQueryIterator::new(Some(self), None, q))
+// }
 
-    // /// Queries this Node according to the KQL query language,
-    // /// returning the first match, if any.
-    // pub fn query(&self, query: impl IntoKdlQuery) -> Result<Option<&KdlNode>, KdlDiagnostic> {
-    //     Ok(self.query_all(query)?.next())
-    // }
+// /// Queries this Node according to the KQL query language,
+// /// returning the first match, if any.
+// pub fn query(&self, query: impl IntoKdlQuery) -> Result<Option<&KdlNode>, KdlDiagnostic> {
+//     Ok(self.query_all(query)?.next())
+// }
 
-    // /// Queries this Node according to the KQL query language,
-    // /// picking the first match, and calling `.get(key)` on it, if the query
-    // /// succeeded.
-    // pub fn query_get(
-    //     &self,
-    //     query: impl IntoKdlQuery,
+// /// Queries this Node according to the KQL query language,
+// /// picking the first match, and calling `.get(key)` on it, if the query
+// /// succeeded.
+// pub fn query_get(
+//     &self,
+//     query: impl IntoKdlQuery,
+//     key: impl Into<NodeKey>,
+// ) -> Result<Option<&KdlValue>, KdlDiagnostic> {
+//     Ok(self.query(query)?.and_then(|node| node.get(key)))
+// }
+
+// /// Queries this Node according to the KQL query language,
+// /// returning an iterator over all matching nodes, returning the requested
+// /// field from each of those nodes and filtering out nodes that don't have
+// /// it.
+// pub fn query_get_all(
+//     &self,
+//     query: impl IntoKdlQuery,
+//     key: impl Into<NodeKey>,
+// ) -> Result<impl Iterator<Item = &KdlValue>, KdlDiagnostic> {
+//     let key: NodeKey = key.into();
+//     Ok(self
+//         .query_all(query)?
+//         .filter_map(move |node| node.get(key.clone())))
+// }
+//}
+
+/// Iterator for entries in a node, including properties.
+#[derive(Debug)]
+pub struct EntryIter<'a>(Iter<'a, KdlEntry>);
+impl<'a> Iterator for EntryIter<'a> {
+    type Item = &'a KdlEntry;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+/// Mutable iterator for entries in a node, including properties.
+#[derive(Debug)]
+pub struct EntryIterMut<'a>(IterMut<'a, KdlEntry>);
+impl<'a> Iterator for EntryIterMut<'a> {
+    type Item = &'a mut KdlEntry;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+/// Iterator for child nodes for this node. Empty if there is no children block.
+#[derive(Debug)]
+pub struct ChildrenIter<'a>(Option<Iter<'a, KdlNode>>);
+impl<'a> Iterator for ChildrenIter<'a> {
+    type Item = &'a KdlNode;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.as_mut().and_then(|x| x.next())
+    }
+}
+
+/// Iterator for child nodes for this node. Empty if there is no children block.
+#[derive(Debug)]
+pub struct ChildrenIterMut<'a>(Option<IterMut<'a, KdlNode>>);
+impl<'a> Iterator for ChildrenIterMut<'a> {
+    type Item = &'a mut KdlNode;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.as_mut().and_then(|x| x.next())
+    }
+}
+
+// Vec-style APIs
+impl KdlNode {
+    /// Returns an iterator over the node's entries, including properties.
+    pub fn iter(&self) -> EntryIter<'_> {
+        EntryIter(self.entries.iter())
+    }
+
+    /// Returns a mutable iterator over the node's entries, including properties.
+    pub fn iter_mut(&mut self) -> EntryIterMut<'_> {
+        EntryIterMut(self.entries.iter_mut())
+    }
+
+    /// Returns an iterator over the node's children, if any. Nodes without
+    /// children will return an empty iterator.
+    pub fn iter_children(&self) -> ChildrenIter<'_> {
+        ChildrenIter(self.children.as_ref().map(|x| x.nodes.iter()))
+    }
+
+    /// Returns a mutable iterator over the node's children, if any. Nodes
+    /// without children will return an empty iterator.
+    pub fn iter_children_mut(&mut self) -> ChildrenIterMut<'_> {
+        ChildrenIterMut(self.children.as_mut().map(|x| x.nodes.iter_mut()))
+    }
+
+    /// Gets a value by key. Number keys will look up arguments, strings will
+    /// look up properties.
+    pub fn get(&self, key: impl Into<NodeKey>) -> Option<&KdlValue> {
+        self.entry_impl(key.into()).map(|e| &e.value)
+    }
+
+    /// Fetches a mutable referene to an value by key. Number keys will look
+    /// up arguments, strings will look up properties.
+    pub fn get_mut(&mut self, key: impl Into<NodeKey>) -> Option<&mut KdlValue> {
+        self.entry_mut_impl(key.into()).map(|e| &mut e.value)
+    }
+
+    /// Number of entries in this node.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Returns true if this node is completely empty (including whitespace).
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Shorthand for `self.entries_mut().clear()`
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    /// Shorthand for `self.entries_mut().push(entry)`.
+    pub fn push(&mut self, entry: impl Into<KdlEntry>) {
+        self.entries.push(entry.into());
+    }
+
+    /// Inserts an entry into this node. If an entry already exists with the
+    /// same string key, it will be replaced and the previous entry will be
+    /// returned.
+    ///
+    /// Numerical keys will insert arguments, string keys will insert
+    /// properties.
+    pub fn insert(
+        &mut self,
+        key: impl Into<NodeKey>,
+        entry: impl Into<KdlEntry>,
+    ) -> Option<KdlEntry> {
+        self.insert_impl(key.into(), entry.into())
+    }
+
+    fn insert_impl(&mut self, key: NodeKey, mut entry: KdlEntry) -> Option<KdlEntry> {
+        match key {
+            NodeKey::Key(ref key_val) => {
+                if entry.name.is_none() {
+                    entry.name = Some(key_val.clone());
+                }
+                if entry.name.as_ref().map(|i| i.value()) != Some(key_val.value()) {
+                    panic!("Property name mismatch");
+                }
+                if let Some(existing) = self.entry_mut(key) {
+                    std::mem::swap(existing, &mut entry);
+                    Some(entry)
+                } else {
+                    self.entries.push(entry);
+                    None
+                }
+            }
+            NodeKey::Index(idx) => {
+                if entry.name.is_some() {
+                    panic!("Cannot insert property with name under a numerical key");
+                }
+                let mut current_idx = 0;
+                for (idx_existing, existing) in self.entries.iter().enumerate() {
+                    if existing.name.is_none() {
+                        if current_idx == idx {
+                            self.entries.insert(idx_existing, entry);
+                            return None;
+                        }
+                        current_idx += 1;
+                    }
+                }
+                if idx > current_idx {
+                    panic!(
+                        "Insertion index (is {}) should be <= len (is {})",
+                        idx, current_idx
+                    );
+                } else {
+                    self.entries.push(entry);
+                    None
+                }
+            }
+        }
+    }
+
+    // pub fn replace(
+    //     &mut self,
     //     key: impl Into<NodeKey>,
-    // ) -> Result<Option<&KdlValue>, KdlDiagnostic> {
-    //     Ok(self.query(query)?.and_then(|node| node.get(key)))
+    //     entry: impl Into<KdlEntry>,
+    // ) -> Option<KdlEntry> {
+    //     self.replace_impl(key.into(), entry.into())
     // }
 
-    // /// Queries this Node according to the KQL query language,
-    // /// returning an iterator over all matching nodes, returning the requested
-    // /// field from each of those nodes and filtering out nodes that don't have
-    // /// it.
-    // pub fn query_get_all(
-    //     &self,
-    //     query: impl IntoKdlQuery,
-    //     key: impl Into<NodeKey>,
-    // ) -> Result<impl Iterator<Item = &KdlValue>, KdlDiagnostic> {
-    //     let key: NodeKey = key.into();
-    //     Ok(self
-    //         .query_all(query)?
-    //         .filter_map(move |node| node.get(key.clone())))
+    // fn replace_impl(&mut self, key: NodeKey, mut entry: KdlEntry) -> Option<KdlEntry> {
+    //     todo!();
+    //     // match key {
+    //     //     NodeKey::Key(ref key_val) => {
+    //     //         if entry.name.is_none() {
+    //     //             entry.name = Some(key_val.clone());
+    //     //         }
+    //     //         if entry.name.as_ref().map(|i| i.value()) != Some(key_val.value()) {
+    //     //             panic!("Property name mismatch");
+    //     //         }
+    //     //         if let Some(existing) = self.entry_mut(key) {
+    //     //             std::mem::swap(existing, &mut entry);
+    //     //             Some(entry)
+    //     //         } else {
+    //     //             self.entries.push(entry);
+    //     //             None
+    //     //         }
+    //     //     }
+    //     //     NodeKey::Index(idx) => {
+    //     //         if entry.name.is_some() {
+    //     //             panic!("Cannot insert property with name under a numerical key");
+    //     //         }
+    //     //         let mut current_idx = 0;
+    //     //         for (idx_existing, existing) in self.entries.iter().enumerate() {
+    //     //             if existing.name.is_none() {
+    //     //                 if current_idx == idx {
+    //     //                     self.entries.replace(idx_existing, entry);
+    //     //                     return None;
+    //     //                 }
+    //     //                 current_idx += 1;
+    //     //             }
+    //     //         }
+    //     //         if idx > current_idx {
+    //     //             panic!(
+    //     //                 "Insertion index (is {}) should be <= len (is {})",
+    //     //                 idx, current_idx
+    //     //             );
+    //     //         } else {
+    //     //             self.entries.push(entry);
+    //     //             None
+    //     //         }
+    //     //     }
+    //     // }
     // }
+
+    /// Removes an entry from this node. If an entry already exists with the
+    /// same key, it will be returned.
+    ///
+    /// Numerical keys will remove arguments, string keys will remove
+    /// properties.
+    pub fn remove(&mut self, key: impl Into<NodeKey>) -> Option<KdlEntry> {
+        self.remove_impl(key.into())
+    }
+
+    fn remove_impl(&mut self, key: NodeKey) -> Option<KdlEntry> {
+        match key {
+            NodeKey::Key(key) => {
+                for (idx, entry) in self.entries.iter().enumerate() {
+                    if entry.name.is_some() && entry.name.as_ref() == Some(&key) {
+                        return Some(self.entries.remove(idx));
+                    }
+                }
+                None
+            }
+            NodeKey::Index(idx) => {
+                let mut current_idx = 0;
+                for (idx_entry, entry) in self.entries.iter().enumerate() {
+                    if entry.name.is_none() {
+                        if current_idx == idx {
+                            return Some(self.entries.remove(idx_entry));
+                        }
+                        current_idx += 1;
+                    }
+                }
+                panic!(
+                    "removal index (is {}) should be < number of index entries (is {})",
+                    idx, current_idx
+                );
+            }
+        }
+    }
+
+    /// Retains only the elements specified by the predicate.
+    pub fn retain<F>(&mut self, keep: F)
+    where
+        F: FnMut(&KdlEntry) -> bool,
+    {
+        self.entries.retain(keep)
+    }
+
+    /// Sorts the slice with a comparison function, preserving initial order of
+    /// equal elements.
+    pub fn sort_by<F>(&mut self, compare: F)
+    where
+        F: FnMut(&KdlEntry, &KdlEntry) -> Ordering,
+    {
+        self.entries.sort_by(compare)
+    }
+
+    /// Sorts the slice with a key extraction function, preserving initial order
+    /// of equal elements.
+    pub fn sort_by_key<K, F>(&mut self, f: F)
+    where
+        F: FnMut(&KdlEntry) -> K,
+        K: Ord,
+    {
+        self.entries.sort_by_key(f)
+    }
 }
 
 /// Represents a [`KdlNode`]'s entry key.

@@ -108,7 +108,7 @@ impl KdlDocument {
         self.get(name).and_then(|node| node.get(0))
     }
 
-    /// Gets the all node arguments (value) of the first child node with a
+    /// Returns an iterator of the all node arguments (value) of the first child node with a
     /// matching name. This is a shorthand utility for cases where a document
     /// is being used as a key/value store and the value is expected to be
     /// array-ish.
@@ -127,16 +127,18 @@ impl KdlDocument {
     /// ```rust
     /// # use kdl::{KdlDocument, KdlValue};
     /// # let doc: KdlDocument = "foo 1 2 3\nbar #false".parse().unwrap();
-    /// assert_eq!(doc.get_args("foo"), vec![&1.into(), &2.into(), &3.into()]);
+    /// assert_eq!(
+    ///   doc.iter_args("foo").collect::<Vec<&KdlValue>>(),
+    ///   vec![&1.into(), &2.into(), &3.into()]
+    /// );
     /// ```
-    pub fn get_args(&self, name: &str) -> Vec<&KdlValue> {
+    pub fn iter_args(&self, name: &str) -> impl Iterator<Item = &KdlValue> {
         self.get(name)
             .map(|n| n.entries())
             .unwrap_or_default()
             .iter()
             .filter(|e| e.name().is_none())
             .map(|e| e.value())
-            .collect()
     }
 
     /// Gets a mutable reference to the first argument (value) of the first
@@ -164,9 +166,12 @@ impl KdlDocument {
     /// ```rust
     /// # use kdl::{KdlDocument, KdlValue};
     /// # let doc: KdlDocument = "foo {\n - 1\n - 2\n - #false\n}".parse().unwrap();
-    /// assert_eq!(doc.get_dash_args("foo"), vec![&1.into(), &2.into(), &false.into()]);
+    /// assert_eq!(
+    ///     doc.iter_dash_args("foo").collect::<Vec<&KdlValue>>(),
+    ///     vec![&1.into(), &2.into(), &false.into()]
+    /// );
     /// ```
-    pub fn get_dash_args(&self, name: &str) -> Vec<&KdlValue> {
+    pub fn iter_dash_args(&self, name: &str) -> impl Iterator<Item = &KdlValue> {
         self.get(name)
             .and_then(|n| n.children())
             .map(|doc| doc.nodes())
@@ -174,7 +179,6 @@ impl KdlDocument {
             .iter()
             .filter(|e| e.name().value() == "-")
             .filter_map(|e| e.get(0))
-            .collect()
     }
 
     /// Returns a reference to this document's child nodes.
@@ -441,8 +445,8 @@ second_node /* This time, the comment is here */ param=153 {
             /* block comment */
             inline /*comment*/ here
             another /-comment there
-            
-            
+
+
             after some whitespace
             trailing /* multiline */
             trailing // single line
@@ -480,7 +484,7 @@ final;";
 
         assert_eq!(doc.get_arg("foo"), Some(&1.into()));
         assert_eq!(
-            doc.get_dash_args("foo"),
+            doc.iter_dash_args("foo").collect::<Vec<&KdlValue>>(),
             vec![&1.into(), &2.into(), &"three".into()]
         );
         assert_eq!(
