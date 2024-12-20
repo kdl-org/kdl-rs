@@ -1578,7 +1578,7 @@ fn escline_test() {
     assert_eq!(node.entries().len(), 2);
 }
 
-static NEWLINES: [&str; 7] = [
+pub(crate) static NEWLINES: [&str; 7] = [
     "\u{000D}\u{000A}",
     "\u{000D}",
     "\u{000A}",

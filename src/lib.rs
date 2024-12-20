@@ -10,11 +10,20 @@
 //! You can think of this crate as
 //! [`toml_edit`](https://crates.io/crates/toml_edit), but for KDL.
 //!
-//! This crate supports parsing [the final KDL 2.0.0
-//! draft](https://github.com/kdl-org/kdl/pull/434), which might get a couple
-//! more small modifications before things are truly finalized. It does not
-//! support KDL 1.0 as of this release, but versions of this crate lower than
-//! 5.0 do.
+//! This crate supports both KDL v2.0.0 and v1.0.0 (when using the non-default
+//! `v1` feature).
+//!
+//! There is also a `v1-fallback` feature that may be enabled in order to have
+//! the various `Kdl*::parse` methods try to parse their input as v2, and, if
+//! that fails, try again as v1. In either case, a dedicated `Kdl*::parse_v1`
+//! method is available for v1-exclusive parsing, as long as either `v1` or
+//! `v1-fallback` are enabled.
+//!
+//! Autoformatting a document parsed from a v1 doc will translate the document
+//! to v2 format, preserving as much of the v1 trivia as possible (comments,
+//! etc). It *should* generate a fully valid v2 document, but there may still be
+//! some corner cases that don't translate well. Please file issues as needed
+//! for those.
 //!
 //! ## Example
 //!

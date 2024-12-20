@@ -174,7 +174,7 @@ impl Display for KdlValue {
     }
 }
 
-fn is_plain_ident(ident: &str) -> bool {
+pub(crate) fn is_plain_ident(ident: &str) -> bool {
     let ident_bytes = ident.as_bytes();
     ident
         .find(crate::v2_parser::is_disallowed_ident_char)

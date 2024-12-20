@@ -359,6 +359,15 @@ impl KdlDocument {
         let ret: Result<kdlv1::KdlDocument, kdlv1::KdlError> = s.parse();
         ret.map(|x| x.into()).map_err(|e| e.into())
     }
+
+    /// Takes a KDL v1 document string and returns the same document, but
+    /// autoformatted into valid KDL v2 syntax.
+    #[cfg(feature = "v1")]
+    pub fn v1_to_v2(s: &str) -> Result<String, KdlParseFailure> {
+        let mut doc = KdlDocument::parse_v1(s)?;
+        doc.autoformat();
+        Ok(doc.to_string())
+    }
 }
 
 #[cfg(feature = "v1")]
@@ -944,6 +953,92 @@ inline { time; to; live "our" "dreams"; "y;all" }
         include_str!("../examples/website.kdl").parse::<KdlDocument>()?;
         include_str!("../examples/zellij.kdl").parse::<KdlDocument>()?;
         include_str!("../examples/zellij-unquoted-bindings.kdl").parse::<KdlDocument>()?;
+        Ok(())
+    }
+
+    #[ignore = "Formatting is still seriously broken, and this is gonna need some extra love."]
+    #[cfg(feature = "v1")]
+    #[test]
+    fn v1_to_v2() -> miette::Result<()> {
+        let original = r##"
+// If you'd like to override the default keybindings completely, be sure to change "keybinds" to "keybinds clear-defaults=true"
+keybinds {
+    normal {
+        // uncomment this and adjust key if using copy_on_select=false
+        // bind "Alt c" { Copy; }
+    }
+    locked {
+        bind "Ctrl g" { SwitchToMode "Normal"; }
+    }
+    resize {
+        bind "Ctrl n" { SwitchToMode "Normal"; }
+        bind "h" "Left" { Resize "Increase Left"; }
+        bind "j" "Down" { Resize "Increase Down"; }
+        bind "k" "Up" { Resize "Increase Up"; }
+        bind "l" "Right" { Resize "Increase Right"; }
+        bind "H" { Resize "Decrease Left"; }
+        bind "J" { Resize "Decrease Down"; }
+        bind "K" { Resize "Decrease Up"; }
+        bind "L" { Resize "Decrease Right"; }
+        bind "=" "+" { Resize "Increase"; }
+        bind "-" { Resize "Decrease"; }
+    }
+}
+// Plugin aliases - can be used to change the implementation of Zellij
+// changing these requires a restart to take effect
+plugins {
+    tab-bar location="zellij:tab-bar"
+    status-bar location="zellij:status-bar"
+    welcome-screen location="zellij:session-manager" {
+        welcome_screen true
+    }
+    filepicker location="zellij:strider" {
+        cwd "/"
+    }
+}
+mouse_mode false
+mirror_session true
+"##;
+        let expected = r##"
+// If you'd like to override the default keybindings completely, be sure to change "keybinds" to "keybinds clear-defaults=true"
+keybinds {
+    normal {
+        // uncomment this and adjust key if using copy_on_select=false
+        // bind "Alt c" { Copy; }
+    }
+    locked {
+        bind "Ctrl g" { SwitchToMode Normal; }
+    }
+    resize {
+        bind "Ctrl n" { SwitchToMode Normal; }
+        bind h Left { Resize "Increase Left"; }
+        bind j Down { Resize "Increase Down"; }
+        bind k Up { Resize "Increase Up"; }
+        bind l Right { Resize "Increase Right"; }
+        bind H { Resize "Decrease Left"; }
+        bind J { Resize "Decrease Down"; }
+        bind K { Resize "Decrease Up"; }
+        bind L { Resize "Decrease Right"; }
+        bind "=" + { Resize Increase; }
+        bind - { Resize Decrease; }
+    }
+}
+// Plugin aliases - can be used to change the implementation of Zellij
+// changing these requires a restart to take effect
+plugins {
+    tab-bar location=zellij:tab-bar
+    status-bar location=zellij:status-bar
+    welcome-screen location=zellij:session-manager {
+        welcome_screen #true
+    }
+    filepicker location=zellij:strider {
+        cwd "/"
+    }
+}
+mouse_mode #false
+mirror_session #true
+"##;
+        pretty_assertions::assert_eq!(KdlDocument::v1_to_v2(original)?, expected);
         Ok(())
     }
 }
