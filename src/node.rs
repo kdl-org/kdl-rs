@@ -309,6 +309,9 @@ impl KdlNode {
             ty.clear_format()
         }
         for entry in &mut self.entries {
+            if config.entry_autoformate_keep {
+                entry.keep_format();
+            }
             entry.autoformat();
         }
         if let Some(children) = self.children.as_mut() {

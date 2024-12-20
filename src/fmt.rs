@@ -15,6 +15,9 @@ pub struct FormatConfig<'a> {
 
     /// Whether to remove comments. Defaults to `false`.
     pub no_comments: bool,
+
+    /// Whether to keep individual entry formatting.
+    pub entry_autoformate_keep: bool,
 }
 
 /// See field documentation for defaults.
@@ -44,6 +47,7 @@ impl<'a> FormatConfigBuilder<'a> {
             indent_level: 0,
             indent: "    ",
             no_comments: false,
+            entry_autoformate_keep: false,
         })
     }
 
@@ -163,6 +167,7 @@ mod test {
                 indent_level: 12,
                 indent: " \t",
                 no_comments: true,
+                entry_autoformate_keep: false,
             }
         ));
         Ok(())
