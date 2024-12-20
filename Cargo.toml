@@ -8,18 +8,21 @@ readme = "README.md"
 homepage = "https://kdl.dev"
 repository = "https://github.com/kdl-org/kdl-rs"
 keywords = ["kdl", "document", "serialization", "config"]
-rust-version = "1.56.0"
+rust-version = "1.70.0"
 edition = "2021"
 
 [features]
-default = ["span"]
+default = ["span", "v1"]
 span = []
+v1-fallback = ["v1"]
+v1 = ["kdlv1"]
 
 [dependencies]
 miette = "7.2.0"
 num = "0.4.2"
 thiserror = "1.0.40"
 winnow = { version = "0.6.20", features = ["alloc", "unstable-recover"] }
+kdlv1 = { package = "kdl", version = "4.7.0", optional = true }
 
 [dev-dependencies]
 miette = { version = "7.2.0", features = ["fancy"] }

@@ -74,3 +74,21 @@ pub struct KdlDiagnostic {
     #[diagnostic(severity)]
     pub severity: miette::Severity,
 }
+
+#[cfg(feature = "v1")]
+impl From<kdlv1::KdlError> for KdlParseFailure {
+    fn from(value: kdlv1::KdlError) -> Self {
+        let input = Arc::new(value.input);
+        KdlParseFailure {
+            input: input.clone(),
+            diagnostics: vec![KdlDiagnostic {
+                input,
+                span: SourceSpan::new(value.span.offset().into(), value.span.len()),
+                message: Some(format!("{}", value.kind)),
+                label: value.label.map(|x| x.into()),
+                help: value.help.map(|x| x.into()),
+                severity: miette::Severity::Error,
+            }],
+        }
+    }
+}

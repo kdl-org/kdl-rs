@@ -325,6 +325,55 @@ impl KdlNode {
             }
         }
     }
+
+    /// Parses a string into a node.
+    ///
+    /// If the `v1-fallback` feature is enabled, this method will first try to
+    /// parse the string as a KDL v2 node, and, if that fails, it will try
+    /// to parse again as a KDL v1 node. If both fail, only the v2 parse
+    /// errors will be returned.
+    pub fn parse(s: &str) -> Result<Self, KdlParseFailure> {
+        #[cfg(not(feature = "v1-fallback"))]
+        {
+            v2_parser::try_parse(v2_parser::padded_node, s)
+        }
+        #[cfg(feature = "v1-fallback")]
+        {
+            v2_parser::try_parse(v2_parser::padded_node, s)
+                .or_else(|e| KdlNode::parse_v1(s).map_err(|_| e))
+        }
+    }
+
+    /// Parses a KDL v1 string into a document.
+    #[cfg(feature = "v1")]
+    pub fn parse_v1(s: &str) -> Result<Self, KdlParseFailure> {
+        let ret: Result<kdlv1::KdlNode, kdlv1::KdlError> = s.parse();
+        ret.map(|x| x.into()).map_err(|e| e.into())
+    }
+}
+
+#[cfg(feature = "v1")]
+impl From<kdlv1::KdlNode> for KdlNode {
+    fn from(value: kdlv1::KdlNode) -> Self {
+        KdlNode {
+            ty: value.ty().map(|x| x.clone().into()),
+            name: value.name().clone().into(),
+            entries: value.entries().iter().map(|x| x.clone().into()).collect(),
+            children: value.children().map(|x| x.clone().into()),
+            format: Some(KdlNodeFormat {
+                leading: value.leading().unwrap_or("").into(),
+                before_ty_name: "".into(),
+                after_ty_name: "".into(),
+                after_ty: "".into(),
+                before_children: value.before_children().unwrap_or("").into(),
+                before_terminator: "".into(),
+                terminator: "".into(),
+                trailing: value.trailing().unwrap_or("").into(),
+            }),
+            #[cfg(feature = "span")]
+            span: SourceSpan::new(value.span().offset().into(), value.span().len()),
+        }
+    }
 }
 
 // Query language
