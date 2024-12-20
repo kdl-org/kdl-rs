@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{v2_parser, KdlIdentifier, KdlParseFailure, KdlValue};
+use crate::{v2_parser, KdlError, KdlIdentifier, KdlValue};
 
 /// KDL Entries are the "arguments" to KDL nodes: either a (positional)
 /// [`Argument`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#argument) or
@@ -248,7 +248,7 @@ impl KdlEntry {
     /// parse the string as a KDL v2 entry, and, if that fails, it will try
     /// to parse again as a KDL v1 entry. If both fail, only the v2 parse
     /// errors will be returned.
-    pub fn parse(s: &str) -> Result<Self, KdlParseFailure> {
+    pub fn parse(s: &str) -> Result<Self, KdlError> {
         #[cfg(not(feature = "v1-fallback"))]
         {
             v2_parser::try_parse(v2_parser::padded_node_entry, s)
@@ -262,7 +262,7 @@ impl KdlEntry {
 
     /// Parses a KDL v1 string into an entry.
     #[cfg(feature = "v1")]
-    pub fn parse_v1(s: &str) -> Result<Self, KdlParseFailure> {
+    pub fn parse_v1(s: &str) -> Result<Self, KdlError> {
         let ret: Result<kdlv1::KdlEntry, kdlv1::KdlError> = s.parse();
         ret.map(|x| x.into()).map_err(|e| e.into())
     }
@@ -353,7 +353,7 @@ where
 }
 
 impl FromStr for KdlEntry {
-    type Err = KdlParseFailure;
+    type Err = KdlError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         KdlEntry::parse(s)

@@ -10,8 +10,8 @@ use std::{
 use miette::SourceSpan;
 
 use crate::{
-    v2_parser, FormatConfig, KdlDocument, KdlDocumentFormat, KdlEntry, KdlIdentifier,
-    KdlParseFailure, KdlValue,
+    v2_parser, FormatConfig, KdlDocument, KdlDocumentFormat, KdlEntry, KdlError, KdlIdentifier,
+    KdlValue,
 };
 
 /// Represents an individual KDL
@@ -332,7 +332,7 @@ impl KdlNode {
     /// parse the string as a KDL v2 node, and, if that fails, it will try
     /// to parse again as a KDL v1 node. If both fail, only the v2 parse
     /// errors will be returned.
-    pub fn parse(s: &str) -> Result<Self, KdlParseFailure> {
+    pub fn parse(s: &str) -> Result<Self, KdlError> {
         #[cfg(not(feature = "v1-fallback"))]
         {
             v2_parser::try_parse(v2_parser::padded_node, s)
@@ -346,7 +346,7 @@ impl KdlNode {
 
     /// Parses a KDL v1 string into a document.
     #[cfg(feature = "v1")]
-    pub fn parse_v1(s: &str) -> Result<Self, KdlParseFailure> {
+    pub fn parse_v1(s: &str) -> Result<Self, KdlError> {
         let ret: Result<kdlv1::KdlNode, kdlv1::KdlError> = s.parse();
         ret.map(|x| x.into()).map_err(|e| e.into())
     }
@@ -753,7 +753,7 @@ impl IndexMut<&str> for KdlNode {
 }
 
 impl FromStr for KdlNode {
-    type Err = KdlParseFailure;
+    type Err = KdlError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         v2_parser::try_parse(v2_parser::padded_node, input)

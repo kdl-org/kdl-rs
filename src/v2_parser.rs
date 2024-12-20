@@ -20,8 +20,8 @@ use winnow::{
 };
 
 use crate::{
-    KdlDiagnostic, KdlDocument, KdlDocumentFormat, KdlEntry, KdlEntryFormat, KdlIdentifier,
-    KdlNode, KdlNodeFormat, KdlParseFailure, KdlValue,
+    KdlDiagnostic, KdlDocument, KdlDocumentFormat, KdlEntry, KdlEntryFormat, KdlError,
+    KdlIdentifier, KdlNode, KdlNodeFormat, KdlValue,
 };
 
 type Input<'a> = Recoverable<Located<&'a str>, KdlParseError>;
@@ -30,7 +30,7 @@ type PResult<T> = winnow::PResult<T, KdlParseError>;
 pub(crate) fn try_parse<'a, P: Parser<Input<'a>, T, KdlParseError>, T>(
     mut parser: P,
     input: &'a str,
-) -> Result<T, KdlParseFailure> {
+) -> Result<T, KdlError> {
     let (_, maybe_val, errs) = parser.recoverable_parse(Located::new(input));
     if let (Some(v), true) = (maybe_val, errs.is_empty()) {
         Ok(v)
@@ -39,9 +39,9 @@ pub(crate) fn try_parse<'a, P: Parser<Input<'a>, T, KdlParseError>, T>(
     }
 }
 
-pub(crate) fn failure_from_errs(errs: Vec<KdlParseError>, input: &str) -> KdlParseFailure {
+pub(crate) fn failure_from_errs(errs: Vec<KdlParseError>, input: &str) -> KdlError {
     let src = Arc::new(String::from(input));
-    KdlParseFailure {
+    KdlError {
         input: src.clone(),
         diagnostics: errs
             .into_iter()
@@ -2050,13 +2050,13 @@ impl_negatable_unsigned!(u8, u16, u32, u64, u128, usize);
 mod failure_tests {
     use miette::Severity;
 
-    use crate::{KdlDiagnostic, KdlDocument, KdlParseFailure};
+    use crate::{KdlDiagnostic, KdlDocument, KdlError};
     use std::sync::Arc;
 
     #[test]
     fn bad_node_name_test() -> miette::Result<()> {
         let input = Arc::new("foo { bar; { baz; }; }".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         // super::_print_diagnostic(res);
         // return Ok(());
         assert_eq!(
@@ -2076,7 +2076,7 @@ mod failure_tests {
             ))
         );
         let input = Arc::new("no/de 1 {\n    1 2 foo\n    bad#\n}".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         // super::_print_diagnostic(res);
         // return Ok(());
         assert_eq!(
@@ -2133,7 +2133,7 @@ mod failure_tests {
     #[test]
     fn bad_entry_number_test() -> miette::Result<()> {
         let input = Arc::new("node 1asdf 2".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         // super::_print_diagnostic(res);
         // return Ok(());
         assert_eq!(
@@ -2152,7 +2152,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node 0x1asdf 2".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         assert_eq!(
             res,
             Err(mkfail(
@@ -2169,7 +2169,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node 0o1asdf 2".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         assert_eq!(
             res,
             Err(mkfail(
@@ -2186,7 +2186,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node 0b1asdf 2".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         assert_eq!(
             res,
             Err(mkfail(
@@ -2203,7 +2203,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node 1.0asdf 2".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         assert_eq!(
             res,
             Err(mkfail(
@@ -2220,7 +2220,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node 1.asdf 2".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         assert_eq!(
             res,
             Err(mkfail(
@@ -2237,7 +2237,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node 1.0easdf 2".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         assert_eq!(
             res,
             Err(mkfail(
@@ -2263,7 +2263,7 @@ mod failure_tests {
     #[test]
     fn bad_string_test() -> miette::Result<()> {
         let input = Arc::new("node \" 1".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         assert_eq!(
             res,
             Err(mkfail(
@@ -2280,7 +2280,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node \"foo\"1".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         // if let Err(e) = res {
         //     println!("{:?}", miette::Report::from(e));
         // }
@@ -2300,7 +2300,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node \"\nlet's do multiline!\"".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         assert_eq!(
             res,
             Err(mkfail(
@@ -2331,7 +2331,7 @@ mod failure_tests {
     #[test]
     fn bad_child_test() -> miette::Result<()> {
         let input = Arc::new("node {".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         // _print_diagnostic(res);
         // return Ok(());
         assert_eq!(
@@ -2350,7 +2350,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node {}}".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         // _print_diagnostic(res);
         // return Ok(());
         // println!("{res:#?}");
@@ -2370,7 +2370,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node }{".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         // _print_diagnostic(res);
         // return Ok(());
         assert_eq!(
@@ -2421,7 +2421,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node {\n".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         // _print_diagnostic(res);
         // return Ok(());
         assert_eq!(
@@ -2450,7 +2450,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node {\nnode2{{}}".to_string());
-        let res: Result<KdlDocument, KdlParseFailure> = input.parse();
+        let res: Result<KdlDocument, KdlError> = input.parse();
         // _print_diagnostic(res);
         // return Ok(());
         println!("{res:#?}");
@@ -2504,13 +2504,13 @@ mod failure_tests {
         Ok(())
     }
 
-    fn mkfail(input: Arc<String>, diagnostics: Vec<KdlDiagnostic>) -> KdlParseFailure {
-        KdlParseFailure { input, diagnostics }
+    fn mkfail(input: Arc<String>, diagnostics: Vec<KdlDiagnostic>) -> KdlError {
+        KdlError { input, diagnostics }
     }
 }
 
 #[cfg(test)]
-fn _print_diagnostic<T>(res: Result<T, KdlParseFailure>) {
+fn _print_diagnostic<T>(res: Result<T, KdlError>) {
     if let Err(e) = res {
         println!("{:?}", miette::Report::from(e));
     }

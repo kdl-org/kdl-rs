@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::fmt::Display;
 
-use crate::{FormatConfig, KdlNode, KdlParseFailure, KdlValue};
+use crate::{FormatConfig, KdlError, KdlNode, KdlValue};
 
 /// Represents a KDL
 /// [`Document`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#document).
@@ -341,7 +341,7 @@ impl KdlDocument {
     /// parse the string as a KDL v2 document, and, if that fails, it will try
     /// to parse again as a KDL v1 document. If both fail, only the v2 parse
     /// errors will be returned.
-    pub fn parse(s: &str) -> Result<Self, KdlParseFailure> {
+    pub fn parse(s: &str) -> Result<Self, KdlError> {
         #[cfg(not(feature = "v1-fallback"))]
         {
             crate::v2_parser::try_parse(crate::v2_parser::document, s)
@@ -355,7 +355,7 @@ impl KdlDocument {
 
     /// Parses a KDL v1 string into a document.
     #[cfg(feature = "v1")]
-    pub fn parse_v1(s: &str) -> Result<Self, KdlParseFailure> {
+    pub fn parse_v1(s: &str) -> Result<Self, KdlError> {
         let ret: Result<kdlv1::KdlDocument, kdlv1::KdlError> = s.parse();
         ret.map(|x| x.into()).map_err(|e| e.into())
     }
@@ -363,7 +363,7 @@ impl KdlDocument {
     /// Takes a KDL v1 document string and returns the same document, but
     /// autoformatted into valid KDL v2 syntax.
     #[cfg(feature = "v1")]
-    pub fn v1_to_v2(s: &str) -> Result<String, KdlParseFailure> {
+    pub fn v1_to_v2(s: &str) -> Result<String, KdlError> {
         let mut doc = KdlDocument::parse_v1(s)?;
         doc.autoformat();
         Ok(doc.to_string())
@@ -386,7 +386,7 @@ impl From<kdlv1::KdlDocument> for KdlDocument {
 }
 
 impl std::str::FromStr for KdlDocument {
-    type Err = KdlParseFailure;
+    type Err = KdlError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         KdlDocument::parse(s)

@@ -36,7 +36,7 @@ use {
 /// ```
 #[derive(Debug, Diagnostic, Clone, Eq, PartialEq, Error)]
 #[error("Failed to parse KDL document")]
-pub struct KdlParseFailure {
+pub struct KdlError {
     /// Original input that this failure came from.
     #[source_code]
     pub input: Arc<String>,
@@ -76,10 +76,10 @@ pub struct KdlDiagnostic {
 }
 
 #[cfg(feature = "v1")]
-impl From<kdlv1::KdlError> for KdlParseFailure {
+impl From<kdlv1::KdlError> for KdlError {
     fn from(value: kdlv1::KdlError) -> Self {
         let input = Arc::new(value.input);
-        KdlParseFailure {
+        KdlError {
             input: input.clone(),
             diagnostics: vec![KdlDiagnostic {
                 input,

@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use kdl::{KdlDocument, KdlIdentifier, KdlParseFailure, KdlValue};
+use kdl::{KdlDocument, KdlError, KdlIdentifier, KdlValue};
 use miette::{Diagnostic, IntoDiagnostic};
 use thiserror::Error;
 
@@ -20,11 +20,11 @@ struct ComplianceSuiteFailure {
 enum ComplianceDiagnostic {
     #[error("{}", PathBuf::from(.0.file_name().unwrap()).display())]
     #[diagnostic(code(kdl::compliance::parse_failure))]
-    KdlParseFailure(
+    KdlError(
         PathBuf,
         #[source]
         #[diagnostic_source]
-        KdlParseFailure,
+        KdlError,
     ),
 
     #[error("{}:\nExpected:\n{expected}\nActual:\n{actual}", PathBuf::from(file.file_name().unwrap()).display())]
@@ -74,7 +74,7 @@ fn spec_compliance() -> miette::Result<()> {
 }
 
 fn validate_res(
-    res: Result<KdlDocument, KdlParseFailure>,
+    res: Result<KdlDocument, KdlError>,
     path: &Path,
     src: &str,
 ) -> Result<(), ComplianceDiagnostic> {
@@ -88,7 +88,7 @@ fn validate_res(
     let expected_path = expected_dir.join(file_name);
     let underscored = expected_dir.join(format!("_{}", PathBuf::from(file_name).display()));
     if expected_path.exists() {
-        let doc = res.map_err(|e| ComplianceDiagnostic::KdlParseFailure(path.into(), e))?;
+        let doc = res.map_err(|e| ComplianceDiagnostic::KdlError(path.into(), e))?;
         let expected = normalize_line_endings(fs::read_to_string(&expected_path)?);
         let actual = stringify_to_expected(doc);
         if actual != expected {
@@ -105,7 +105,7 @@ fn validate_res(
             PathBuf::from(file_name).display()
         );
         // } else {
-        //     res.map_err(|e| ComplianceDiagnostic::KdlParseFailure(path.into(), e))?;
+        //     res.map_err(|e| ComplianceDiagnostic::KdlError(path.into(), e))?;
     }
     Ok(())
 }
