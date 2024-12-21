@@ -353,11 +353,70 @@ impl KdlNode {
         let ret: Result<kdlv1::KdlNode, kdlv1::KdlError> = s.parse();
         ret.map(|x| x.into()).map_err(|e| e.into())
     }
+
+    /// Makes sure this node is in v2 format.
+    #[cfg(feature = "v1")]
+    pub fn ensure_v2(&mut self) {
+        self.ty = self.ty.take().map(|ty| ty.value().into());
+        let v2_name: KdlIdentifier = self.name.value().into();
+        self.name = v2_name;
+        for entry in self.iter_mut() {
+            entry.ensure_v2();
+        }
+        self.children = self.children.take().map(|mut doc| {
+            doc.ensure_v2();
+            doc
+        });
+    }
+
+    /// Makes sure this node is in v1 format.
+    #[cfg(feature = "v1")]
+    pub fn ensure_v1(&mut self) {
+        self.ty = self.ty.take().map(|ty| {
+            let v1_name: kdlv1::KdlIdentifier = ty.value().into();
+            v1_name.into()
+        });
+        let v1_name: kdlv1::KdlIdentifier = self.name.value().into();
+        self.name = v1_name.into();
+        for entry in self.iter_mut() {
+            entry.ensure_v1();
+        }
+        self.children = self.children.take().map(|mut children| {
+            children.ensure_v1();
+            children
+        });
+    }
 }
 
 #[cfg(feature = "v1")]
 impl From<kdlv1::KdlNode> for KdlNode {
     fn from(value: kdlv1::KdlNode) -> Self {
+        let terminator = value
+            .trailing()
+            .map(|t| if t.contains(";") { ";" } else { "\n" })
+            .unwrap_or("\n");
+        let trailing = value.trailing().map(|t| {
+            if t.contains(";") {
+                t.replace(';', "")
+            } else {
+                let t = t.replace("\r\n", "\n");
+                let t = t
+                    .chars()
+                    .map(|c| {
+                        if v2_parser::NEWLINES.iter().any(|nl| nl.contains(c)) {
+                            '\n'
+                        } else {
+                            c
+                        }
+                    })
+                    .collect::<String>();
+                if terminator == ";" {
+                    t
+                } else {
+                    t.replacen('\n', "", 1)
+                }
+            }
+        });
         KdlNode {
             ty: value.ty().map(|x| x.clone().into()),
             name: value.name().clone().into(),
@@ -370,8 +429,8 @@ impl From<kdlv1::KdlNode> for KdlNode {
                 after_ty: "".into(),
                 before_children: value.before_children().unwrap_or("").into(),
                 before_terminator: "".into(),
-                terminator: "".into(),
-                trailing: value.trailing().unwrap_or("").into(),
+                terminator: terminator.into(),
+                trailing: trailing.unwrap_or_else(|| "".into()),
             }),
             #[cfg(feature = "span")]
             span: SourceSpan::new(value.span().offset().into(), value.span().len()),

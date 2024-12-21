@@ -121,7 +121,7 @@ impl From<kdlv1::KdlIdentifier> for KdlIdentifier {
             value: value.value().into(),
             repr: value.repr().map(|x| x.into()),
             #[cfg(feature = "span")]
-            span: SourceSpan::new(value.span().offset().into(), value.span().len()),
+            span: (value.span().offset(), value.span().len()).into(),
         }
     }
 }

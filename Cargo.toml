@@ -12,7 +12,7 @@ rust-version = "1.70.0"
 edition = "2021"
 
 [features]
-default = ["span"]
+default = ["span", "v1"]
 span = []
 v1-fallback = ["v1"]
 v1 = ["kdlv1"]

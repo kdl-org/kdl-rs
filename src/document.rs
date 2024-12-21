@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::fmt::Display;
 
-use crate::{FormatConfig, KdlError, KdlNode, KdlValue};
+use crate::{FormatConfig, KdlError, KdlNode, KdlNodeFormat, KdlValue};
 
 /// Represents a KDL
 /// [`Document`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#document).
@@ -344,13 +344,18 @@ impl KdlDocument {
     pub fn parse(s: &str) -> Result<Self, KdlError> {
         #[cfg(not(feature = "v1-fallback"))]
         {
-            crate::v2_parser::try_parse(crate::v2_parser::document, s)
+            KdlDocument::parse_v2(s)
         }
         #[cfg(feature = "v1-fallback")]
         {
-            crate::v2_parser::try_parse(crate::v2_parser::document, s)
-                .or_else(|e| KdlDocument::parse_v1(s).map_err(|_| e))
+            KdlDocument::parse_v2(s).or_else(|e| KdlDocument::parse_v1(s).map_err(|_| e))
         }
+    }
+
+    /// Parses a KDL v2 string into a document.
+    #[cfg(feature = "v1")]
+    pub fn parse_v2(s: &str) -> Result<Self, KdlError> {
+        crate::v2_parser::try_parse(crate::v2_parser::document, s)
     }
 
     /// Parses a KDL v1 string into a document.
@@ -365,8 +370,73 @@ impl KdlDocument {
     #[cfg(feature = "v1")]
     pub fn v1_to_v2(s: &str) -> Result<String, KdlError> {
         let mut doc = KdlDocument::parse_v1(s)?;
-        doc.autoformat();
+        doc.ensure_v2();
         Ok(doc.to_string())
+    }
+
+    /// Takes a KDL v2 document string and returns the same document, but
+    /// autoformatted into valid KDL v2 syntax.
+    #[cfg(feature = "v1")]
+    pub fn v2_to_v1(s: &str) -> Result<String, KdlError> {
+        let mut doc = KdlDocument::parse_v2(s)?;
+        doc.ensure_v1();
+        Ok(doc.to_string())
+    }
+
+    /// Makes sure this document is in v2 format.
+    #[cfg(feature = "v1")]
+    pub fn ensure_v2(&mut self) {
+        // No need to touch KdlDocumentFormat, probably. In the longer term,
+        // we'll want to make sure to parse out whitespace and comments and make
+        // sure they're actually compliant, but this is good enough for now.
+        for node in self.nodes_mut().iter_mut() {
+            node.ensure_v2();
+        }
+    }
+
+    /// Makes sure this document is in v1 format.
+    #[cfg(feature = "v1")]
+    pub fn ensure_v1(&mut self) {
+        // No need to touch KdlDocumentFormat, probably. In the longer term,
+        // we'll want to make sure to parse out whitespace and comments and make
+        // sure they're actually compliant, but this is good enough for now.
+
+        // the last node in v1 docs/children has to have a semicolon.
+        let mut iter = self.nodes_mut().iter_mut().rev();
+        let last = iter.next();
+        let penult = iter.next();
+        if let Some(last) = last {
+            if let Some(fmt) = last.format_mut() {
+                if !fmt.trailing.contains(";")
+                    && fmt
+                        .trailing
+                        .chars()
+                        .any(|c| crate::v2_parser::NEWLINES.iter().any(|nl| nl.contains(c)))
+                {
+                    fmt.terminator = ";".into();
+                }
+            } else {
+                let maybe_indent = {
+                    if let Some(penult) = penult {
+                        if let Some(fmt) = penult.format() {
+                            fmt.leading.clone()
+                        } else {
+                            "".into()
+                        }
+                    } else {
+                        "".into()
+                    }
+                };
+                last.format = Some(KdlNodeFormat {
+                    leading: maybe_indent,
+                    terminator: "\n".into(),
+                    ..Default::default()
+                })
+            }
+        }
+        for node in self.nodes_mut().iter_mut() {
+            node.ensure_v1();
+        }
     }
 }
 
@@ -956,10 +1026,95 @@ inline { time; to; live "our" "dreams"; "y;all" }
         Ok(())
     }
 
-    #[ignore = "Formatting is still seriously broken, and this is gonna need some extra love."]
     #[cfg(feature = "v1")]
     #[test]
-    fn v1_to_v2() -> miette::Result<()> {
+    fn v1_v2_conversions() -> miette::Result<()> {
+        let v1 = r##"
+// If you'd like to override the default keybindings completely, be sure to change "keybinds" to "keybinds clear-defaults=true"
+keybinds {
+    normal {
+        // uncomment this and adjust key if using copy_on_select=false
+        // bind "Alt c" { Copy; }
+    }
+    locked {
+        bind "Ctrl g" { SwitchToMode "Normal"; }
+    }
+    resize {
+        bind "Ctrl n" { SwitchToMode "Normal"; }
+        bind "h" "Left" { Resize "Increase Left"; }
+        bind "j" "Down" { Resize "Increase Down"; }
+        bind "k" "Up" { Resize "Increase Up"; }
+        bind "l" "Right" { Resize "Increase Right"; }
+        bind "H" { Resize "Decrease Left"; }
+        bind "J" { Resize "Decrease Down"; }
+        bind "K" { Resize "Decrease Up"; }
+        bind "L" { Resize "Decrease Right"; }
+        bind "=" "+" { Resize "Increase"; }
+        bind "-" { Resize "Decrease"; }
+    }
+}
+// Plugin aliases - can be used to change the implementation of Zellij
+// changing these requires a restart to take effect
+plugins {
+    tab-bar location="zellij:tab-bar"
+    status-bar location="zellij:status-bar"
+    welcome-screen location="zellij:session-manager" {
+        welcome_screen true
+    }
+    filepicker location="zellij:strider" {
+        cwd "\/"
+    }
+}
+mouse_mode false
+mirror_session true
+"##;
+        let v2 = r##"
+// If you'd like to override the default keybindings completely, be sure to change "keybinds" to "keybinds clear-defaults=true"
+keybinds {
+    normal {
+        // uncomment this and adjust key if using copy_on_select=false
+        // bind "Alt c" { Copy; }
+    }
+    locked {
+        bind "Ctrl g" { SwitchToMode Normal; }
+    }
+    resize {
+        bind "Ctrl n" { SwitchToMode Normal; }
+        bind h Left { Resize "Increase Left"; }
+        bind j Down { Resize "Increase Down"; }
+        bind k Up { Resize "Increase Up"; }
+        bind l Right { Resize "Increase Right"; }
+        bind H { Resize "Decrease Left"; }
+        bind J { Resize "Decrease Down"; }
+        bind K { Resize "Decrease Up"; }
+        bind L { Resize "Decrease Right"; }
+        bind "=" + { Resize Increase; }
+        bind - { Resize Decrease; }
+    }
+}
+// Plugin aliases - can be used to change the implementation of Zellij
+// changing these requires a restart to take effect
+plugins {
+    tab-bar location=zellij:tab-bar
+    status-bar location=zellij:status-bar
+    welcome-screen location=zellij:session-manager {
+        welcome_screen #true
+    }
+    filepicker location=zellij:strider {
+        cwd "/"
+    }
+}
+mouse_mode #false
+mirror_session #true
+"##;
+        pretty_assertions::assert_eq!(KdlDocument::v1_to_v2(v1)?, v2, "Converting a v1 doc to v2");
+        pretty_assertions::assert_eq!(KdlDocument::v2_to_v1(v2)?, v1, "Converting a v2 doc to v1");
+        Ok(())
+    }
+
+    #[cfg(feature = "v1")]
+    #[test]
+    fn v2_to_v1() -> miette::Result<()> {
         let original = r##"
 // If you'd like to override the default keybindings completely, be sure to change "keybinds" to "keybinds clear-defaults=true"
 keybinds {
