@@ -43,4 +43,4 @@ jobs:
       - name: Clippy
         run: cargo clippy --all -- -D warnings
       - name: Run tests
-        run: cargo test --features span --features --v1 --all --verbose
+        run: cargo test --features span --features v1 --all --verbose

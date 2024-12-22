@@ -2,7 +2,9 @@
 use miette::SourceSpan;
 use std::fmt::Display;
 
-use crate::{FormatConfig, KdlError, KdlNode, KdlNodeFormat, KdlValue};
+use crate::{FormatConfig, KdlError, KdlNode, KdlValue};
+#[cfg(feature = "v1")]
+use crate::KdlNodeFormat;
 
 /// Represents a KDL
 /// [`Document`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#document).
@@ -353,7 +355,6 @@ impl KdlDocument {
     }
 
     /// Parses a KDL v2 string into a document.
-    #[cfg(feature = "v1")]
     pub fn parse_v2(s: &str) -> Result<Self, KdlError> {
         crate::v2_parser::try_parse(crate::v2_parser::document, s)
     }
