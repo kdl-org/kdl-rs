@@ -1,5 +1,14 @@
 # `kdl` Release Changelog
 
+<a name="6.1.0"></a>
+## 6.1.0 (2024-12-22)
+
+This release is mostly to make docs.rs show the various feature flags in the docs, but I also went ahead and exposed all the `ensure_v2` functions, since they didn't really need to be behind a feature flag, even if they're not that useful outside of v1 support.
+
+### Features
+
+* **api:** unflagged ensure_v2 fns, and docsrs improvements ([99dec9fa](https://github.com/kdl-org/kdl-rs/commit/99dec9fa2c97c6a290445a94e112778397ef5358))
+
 <a name="6.0.0"></a>
 ## 6.0.0 (2024-12-22)
 
