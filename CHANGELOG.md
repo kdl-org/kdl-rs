@@ -1,5 +1,35 @@
 # `kdl` Release Changelog
 
+<a name="6.0.0"></a>
+## 6.0.0 (2024-12-22)
+
+This release updates `kdl-rs` to support the latest [KDL 2.0.0
+spec](https://github.com/kdl-org/kdl/blob/2.0.0/SPEC.md).
+
+Additionally, KDL 1.0.0 support has been retained behind `v1` and `v1-fallback`
+feature flags. This version of `kdl-rs` is able to convert back and forth
+between each.
+
+### Features
+
+* **compliance:** update to latest 2.0 spec (#103) ([4734b060](https://github.com/kdl-org/kdl-rs/commit/4734b0601b9f8bf7232f9bc97fdb31117ebcb4d5))
+* **api:** update the KdlNode and KdlDocument APIs to be more Vec-like (#101) ([683e87a1](https://github.com/kdl-org/kdl-rs/commit/683e87a1424e7925304b28d1b35420f8ff533d6a))
+* **v1:** add rudimentary, optional, KDL v1 parsing (#104) ([6a7248c4](https://github.com/kdl-org/kdl-rs/commit/6a7248c40516dc8e25fab81179b5677b3ab4823b))
+* **v1:** Add utility to auto-translate v1 to v2 ([c486cda7](https://github.com/kdl-org/kdl-rs/commit/c486cda7a5e4db5d80a58df6ce4a39442308afe9))
+* **error:** Rename KdlParseFailure back to KdlError ([12b2fd2f](https://github.com/kdl-org/kdl-rs/commit/12b2fd2f4f58ba9b112842098bd041f527d04dc4))
+* **v1:** add v2 -> v1 translation and fix translations to not autoformat ([b332eed4](https://github.com/kdl-org/kdl-rs/commit/b332eed4a0d91425cc620aed7895fec99520a287))
+* **compliance:** pull in final extra tests and change VT to newline ([3e8b2f44](https://github.com/kdl-org/kdl-rs/commit/3e8b2f443a44ba40d6ba3e370d8292eff2a81381))
+
+### Bug Fixes
+
+* **v1:** remove v1 from default features ([3e5d7a33](https://github.com/kdl-org/kdl-rs/commit/3e5d7a33afbec0cb82c717209eecf87fb3617d0a))
+* **clippy:** clippy fixes ([4cbc3224](https://github.com/kdl-org/kdl-rs/commit/4cbc32246c8ef0469e50166125036417e1f00bc6))
+* **autoformat:** fix autoformatting of v1 -> v2 ([37255b0b](https://github.com/kdl-org/kdl-rs/commit/37255b0bf67efed88ed670f79cdc50e8879e0e1c))
+* **misc:** other tiny clippy/fmt issues ([ec73cdfa](https://github.com/kdl-org/kdl-rs/commit/ec73cdfa05c6486ff74bd84f8077341c9a7ec55e))
+* **v1:** sigh. forgot to remove v1 from default features again ([fef7c58b](https://github.com/kdl-org/kdl-rs/commit/fef7c58b02c493cc458d8080ade71987dabb0c76))
+* **clippy:** clippy fixes ([b097c7e2](https://github.com/kdl-org/kdl-rs/commit/b097c7e21b3b8dd92bc112f126672a8810d2d711))
+* **fmt:** cargo fmt ([0c59b29a](https://github.com/kdl-org/kdl-rs/commit/0c59b29a03d165b4af2864b3067e5f600545bb95))
+
 <a name="6.0.0-alpha.5"></a>
 ## 6.0.0-alpha.5 (2024-12-16)
 

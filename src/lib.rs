@@ -11,19 +11,13 @@
 //! [`toml_edit`](https://crates.io/crates/toml_edit), but for KDL.
 //!
 //! This crate supports both KDL v2.0.0 and v1.0.0 (when using the non-default
-//! `v1` feature).
+//! `v1` feature). It also supports converting documents between either format.
 //!
 //! There is also a `v1-fallback` feature that may be enabled in order to have
 //! the various `Kdl*::parse` methods try to parse their input as v2, and, if
 //! that fails, try again as v1. In either case, a dedicated `Kdl*::parse_v1`
 //! method is available for v1-exclusive parsing, as long as either `v1` or
 //! `v1-fallback` are enabled.
-//!
-//! Autoformatting a document parsed from a v1 doc will translate the document
-//! to v2 format, preserving as much of the v1 trivia as possible (comments,
-//! etc). It *should* generate a fully valid v2 document, but there may still be
-//! some corner cases that don't translate well. Please file issues as needed
-//! for those.
 //!
 //! ## Example
 //!
@@ -34,7 +28,7 @@
 //! hello 1 2 3
 //!
 //! // Comment
-//! world prop=value {
+//! world prop=string-value {
 //!     child 1
 //!     child 2
 //!     child #inf
@@ -50,7 +44,7 @@
 //!
 //! assert_eq!(
 //!     doc.get("world").map(|node| &node["prop"]),
-//!     Some(&"value".into())
+//!     Some(&"string-value".into())
 //! );
 //!
 //! // Documents fully roundtrip:
@@ -109,6 +103,17 @@
 //!   help: Floating point numbers must be base 10, and have numbers after the decimal point.
 //! ```
 //!
+//! ## Features
+//! 
+//! * `span` (default) - Includes spans in the various document-related structs. 
+//! * `v1` - Adds support for v1 parsing. This will pull in the entire previous
+//!     version of `kdl-rs`, and so may be fairly heavy.
+//! * `v1-fallback` - Implies `v1`. Makes it so the various `*::parse()` and
+//!     `FromStr` implementations try to parse their inputs as `v2`, and, if that
+//!     fails, try again with `v1`. Errors will only be reported as if the input was
+//!     `v2`. To manage this more precisely, you can use the `*::parse_v2` and
+//!     `*::parse_v1` methods.
+//! 
 //! ## Quirks
 //!
 //! ### Properties

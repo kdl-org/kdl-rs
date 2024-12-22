@@ -2,32 +2,35 @@
 
 `kdl` is a "document-oriented" parser and API for the [KDL Document
 Language](https://kdl.dev), a node-based, human-friendly configuration and
-serialization format. Unlike serde-based implementations, this crate
-preserves formatting when editing, as well as when inserting or changing
-values with custom formatting. This is most useful when working with
-human-maintained KDL files.
+serialization format.
+
+Unlike serde-based implementations, this crate preserves formatting when
+editing, as well as when inserting or changing values with custom
+formatting. This is most useful when working with human-maintained KDL
+files.
 
 You can think of this crate as
 [`toml_edit`](https://crates.io/crates/toml_edit), but for KDL.
 
-If you don't care about formatting or programmatic manipulation, you might
-check out [`knuffel`](https://crates.io/crates/knuffel) or
-[`kaydle`](https://crates.io/crates/kaydle) instead for serde (or
-serde-like) parsing.
+This crate supports both KDL v2.0.0 and v1.0.0 (when using the non-default
+`v1` feature). It also supports converting documents between either format.
 
-This crate supports parsing [KDL
-2.0.0-draft.6](https://github.com/kdl-org/kdl/releases/tag/2.0.0-draft.6)
+There is also a `v1-fallback` feature that may be enabled in order to have
+the various `Kdl*::parse` methods try to parse their input as v2, and, if
+that fails, try again as v1. In either case, a dedicated `Kdl*::parse_v1`
+method is available for v1-exclusive parsing, as long as either `v1` or
+`v1-fallback` are enabled.
 
 ### Example
 
 ```rust
-use kdl::KdlDocument;
+use kdl::{KdlDocument, KdlValue};
 
 let doc_str = r#"
 hello 1 2 3
 
 // Comment
-world prop=value {
+world prop=string-value {
     child 1
     child 2
     child #inf
@@ -37,13 +40,13 @@ world prop=value {
 let doc: KdlDocument = doc_str.parse().expect("failed to parse KDL");
 
 assert_eq!(
-    doc.get_args("hello"),
+    doc.iter_args("hello").collect::<Vec<&KdlValue>>(),
     vec![&1.into(), &2.into(), &3.into()]
 );
 
 assert_eq!(
     doc.get("world").map(|node| &node["prop"]),
-    Some(&"value".into())
+    Some(&"string-value".into())
 );
 
 // Documents fully roundtrip:
@@ -102,6 +105,17 @@ Error:
   help: Floating point numbers must be base 10, and have numbers after the decimal point.
 ```
 
+### Features
+
+* `span` (default) - Includes spans in the various document-related structs.
+* `v1` - Adds support for v1 parsing. This will pull in the entire previous
+    version of `kdl-rs`, and so may be fairly heavy.
+* `v1-fallback` - Implies `v1`. Makes it so the various `*::parse()` and
+    `FromStr` implementations try to parse their inputs as `v2`, and, if that
+    fails, try again with `v1`. Errors will only be reported as if the input was
+    `v2`. To manage this more precisely, you can use the `*::parse_v2` and
+    `*::parse_v1` methods.
+
 ### Quirks
 
 #### Properties
@@ -109,7 +123,7 @@ Error:
 Multiple properties with the same name are allowed, and all duplicated
 **will be preserved**, meaning those documents will correctly round-trip.
 When using `node.get()`/`node["key"]` & company, the _last_ property with
-that name's value will be returned.
+that name's value will be returned (as per spec).
 
 #### Numbers
 
