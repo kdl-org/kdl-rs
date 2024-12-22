@@ -2,9 +2,9 @@
 use miette::SourceSpan;
 use std::fmt::Display;
 
-use crate::{FormatConfig, KdlError, KdlNode, KdlValue};
 #[cfg(feature = "v1")]
 use crate::KdlNodeFormat;
+use crate::{FormatConfig, KdlError, KdlNode, KdlValue};
 
 /// Represents a KDL
 /// [`Document`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#document).
