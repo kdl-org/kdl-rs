@@ -221,7 +221,7 @@ impl KdlDocument {
     /// Clears leading and trailing text (whitespace, comments). `KdlNode`s in
     /// this document will be unaffected.
     ///
-    /// If you need to clear the `KdlNode`s, use [`Self::clear_fmt_recursive`].
+    /// If you need to clear the `KdlNode`s, use [`Self::clear_format_recursive`].
     pub fn clear_format(&mut self) {
         self.format = None;
     }
@@ -385,7 +385,6 @@ impl KdlDocument {
     }
 
     /// Makes sure this document is in v2 format.
-    #[cfg(feature = "v1")]
     pub fn ensure_v2(&mut self) {
         // No need to touch KdlDocumentFormat, probably. In the longer term,
         // we'll want to make sure to parse out whitespace and comments and make

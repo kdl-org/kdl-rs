@@ -83,7 +83,7 @@ impl KdlEntry {
 
     /// Gets this entry's span.
     ///
-    /// This value will be properly initialized when created via [`KdlDocument::parse`]
+    /// This value will be properly initialized when created via [`crate::KdlDocument::parse`]
     /// but may become invalidated if the document is mutated. We do not currently
     /// guarantee this to yield any particularly consistent results at that point.
     #[cfg(feature = "span")]
@@ -221,7 +221,6 @@ impl KdlEntry {
     }
 
     /// Makes sure this entry is in v2 format.
-    #[cfg(feature = "v1")]
     pub fn ensure_v2(&mut self) {
         let value_repr = self.format.as_ref().map(|x| {
             match &self.value {

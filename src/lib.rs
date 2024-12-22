@@ -104,8 +104,8 @@
 //! ```
 //!
 //! ## Features
-//! 
-//! * `span` (default) - Includes spans in the various document-related structs. 
+//!
+//! * `span` (default) - Includes spans in the various document-related structs.
 //! * `v1` - Adds support for v1 parsing. This will pull in the entire previous
 //!     version of `kdl-rs`, and so may be fairly heavy.
 //! * `v1-fallback` - Implies `v1`. Makes it so the various `*::parse()` and
@@ -113,7 +113,7 @@
 //!     fails, try again with `v1`. Errors will only be reported as if the input was
 //!     `v2`. To manage this more precisely, you can use the `*::parse_v2` and
 //!     `*::parse_v1` methods.
-//! 
+//!
 //! ## Quirks
 //!
 //! ### Properties
@@ -145,7 +145,7 @@
 //! ## License
 //!
 //! The code in this repository is covered by [the Apache-2.0
-//! License](LICENSE).
+//! License](./LICENSE).
 
 // TODO(@zkat): bring this back later.
 // ### Query Engine
@@ -183,6 +183,7 @@
 #![deny(missing_debug_implementations, nonstandard_style)]
 #![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
 #![cfg_attr(test, deny(warnings))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![doc(html_favicon_url = "https://kdl.dev/favicon.ico")]
 #![doc(html_logo_url = "https://kdl.dev/logo.svg")]
 

@@ -130,7 +130,7 @@ impl KdlNode {
     /// their formatting will be preserved.
     ///
     /// If you want to clear formatting on all children and entries as well,
-    /// use [`Self::clear_fmt_recursive`].
+    /// use [`Self::clear_format_recursive`].
     pub fn clear_format(&mut self) {
         self.format = None;
     }
@@ -355,7 +355,6 @@ impl KdlNode {
     }
 
     /// Makes sure this node is in v2 format.
-    #[cfg(feature = "v1")]
     pub fn ensure_v2(&mut self) {
         self.ty = self.ty.take().map(|ty| ty.value().into());
         let v2_name: KdlIdentifier = self.name.value().into();

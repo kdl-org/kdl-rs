@@ -42,7 +42,7 @@ impl KdlIdentifier {
 
     /// Gets this identifier's span.
     ///
-    /// This value will be properly initialized when created via [`KdlDocument::parse`]
+    /// This value will be properly initialized when created via [`crate::KdlDocument::parse`]
     /// but may become invalidated if the document is mutated. We do not currently
     /// guarantee this to yield any particularly consistent results at that point.
     #[cfg(feature = "span")]
