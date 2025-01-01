@@ -1229,7 +1229,7 @@ fn escaped_char(input: &mut Input<'_>) -> PResult<char> {
         )),
         (
             "u{",
-            cut_err(take_while(1..6, AsChar::is_hex_digit)),
+            cut_err(take_while(1..=6, AsChar::is_hex_digit)),
             cut_err("}"),
         )
             .context(cx().lbl("unicode escape char"))
@@ -1250,6 +1250,7 @@ fn escaped_char(input: &mut Input<'_>) -> PResult<char> {
 /// multi-line-raw-string-body := (unicode - disallowed-literal-code-points)*?
 /// ```
 fn raw_string(input: &mut Input<'_>) -> PResult<KdlValue> {
+    let _start_loc = input.location();
     let hashes: String = repeat(1.., "#").parse_next(input)?;
     let quotes = alt((("\"\"\"", newline).take(), "\"")).parse_next(input)?;
     let is_multiline = quotes.len() > 1;
@@ -1343,7 +1344,17 @@ fn raw_string(input: &mut Input<'_>) -> PResult<KdlValue> {
         "\"".context(cx().lbl("raw string closing quotes"))
     };
     cut_err((closing_quotes, &hashes[..])).parse_next(input)?;
-    Ok(KdlValue::String(body))
+    if body == "\"" {
+        Err(ErrMode::Cut(KdlParseError {
+            message: Some("Single-line raw strings cannot look like multi-line ones".into()),
+            span: Some((_start_loc..input.location()).into()),
+            label: Some("triple quotes".into()),
+            help: Some("Consider using a regular escaped string if all you want is a single quote: \"\\\"\"".into()),
+            severity: Some(Severity::Error),
+        }))
+    } else {
+        Ok(KdlValue::String(body))
+    }
 }
 
 /// Like badval, but is able to slurp up invalid raw strings, which contain whitespace.
@@ -1382,6 +1393,10 @@ mod string_tests {
         assert_eq!(
             string.parse(new_input("\"foo\\u{0a}\"")).unwrap(),
             Some(KdlValue::String("foo\u{0a}".into()))
+        );
+        assert_eq!(
+            string.parse(new_input("\"\\u{10FFFF}\"")).unwrap(),
+            Some(KdlValue::String("\u{10ffff}".into()))
         );
     }
 
@@ -1449,6 +1464,7 @@ mod string_tests {
             string.parse(new_input("#\"foo\"#")).unwrap(),
             Some(KdlValue::String("foo".into()))
         );
+        assert!(string.parse(new_input("#\"\"\"#")).is_err());
     }
 
     #[test]
@@ -1686,6 +1702,8 @@ fn slashdash(input: &mut Input<'_>) -> PResult<()> {
 #[test]
 fn slashdash_tests() {
     assert!(document.parse(new_input("/- foo bar")).is_ok());
+    assert!(document.parse(new_input("/- foo bar;")).is_ok());
+    assert!(document.parse(new_input("/-n 1;")).is_ok());
     assert!(node.parse(new_input("/- foo\nbar baz")).is_ok());
     assert!(node_entry.parse(new_input("/-commented tada")).is_ok());
     assert!(node.parse(new_input("foo /- { }")).is_ok());
