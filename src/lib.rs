@@ -110,9 +110,9 @@
 //!     version of `kdl-rs`, and so may be fairly heavy.
 //! * `v1-fallback` - Implies `v1`. Makes it so the various `*::parse()` and
 //!     `FromStr` implementations try to parse their inputs as `v2`, and, if that
-//!     fails, try again with `v1`. Errors will only be reported as if the input was
-//!     `v2`. To manage this more precisely, you can use the `*::parse_v2` and
-//!     `*::parse_v1` methods.
+//!     fails, try again with `v1`. For `KdlDocument`, a heuristic will be applied
+//!     if both `v1` and `v2` parsers fail, to pick which error(s) to return. For
+//!     other types, only the `v2` parser's errors will be returned.
 //!
 //! ## Quirks
 //!

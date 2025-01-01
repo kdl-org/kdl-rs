@@ -341,8 +341,9 @@ impl KdlDocument {
     ///
     /// If the `v1-fallback` feature is enabled, this method will first try to
     /// parse the string as a KDL v2 document, and, if that fails, it will try
-    /// to parse again as a KDL v1 document. If both fail, only the v2 parse
-    /// errors will be returned.
+    /// to parse again as a KDL v1 document. If both fail, a heuristic will be
+    /// applied to try and detect the "intended" KDL version, and that version's
+    /// error(s) will be returned.
     pub fn parse(s: &str) -> Result<Self, KdlError> {
         #[cfg(not(feature = "v1-fallback"))]
         {
@@ -350,6 +351,20 @@ impl KdlDocument {
         }
         #[cfg(feature = "v1-fallback")]
         {
+            let v2_res = KdlDocument::parse_v2(s);
+            if let Err(err) = v2_res {
+                let v1_res = KdlDocument::parse_v2(s);
+                if v1_res.is_err() && detect_v2(s) {
+                    v2_res
+                } else if detect_v1(s) {
+                    v1_res
+                } else {
+                    // This does matter, because detection short-circuits.
+                    v2_res
+                }
+            } else {
+                v2_res
+            }
             KdlDocument::parse_v2(s).or_else(|e| KdlDocument::parse_v1(s).map_err(|_| e))
         }
     }
@@ -453,6 +468,55 @@ impl From<kdlv1::KdlDocument> for KdlDocument {
             span: SourceSpan::new(value.span().offset().into(), value.span().len()),
         }
     }
+}
+
+/// Applies heuristics to get an idea of whether the string might be intended to
+/// be v2.
+#[allow(unused)]
+pub(crate) fn detect_v2(input: &str) -> bool {
+    for line in input.lines() {
+        if line.contains("kdl-version 2")
+            || line.contains("#true")
+            || line.contains("#false")
+            || line.contains("#null")
+            || line.contains("#inf")
+            || line.contains("#-inf")
+            || line.contains("#nan")
+            || line.contains(" #\"")
+            || line.contains("\"\"\"")
+            // Very very rough attempt at finding unquoted strings. We give up
+            // the first time we see a quoted one on a line.
+            || (!line.contains('"') && line
+                .split_whitespace()
+                .skip(1)
+                .any(|x| {
+                    x.chars()
+                        .next()
+                        .map(|d| !d.is_ascii_digit() && d != '-' && d != '+')
+                        .unwrap_or_default()
+                }))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Applies heuristics to get an idea of whether the string might be intended to
+/// be v2.
+#[allow(unused)]
+pub(crate) fn detect_v1(input: &str) -> bool {
+    input
+        .lines()
+        .next()
+        .map(|l| l.contains("kdl-version 1"))
+        .unwrap_or(false)
+        || input.contains(" true")
+        || input.contains(" false")
+        || input.contains(" null")
+        || input.contains("r#\"")
+        || input.contains(" \"\n")
+        || input.contains(" \"\r\n")
 }
 
 impl std::str::FromStr for KdlDocument {
@@ -1109,91 +1173,8 @@ mirror_session #true
 "##;
         pretty_assertions::assert_eq!(KdlDocument::v1_to_v2(v1)?, v2, "Converting a v1 doc to v2");
         pretty_assertions::assert_eq!(KdlDocument::v2_to_v1(v2)?, v1, "Converting a v2 doc to v1");
-        Ok(())
-    }
-
-    #[cfg(feature = "v1")]
-    #[test]
-    fn v2_to_v1() -> miette::Result<()> {
-        let original = r##"
-// If you'd like to override the default keybindings completely, be sure to change "keybinds" to "keybinds clear-defaults=true"
-keybinds {
-    normal {
-        // uncomment this and adjust key if using copy_on_select=false
-        // bind "Alt c" { Copy; }
-    }
-    locked {
-        bind "Ctrl g" { SwitchToMode "Normal"; }
-    }
-    resize {
-        bind "Ctrl n" { SwitchToMode "Normal"; }
-        bind "h" "Left" { Resize "Increase Left"; }
-        bind "j" "Down" { Resize "Increase Down"; }
-        bind "k" "Up" { Resize "Increase Up"; }
-        bind "l" "Right" { Resize "Increase Right"; }
-        bind "H" { Resize "Decrease Left"; }
-        bind "J" { Resize "Decrease Down"; }
-        bind "K" { Resize "Decrease Up"; }
-        bind "L" { Resize "Decrease Right"; }
-        bind "=" "+" { Resize "Increase"; }
-        bind "-" { Resize "Decrease"; }
-    }
-}
-// Plugin aliases - can be used to change the implementation of Zellij
-// changing these requires a restart to take effect
-plugins {
-    tab-bar location="zellij:tab-bar"
-    status-bar location="zellij:status-bar"
-    welcome-screen location="zellij:session-manager" {
-        welcome_screen true
-    }
-    filepicker location="zellij:strider" {
-        cwd "/"
-    }
-}
-mouse_mode false
-mirror_session true
-"##;
-        let expected = r##"
-// If you'd like to override the default keybindings completely, be sure to change "keybinds" to "keybinds clear-defaults=true"
-keybinds {
-    normal {
-        // uncomment this and adjust key if using copy_on_select=false
-        // bind "Alt c" { Copy; }
-    }
-    locked {
-        bind "Ctrl g" { SwitchToMode Normal; }
-    }
-    resize {
-        bind "Ctrl n" { SwitchToMode Normal; }
-        bind h Left { Resize "Increase Left"; }
-        bind j Down { Resize "Increase Down"; }
-        bind k Up { Resize "Increase Up"; }
-        bind l Right { Resize "Increase Right"; }
-        bind H { Resize "Decrease Left"; }
-        bind J { Resize "Decrease Down"; }
-        bind K { Resize "Decrease Up"; }
-        bind L { Resize "Decrease Right"; }
-        bind "=" + { Resize Increase; }
-        bind - { Resize Decrease; }
-    }
-}
-// Plugin aliases - can be used to change the implementation of Zellij
-// changing these requires a restart to take effect
-plugins {
-    tab-bar location=zellij:tab-bar
-    status-bar location=zellij:status-bar
-    welcome-screen location=zellij:session-manager {
-        welcome_screen #true
-    }
-    filepicker location=zellij:strider {
-        cwd "/"
-    }
-}
-mouse_mode #false
-mirror_session #true
-"##;
-        pretty_assertions::assert_eq!(KdlDocument::v1_to_v2(original)?, expected);
+        assert!(super::detect_v1(v1));
+        assert!(super::detect_v2(v2));
         Ok(())
     }
 }
