@@ -352,7 +352,7 @@ impl KdlDocument {
         #[cfg(feature = "v1-fallback")]
         {
             let v2_res = KdlDocument::parse_v2(s);
-            if let Err(err) = v2_res {
+            if v2_res.is_err() {
                 let v1_res = KdlDocument::parse_v2(s);
                 if v1_res.is_err() && detect_v2(s) {
                     v2_res
@@ -365,7 +365,6 @@ impl KdlDocument {
             } else {
                 v2_res
             }
-            KdlDocument::parse_v2(s).or_else(|e| KdlDocument::parse_v1(s).map_err(|_| e))
         }
     }
 
