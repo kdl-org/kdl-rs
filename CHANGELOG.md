@@ -1,5 +1,13 @@
 # `kdl` Release Changelog
 
+
+<a name="6.2.1"></a>
+## 6.2.1 (2025-01-02)
+
+### Bug Fixes
+
+* **fallback:** uggghhhhh oops ([7ec3992c](https://github.com/kdl-org/kdl-rs/commit/7ec3992ceb83c590df8e0e68c16fda02a3b1eeed))
+
 <a name="6.2.0"></a>
 ## 6.2.0 (2025-01-01)
 
