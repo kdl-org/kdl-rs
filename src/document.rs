@@ -354,12 +354,15 @@ impl KdlDocument {
             let v2_res = KdlDocument::parse_v2(s);
             if v2_res.is_err() {
                 let v1_res = KdlDocument::parse_v2(s);
-                if v1_res.is_err() && detect_v2(s) {
-                    v2_res
-                } else if detect_v1(s) {
+                if v1_res.is_ok() || detect_v1(s) {
                     v1_res
+                } else if detect_v2(s) {
+                    // v2, but with confidence
+                    v2_res
                 } else {
-                    // This does matter, because detection short-circuits.
+                    // TODO(@zkat): maybe we can add something to the error
+                    // message to specify that it's "uncertain"?
+                    // YOLO.
                     v2_res
                 }
             } else {
