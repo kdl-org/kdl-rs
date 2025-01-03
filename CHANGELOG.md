@@ -1,5 +1,12 @@
 # `kdl` Release Changelog
 
+<a name="6.2.2"></a>
+## 6.2.2 (2025-01-03)
+
+### Bug Fixes
+
+* **fallback:** play around with fallback logic some more ([82c1f1c0](https://github.com/kdl-org/kdl-rs/commit/82c1f1c07669fe8389a4b0beedc77aa7d4b287a8))
+
 
 <a name="6.2.1"></a>
 ## 6.2.1 (2025-01-02)
