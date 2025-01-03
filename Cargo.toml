@@ -12,7 +12,7 @@ rust-version = "1.70.0"
 edition = "2021"
 
 [features]
-default = ["span"]
+default = ["span", "serde"]
 span = []
 v1-fallback = ["v1"]
 v1 = ["kdlv1"]
@@ -20,6 +20,7 @@ v1 = ["kdlv1"]
 [dependencies]
 miette = "7.2.0"
 num = "0.4.2"
+serde = { version = "1.0.210", optional = true }
 thiserror = "1.0.40"
 winnow = { version = "0.6.20", features = ["alloc", "unstable-recover"] }
 kdlv1 = { package = "kdl", version = "4.7.0", optional = true }
