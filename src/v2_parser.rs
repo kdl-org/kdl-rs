@@ -16,7 +16,7 @@ use winnow::{
     prelude::*,
     stream::{AsChar, Location, Recover, Recoverable, Stream},
     token::{any, none_of, one_of, take_while},
-    Located,
+    LocatingSlice,
 };
 
 use crate::{
@@ -24,14 +24,14 @@ use crate::{
     KdlIdentifier, KdlNode, KdlNodeFormat, KdlValue,
 };
 
-type Input<'a> = Recoverable<Located<&'a str>, KdlParseError>;
+type Input<'a> = Recoverable<LocatingSlice<&'a str>, KdlParseError>;
 type PResult<T> = winnow::PResult<T, KdlParseError>;
 
 pub(crate) fn try_parse<'a, P: Parser<Input<'a>, T, KdlParseError>, T>(
     mut parser: P,
     input: &'a str,
 ) -> Result<T, KdlError> {
-    let (_, maybe_val, errs) = parser.recoverable_parse(Located::new(input));
+    let (_, maybe_val, errs) = parser.recoverable_parse(LocatingSlice::new(input));
     if let (Some(v), true) = (maybe_val, errs.is_empty()) {
         Ok(v)
     } else {
@@ -256,7 +256,7 @@ where
 
 #[cfg(test)]
 fn new_input(s: &str) -> Input<'_> {
-    Recoverable::new(Located::new(s))
+    Recoverable::new(LocatingSlice::new(s))
 }
 
 /// `document := bom? nodes`

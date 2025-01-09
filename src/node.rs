@@ -392,10 +392,10 @@ impl From<kdlv1::KdlNode> for KdlNode {
     fn from(value: kdlv1::KdlNode) -> Self {
         let terminator = value
             .trailing()
-            .map(|t| if t.contains(";") { ";" } else { "\n" })
+            .map(|t| if t.contains(';') { ";" } else { "\n" })
             .unwrap_or("\n");
         let trailing = value.trailing().map(|t| {
-            if t.contains(";") {
+            if t.contains(';') {
                 t.replace(';', "")
             } else {
                 let t = t.replace("\r\n", "\n");

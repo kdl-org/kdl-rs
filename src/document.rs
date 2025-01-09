@@ -356,9 +356,6 @@ impl KdlDocument {
                 let v1_res = KdlDocument::parse_v2(s);
                 if v1_res.is_ok() || detect_v1(s) {
                     v1_res
-                } else if detect_v2(s) {
-                    // v2, but with confidence
-                    v2_res
                 } else {
                     // TODO(@zkat): maybe we can add something to the error
                     // message to specify that it's "uncertain"?
@@ -424,7 +421,7 @@ impl KdlDocument {
         let penult = iter.next();
         if let Some(last) = last {
             if let Some(fmt) = last.format_mut() {
-                if !fmt.trailing.contains(";")
+                if !fmt.trailing.contains(';')
                     && fmt
                         .trailing
                         .chars()
