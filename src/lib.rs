@@ -138,9 +138,9 @@
 //!   representation will be thrown away and the actual value will be used when
 //!   serializing.
 //!
-//! ## Minimum Supported Rust Version
+//! ## Minimum Supported Rust Version (MSRV)
 //!
-//! You must be at least `1.70.0` tall to get on this ride.
+//! You must be at least `1.71.1` tall to get on this ride.
 //!
 //! ## License
 //!
