@@ -1,5 +1,13 @@
 # `kdl` Release Changelog
 
+<a name="6.3.0"></a>
+## 6.3.0 (2025-01-17)
+
+### Features
+
+* **lsp:** add LSP server (#115) ([b6b67f62](https://github.com/kdl-org/kdl-rs/commit/b6b67f62fac78cdaeb85dcb64329b687cb5bda64))
+* **msrv:** bump msrv to 1.71.1 ([266b462a](https://github.com/kdl-org/kdl-rs/commit/266b462a196c3f77bb7d8f2860774a9cf0c12d33))
+
 <a name="6.2.2"></a>
 ## 6.2.2 (2025-01-03)
 
