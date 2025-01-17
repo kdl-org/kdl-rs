@@ -296,7 +296,7 @@ impl KdlEntry {
                     // but just in case.
                     let s = x.value_repr.trim();
                     // convert raw strings to v1 format
-                    let s = if s.starts_with("#") {
+                    let s = if s.starts_with('#') {
                         format!("r{s}")
                     } else {
                         s.to_string()

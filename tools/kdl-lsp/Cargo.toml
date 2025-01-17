@@ -1,0 +1,22 @@
+[package]
+name = "kdl-lsp"
+version = "6.2.2"
+edition = "2021"
+description = "LSP Server for the KDL Document Language"
+authors = ["Kat Marchán <kzm@zkat.tech>", "KDL Community"]
+license = "Apache-2.0"
+readme = "README.md"
+homepage = "https://kdl.dev"
+repository = "https://github.com/kdl-org/kdl-rs"
+keywords = ["kdl", "document", "serialization", "config", "lsp", "language server"]
+rust-version = "1.70.0"
+
+[dependencies]
+miette.workspace = true
+kdl = { version = "6.2.2", path = "../../", features = ["span", "v1-fallback"] }
+tower-lsp = "0.20.0"
+dashmap = "6.1.0"
+ropey = "1.6.1"
+tokio = { version = "1.43.0", features = ["full"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

@@ -142,7 +142,7 @@ means a few things:
 
 ### Minimum Supported Rust Version
 
-You must be at least `1.70.0` tall to get on this ride.
+You must be at least `1.71.1` tall to get on this ride.
 
 ### License
 
