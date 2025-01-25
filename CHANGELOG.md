@@ -1,5 +1,12 @@
 # `kdl` Release Changelog
 
+<a name="6.3.3"></a>
+## 6.3.3 (2025-01-25)
+
+### Bug Fixes
+
+* **deps:** bump winnow version to pull in new type ([acd7ccf8](https://github.com/kdl-org/kdl-rs/commit/acd7ccf8009c3dcd67593a3d2cf49a2c8781044e))
+
 <a name="6.3.0"></a>
 ## 6.3.0 (2025-01-17)
 
