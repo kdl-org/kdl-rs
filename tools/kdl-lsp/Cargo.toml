@@ -1,6 +1,6 @@
 [package]
 name = "kdl-lsp"
-version = "6.3.2"
+version = "6.3.3"
 edition = "2021"
 description = "LSP Server for the KDL Document Language"
 authors = ["Kat Marchán <kzm@zkat.tech>", "KDL Community"]
@@ -13,7 +13,7 @@ rust-version = "1.71.1"
 
 [dependencies]
 miette.workspace = true
-kdl = { version = "6.3.2", path = "../../", features = ["span", "v1-fallback"] }
+kdl = { version = "6.3.3", path = "../../", features = ["span", "v1-fallback"] }
 tower-lsp = "0.20.0"
 dashmap = "6.1.0"
 ropey = "1.6.1"
