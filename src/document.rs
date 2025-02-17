@@ -353,7 +353,7 @@ impl KdlDocument {
         {
             let v2_res = KdlDocument::parse_v2(s);
             if v2_res.is_err() {
-                let v1_res = KdlDocument::parse_v2(s);
+                let v1_res = KdlDocument::parse_v1(s);
                 if v1_res.is_ok() || detect_v1(s) {
                     v1_res
                 } else {
