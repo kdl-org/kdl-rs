@@ -2075,7 +2075,7 @@ mod failure_tests {
     #[test]
     fn bad_node_name_test() -> miette::Result<()> {
         let input = Arc::new("foo { bar; { baz; }; }".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         // super::_print_diagnostic(res);
         // return Ok(());
         assert_eq!(
@@ -2095,7 +2095,7 @@ mod failure_tests {
             ))
         );
         let input = Arc::new("no/de 1 {\n    1 2 foo\n    bad#\n}".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         // super::_print_diagnostic(res);
         // return Ok(());
         assert_eq!(
@@ -2152,7 +2152,7 @@ mod failure_tests {
     #[test]
     fn bad_entry_number_test() -> miette::Result<()> {
         let input = Arc::new("node 1asdf 2".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         // super::_print_diagnostic(res);
         // return Ok(());
         assert_eq!(
@@ -2171,7 +2171,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node 0x1asdf 2".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         assert_eq!(
             res,
             Err(mkfail(
@@ -2188,7 +2188,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node 0o1asdf 2".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         assert_eq!(
             res,
             Err(mkfail(
@@ -2205,7 +2205,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node 0b1asdf 2".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         assert_eq!(
             res,
             Err(mkfail(
@@ -2222,7 +2222,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node 1.0asdf 2".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         assert_eq!(
             res,
             Err(mkfail(
@@ -2239,7 +2239,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node 1.asdf 2".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         assert_eq!(
             res,
             Err(mkfail(
@@ -2256,7 +2256,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node 1.0easdf 2".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         assert_eq!(
             res,
             Err(mkfail(
@@ -2282,7 +2282,7 @@ mod failure_tests {
     #[test]
     fn bad_string_test() -> miette::Result<()> {
         let input = Arc::new("node \" 1".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         assert_eq!(
             res,
             Err(mkfail(
@@ -2299,7 +2299,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node \"foo\"1".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         // if let Err(e) = res {
         //     println!("{:?}", miette::Report::from(e));
         // }
@@ -2319,7 +2319,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node \"\nlet's do multiline!\"".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         assert_eq!(
             res,
             Err(mkfail(
@@ -2350,7 +2350,7 @@ mod failure_tests {
     #[test]
     fn bad_child_test() -> miette::Result<()> {
         let input = Arc::new("node {".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         // _print_diagnostic(res);
         // return Ok(());
         assert_eq!(
@@ -2369,7 +2369,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node {}}".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         // _print_diagnostic(res);
         // return Ok(());
         // println!("{res:#?}");
@@ -2389,7 +2389,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node }{".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         // _print_diagnostic(res);
         // return Ok(());
         assert_eq!(
@@ -2440,7 +2440,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node {\n".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         // _print_diagnostic(res);
         // return Ok(());
         assert_eq!(
@@ -2469,7 +2469,7 @@ mod failure_tests {
         );
 
         let input = Arc::new("node {\nnode2{{}}".to_string());
-        let res: Result<KdlDocument, KdlError> = input.parse();
+        let res: Result<KdlDocument, KdlError> = KdlDocument::parse_v2(&input);
         // _print_diagnostic(res);
         // return Ok(());
         println!("{res:#?}");

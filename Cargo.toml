@@ -24,7 +24,7 @@ members = ["tools/*"]
 miette.workspace = true
 thiserror.workspace = true
 num = "0.4.2"
-winnow = { version = "0.6.24", features = ["alloc", "unstable-recover"] }
+winnow = { version = "=0.6.24", features = ["alloc", "unstable-recover"] }
 kdlv1 = { package = "kdl", version = "4.7.0", optional = true }
 
 [workspace.dependencies]
