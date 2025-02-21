@@ -759,12 +759,8 @@ fn node_children(input: &mut Input<'_>) -> PResult<KdlDocument> {
             .map(|_| KdlDocument::new())
             .or_else(|mut e: ErrMode<KdlParseError>| {
                 e = match e {
-                    #[cfg_attr(not(feature = "span"), allow(unused_mut))]
                     ErrMode::Cut(mut pe) => {
-                        #[cfg(feature = "span")]
-                        {
-                            pe.span = Some((_before_open_loc.._after_open_loc).into());
-                        }
+                        pe.span = Some((_before_open_loc.._after_open_loc).into());
                         ErrMode::Cut(pe)
                     }
                     e => return Err(e),
