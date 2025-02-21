@@ -580,7 +580,10 @@ mod test {
 
         let entry: KdlEntry = " \\\n (\"m\\\"eh\")0xDEADbeef\t\\\n".parse()?;
         let mut ty: KdlIdentifier = "\"m\\\"eh\"".parse()?;
-        ty.span = (5..12).into();
+        #[cfg(feature = "span")]
+        {
+            ty.span = (5..12).into();
+        }
         assert_eq!(
             entry,
             KdlEntry {
