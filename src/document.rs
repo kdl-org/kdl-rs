@@ -390,7 +390,7 @@ impl KdlDocument {
     }
 
     /// Takes a KDL v2 document string and returns the same document, but
-    /// autoformatted into valid KDL v2 syntax.
+    /// autoformatted into valid KDL v1 syntax.
     #[cfg(feature = "v1")]
     pub fn v2_to_v1(s: &str) -> Result<String, KdlError> {
         let mut doc = KdlDocument::parse_v2(s)?;
