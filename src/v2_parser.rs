@@ -439,11 +439,13 @@ fn test_node() {
             name: KdlIdentifier {
                 value: "foo".into(),
                 repr: Some("foo".into()),
+                #[cfg(feature = "span")]
                 span: (0..3).into()
             },
             entries: vec![],
             children: None,
             format: Some(Default::default()),
+            #[cfg(feature = "span")]
             span: (0..7).into()
         }
     );
@@ -455,6 +457,7 @@ fn test_node() {
             name: KdlIdentifier {
                 value: "foo".into(),
                 repr: Some("foo".into()),
+                #[cfg(feature = "span")]
                 span: (0..3).into()
             },
             entries: vec![KdlEntry {
@@ -466,12 +469,14 @@ fn test_node() {
                     leading: " ".into(),
                     ..Default::default()
                 }),
+                #[cfg(feature = "span")]
                 span: SourceSpan::new(3.into(), 4)
             }],
             children: None,
             format: Some(KdlNodeFormat {
                 ..Default::default()
             }),
+            #[cfg(feature = "span")]
             span: (0..8).into()
         }
     );
@@ -552,7 +557,6 @@ fn node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
                 fmt.after_key = after_key.into();
                 fmt.after_eq = after_eq.into();
             }
-            #[cfg(feature = "span")]
             value
         })
     } else if let Some(ident) = maybe_ident {
@@ -607,6 +611,7 @@ fn entry_test() {
                 value_repr: "bar".into(),
                 ..Default::default()
             }),
+            #[cfg(feature = "span")]
             span: (0..7).into()
         })
     );
@@ -621,6 +626,7 @@ fn entry_test() {
                 value_repr: "foo".into(),
                 ..Default::default()
             }),
+            #[cfg(feature = "span")]
             span: (0..3).into()
         })
     );
@@ -636,6 +642,7 @@ fn entry_test() {
                 leading: "/-foo ".into(),
                 ..Default::default()
             }),
+            #[cfg(feature = "span")]
             span: (6..9).into()
         })
     );
@@ -648,6 +655,7 @@ fn entry_test() {
             name: Some(KdlIdentifier {
                 value: "bar".into(),
                 repr: Some("bar".into()),
+                #[cfg(feature = "span")]
                 span: (9..12).into(),
             }),
             format: Some(KdlEntryFormat {
@@ -657,6 +665,7 @@ fn entry_test() {
                 after_eq: " ".into(),
                 ..Default::default()
             }),
+            #[cfg(feature = "span")]
             span: (9..16).into()
         })
     );
@@ -669,6 +678,7 @@ fn entry_test() {
             name: Some(KdlIdentifier {
                 value: "bar".into(),
                 repr: Some("bar".into()),
+                #[cfg(feature = "span")]
                 span: (12..16).into(),
             }),
             format: Some(KdlEntryFormat {
@@ -678,6 +688,7 @@ fn entry_test() {
                 after_eq: " ".into(),
                 ..Default::default()
             }),
+            #[cfg(feature = "span")]
             span: (12..18).into()
         })
     );
@@ -749,10 +760,7 @@ fn node_children(input: &mut Input<'_>) -> PResult<KdlDocument> {
             .or_else(|mut e: ErrMode<KdlParseError>| {
                 e = match e {
                     ErrMode::Cut(mut pe) => {
-                        #[cfg(feature = "span")]
-                        {
-                            pe.span = Some((_before_open_loc.._after_open_loc).into());
-                        }
+                        pe.span = Some((_before_open_loc.._after_open_loc).into());
                         ErrMode::Cut(pe)
                     }
                     e => return Err(e),
@@ -1508,6 +1516,7 @@ mod string_tests {
             KdlIdentifier {
                 value: "foo".into(),
                 repr: Some("foo".into()),
+                #[cfg(feature = "span")]
                 span: (0..3).into()
             }
         );
@@ -1516,6 +1525,7 @@ mod string_tests {
             KdlIdentifier {
                 value: "+.".into(),
                 repr: Some("+.".into()),
+                #[cfg(feature = "span")]
                 span: (0..1).into()
             }
         )

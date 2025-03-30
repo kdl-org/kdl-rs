@@ -579,24 +579,30 @@ mod test {
         );
 
         let entry: KdlEntry = " \\\n (\"m\\\"eh\")0xDEADbeef\t\\\n".parse()?;
-        let mut ty: KdlIdentifier = "\"m\\\"eh\"".parse()?;
-        ty.span = (5..12).into();
-        assert_eq!(
-            entry,
-            KdlEntry {
-                ty: Some(ty),
-                value: KdlValue::Integer(0xdeadbeef),
-                name: None,
-                format: Some(KdlEntryFormat {
-                    leading: " \\\n ".into(),
-                    trailing: "\t\\\n".into(),
-                    value_repr: "0xDEADbeef".into(),
-                    ..Default::default()
-                }),
-                #[cfg(feature = "span")]
-                span: SourceSpan::from(0..26),
+        #[cfg_attr(not(feature = "span"), allow(unused_mut))]
+        {
+            let mut ty: KdlIdentifier = "\"m\\\"eh\"".parse()?;
+            #[cfg(feature = "span")]
+            {
+                ty.span = (5..12).into();
             }
-        );
+            assert_eq!(
+                entry,
+                KdlEntry {
+                    ty: Some(ty),
+                    value: KdlValue::Integer(0xdeadbeef),
+                    name: None,
+                    format: Some(KdlEntryFormat {
+                        leading: " \\\n ".into(),
+                        trailing: "\t\\\n".into(),
+                        value_repr: "0xDEADbeef".into(),
+                        ..Default::default()
+                    }),
+                    #[cfg(feature = "span")]
+                    span: SourceSpan::from(0..26),
+                }
+            );
+        }
 
         let entry: KdlEntry = " \\\n \"foo\"=(\"m\\\"eh\")0xDEADbeef\t\\\n".parse()?;
         assert_eq!(
