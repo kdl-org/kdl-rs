@@ -246,7 +246,7 @@ impl KdlNode {
         self.children_mut().as_mut().unwrap()
     }
 
-    /// Gets the formatting details for this node.
+    /// Gets the formatting details (including whitespace and comments) for this node.
     pub fn format(&self) -> Option<&KdlNodeFormat> {
         self.format.as_ref()
     }

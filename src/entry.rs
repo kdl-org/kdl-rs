@@ -112,7 +112,7 @@ impl KdlEntry {
         self.ty = Some(ty.into());
     }
 
-    /// Gets the formatting details for this entry.
+    /// Gets the formatting details (including whitespace and comments) for this entry.
     pub fn format(&self) -> Option<&KdlEntryFormat> {
         self.format.as_ref()
     }
