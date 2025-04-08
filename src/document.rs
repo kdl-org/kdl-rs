@@ -193,7 +193,7 @@ impl KdlDocument {
         &mut self.nodes
     }
 
-    /// Gets the formatting details for this entry.
+    /// Gets the formatting details (including whitespace and comments) for this entry.
     pub fn format(&self) -> Option<&KdlDocumentFormat> {
         self.format.as_ref()
     }
