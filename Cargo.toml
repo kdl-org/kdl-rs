@@ -8,7 +8,7 @@ readme = "README.md"
 homepage = "https://kdl.dev"
 repository = "https://github.com/kdl-org/kdl-rs"
 keywords = ["kdl", "document", "serialization", "config"]
-rust-version = "1.71.1"
+rust-version = "1.81"
 edition = "2021"
 
 [features]
