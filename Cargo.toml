@@ -27,7 +27,7 @@ winnow = { version = "=0.6.24", features = ["alloc", "unstable-recover"] }
 kdlv1 = { package = "kdl", version = "4.7.0", optional = true }
 
 [workspace.dependencies]
-miette = { git = "https://github.com/zkat/miette.git", default-features = false }
+miette = { version = "7.6.0", default-features = false }
 
 [dev-dependencies]
 miette = { workspace = true, features = ["derive", "fancy"] }
