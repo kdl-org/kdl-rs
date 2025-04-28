@@ -8,7 +8,7 @@ readme = "README.md"
 homepage = "https://kdl.dev"
 repository = "https://github.com/kdl-org/kdl-rs"
 keywords = ["kdl", "document", "serialization", "config"]
-rust-version = "1.71.1"
+rust-version = "1.81"
 edition = "2021"
 
 [features]
@@ -22,17 +22,16 @@ members = ["tools/*"]
 
 [dependencies]
 miette.workspace = true
-thiserror.workspace = true
 num = "0.4.2"
 winnow = { version = "=0.6.24", features = ["alloc", "unstable-recover"] }
 kdlv1 = { package = "kdl", version = "4.7.0", optional = true }
 
 [workspace.dependencies]
-miette = "7.2.0"
-thiserror = "1.0.40"
+miette = { version = "7.6.0", default-features = false }
 
 [dev-dependencies]
-miette = { workspace = true, features = ["fancy"] }
+miette = { workspace = true, features = ["derive", "fancy"] }
+thiserror = "2.0.12"
 pretty_assertions = "1.3.0"
 
 # The profile that 'dist' will build with
