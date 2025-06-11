@@ -385,7 +385,7 @@ impl KdlEntry {
 #[cfg(feature = "v1")]
 impl From<kdlv1::KdlEntry> for KdlEntry {
     fn from(value: kdlv1::KdlEntry) -> Self {
-        KdlEntry {
+        Self {
             ty: value.ty().map(|x| x.clone().into()),
             value: value.value().clone().into(),
             name: value.name().map(|x| x.clone().into()),

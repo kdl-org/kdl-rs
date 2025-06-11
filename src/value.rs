@@ -265,15 +265,15 @@ where
 impl From<kdlv1::KdlValue> for KdlValue {
     fn from(value: kdlv1::KdlValue) -> Self {
         match value {
-            kdlv1::KdlValue::RawString(s) => KdlValue::String(s),
-            kdlv1::KdlValue::String(s) => KdlValue::String(s),
-            kdlv1::KdlValue::Base2(i) => KdlValue::Integer(i.into()),
-            kdlv1::KdlValue::Base8(i) => KdlValue::Integer(i.into()),
-            kdlv1::KdlValue::Base10(i) => KdlValue::Integer(i.into()),
-            kdlv1::KdlValue::Base10Float(f) => KdlValue::Float(f),
-            kdlv1::KdlValue::Base16(i) => KdlValue::Integer(i.into()),
-            kdlv1::KdlValue::Bool(b) => KdlValue::Bool(b),
-            kdlv1::KdlValue::Null => KdlValue::Null,
+            kdlv1::KdlValue::RawString(s) => Self::String(s),
+            kdlv1::KdlValue::String(s) => Self::String(s),
+            kdlv1::KdlValue::Base2(i) => Self::Integer(i.into()),
+            kdlv1::KdlValue::Base8(i) => Self::Integer(i.into()),
+            kdlv1::KdlValue::Base10(i) => Self::Integer(i.into()),
+            kdlv1::KdlValue::Base10Float(f) => Self::Float(f),
+            kdlv1::KdlValue::Base16(i) => Self::Integer(i.into()),
+            kdlv1::KdlValue::Bool(b) => Self::Bool(b),
+            kdlv1::KdlValue::Null => Self::Null,
         }
     }
 }

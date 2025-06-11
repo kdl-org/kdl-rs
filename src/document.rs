@@ -457,7 +457,7 @@ impl KdlDocument {
 #[cfg(feature = "v1")]
 impl From<kdlv1::KdlDocument> for KdlDocument {
     fn from(value: kdlv1::KdlDocument) -> Self {
-        KdlDocument {
+        Self {
             nodes: value.nodes().iter().map(|x| x.clone().into()).collect(),
             format: Some(KdlDocumentFormat {
                 leading: value.leading().unwrap_or("").into(),

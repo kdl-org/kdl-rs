@@ -117,7 +117,7 @@ impl KdlIdentifier {
 #[cfg(feature = "v1")]
 impl From<kdlv1::KdlIdentifier> for KdlIdentifier {
     fn from(value: kdlv1::KdlIdentifier) -> Self {
-        KdlIdentifier {
+        Self {
             value: value.value().into(),
             repr: value.repr().map(|x| x.into()),
             #[cfg(feature = "span")]

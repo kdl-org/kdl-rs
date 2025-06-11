@@ -43,7 +43,7 @@ pub struct FormatConfigBuilder<'a>(FormatConfig<'a>);
 impl<'a> FormatConfigBuilder<'a> {
     /// Creates a new [`FormatConfig`] builder with default configuration.
     pub const fn new() -> Self {
-        FormatConfigBuilder(FormatConfig {
+        Self(FormatConfig {
             indent_level: 0,
             indent: "    ",
             no_comments: false,

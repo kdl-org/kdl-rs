@@ -121,7 +121,7 @@ impl Diagnostic for KdlDiagnostic {
 impl From<kdlv1::KdlError> for KdlError {
     fn from(value: kdlv1::KdlError) -> Self {
         let input = Arc::new(value.input);
-        KdlError {
+        Self {
             input: input.clone(),
             diagnostics: vec![KdlDiagnostic {
                 input,
