@@ -210,7 +210,7 @@ impl KdlDocument {
 
     /// Length of this document when rendered as a string.
     pub fn len(&self) -> usize {
-        format!("{}", self).len()
+        format!("{self}").len()
     }
 
     /// Returns true if this document is completely empty (including whitespace)
@@ -347,7 +347,7 @@ impl KdlDocument {
     pub fn parse(s: &str) -> Result<Self, KdlError> {
         #[cfg(not(feature = "v1-fallback"))]
         {
-            KdlDocument::parse_v2(s)
+            Self::parse_v2(s)
         }
         #[cfg(feature = "v1-fallback")]
         {
@@ -522,7 +522,7 @@ impl std::str::FromStr for KdlDocument {
     type Err = KdlError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        KdlDocument::parse(s)
+        Self::parse(s)
     }
 }
 
@@ -539,13 +539,13 @@ impl KdlDocument {
         indent: usize,
     ) -> std::fmt::Result {
         if let Some(KdlDocumentFormat { leading, .. }) = self.format() {
-            write!(f, "{}", leading)?;
+            write!(f, "{leading}")?;
         }
         for node in &self.nodes {
             node.stringify(f, indent)?;
         }
         if let Some(KdlDocumentFormat { trailing, .. }) = self.format() {
-            write!(f, "{}", trailing)?;
+            write!(f, "{trailing}")?;
         }
         Ok(())
     }

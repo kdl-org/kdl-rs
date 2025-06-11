@@ -41,7 +41,7 @@ impl std::hash::Hash for KdlEntry {
 impl KdlEntry {
     /// Creates a new Argument (positional) KdlEntry.
     pub fn new(value: impl Into<KdlValue>) -> Self {
-        KdlEntry {
+        Self {
             ty: None,
             value: value.into(),
             name: None,
@@ -129,7 +129,7 @@ impl KdlEntry {
 
     /// Creates a new Property (key/value) KdlEntry.
     pub fn new_prop(key: impl Into<KdlIdentifier>, value: impl Into<KdlValue>) -> Self {
-        KdlEntry {
+        Self {
             ty: None,
             value: value.into(),
             name: Some(key.into()),
@@ -153,7 +153,7 @@ impl KdlEntry {
 
     /// Length of this entry when rendered as a string.
     pub fn len(&self) -> usize {
-        format!("{}", self).len()
+        format!("{self}").len()
     }
 
     /// Returns true if this entry is completely empty (including whitespace).
@@ -404,17 +404,17 @@ impl From<kdlv1::KdlEntry> for KdlEntry {
 impl Display for KdlEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(KdlEntryFormat { leading, .. }) = &self.format {
-            write!(f, "{}", leading)?;
+            write!(f, "{leading}")?;
         }
         if let Some(name) = &self.name {
-            write!(f, "{}", name)?;
+            write!(f, "{name}")?;
             if let Some(KdlEntryFormat {
                 after_key,
                 after_eq,
                 ..
             }) = &self.format
             {
-                write!(f, "{}={}", after_key, after_eq)?;
+                write!(f, "{after_key}={after_eq}")?;
             } else {
                 write!(f, "=")?;
             }
@@ -422,11 +422,11 @@ impl Display for KdlEntry {
         if let Some(ty) = &self.ty {
             write!(f, "(")?;
             if let Some(KdlEntryFormat { before_ty_name, .. }) = &self.format {
-                write!(f, "{}", before_ty_name)?;
+                write!(f, "{before_ty_name}")?;
             }
-            write!(f, "{}", ty)?;
+            write!(f, "{ty}")?;
             if let Some(KdlEntryFormat { after_ty_name, .. }) = &self.format {
-                write!(f, "{}", after_ty_name)?;
+                write!(f, "{after_ty_name}")?;
             }
             write!(f, ")")?;
         }
@@ -436,12 +436,12 @@ impl Display for KdlEntry {
             ..
         }) = &self.format
         {
-            write!(f, "{}{}", after_ty, value_repr)?;
+            write!(f, "{after_ty}{value_repr}")?;
         } else {
             write!(f, "{}", self.value)?;
         }
         if let Some(KdlEntryFormat { trailing, .. }) = &self.format {
-            write!(f, "{}", trailing)?;
+            write!(f, "{trailing}")?;
         }
         Ok(())
     }
@@ -452,7 +452,7 @@ where
     T: Into<KdlValue>,
 {
     fn from(value: T) -> Self {
-        KdlEntry::new(value)
+        Self::new(value)
     }
 }
 
@@ -462,7 +462,7 @@ where
     V: Into<KdlValue>,
 {
     fn from((key, value): (K, V)) -> Self {
-        KdlEntry::new_prop(key, value)
+        Self::new_prop(key, value)
     }
 }
 
@@ -470,7 +470,7 @@ impl FromStr for KdlEntry {
     type Err = KdlError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        KdlEntry::parse(s)
+        Self::parse(s)
     }
 }
 

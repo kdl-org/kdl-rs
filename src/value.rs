@@ -62,9 +62,9 @@ impl PartialEq for KdlValue {
 impl std::hash::Hash for KdlValue {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
-            KdlValue::String(val) => val.hash(state),
-            KdlValue::Integer(val) => val.hash(state),
-            KdlValue::Float(val) => {
+            Self::String(val) => val.hash(state),
+            Self::Integer(val) => val.hash(state),
+            Self::Float(val) => {
                 let val = if val == &f64::INFINITY {
                     f64::MAX
                 } else if val == &f64::NEG_INFINITY {
@@ -79,8 +79,8 @@ impl std::hash::Hash for KdlValue {
                 (val.trunc() as i128).hash(state);
                 (val.fract() as i128).hash(state);
             }
-            KdlValue::Bool(val) => val.hash(state),
-            KdlValue::Null => core::mem::discriminant(self).hash(state),
+            Self::Bool(val) => val.hash(state),
+            Self::Null => core::mem::discriminant(self).hash(state),
         }
     }
 }
@@ -154,7 +154,7 @@ impl Display for KdlValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::String(_) => self.write_string(f),
-            Self::Integer(value) => write!(f, "{:?}", value),
+            Self::Integer(value) => write!(f, "{value:?}"),
             Self::Float(value) => write!(
                 f,
                 "{}",
@@ -168,7 +168,7 @@ impl Display for KdlValue {
                     format!("{:?}", *value)
                 }
             ),
-            Self::Bool(value) => write!(f, "#{}", value),
+            Self::Bool(value) => write!(f, "#{value}"),
             Self::Null => write!(f, "#null"),
         }
     }
@@ -204,13 +204,13 @@ impl KdlValue {
             write!(f, "\"")?;
             for char in string.chars() {
                 match char {
-                    '\\' | '"' => write!(f, "\\{}", char)?,
+                    '\\' | '"' => write!(f, "\\{char}")?,
                     '\n' => write!(f, "\\n")?,
                     '\r' => write!(f, "\\r")?,
                     '\t' => write!(f, "\\t")?,
                     '\u{08}' => write!(f, "\\b")?,
                     '\u{0C}' => write!(f, "\\f")?,
-                    _ => write!(f, "{}", char)?,
+                    _ => write!(f, "{char}")?,
                 }
             }
             write!(f, "\"")?;
@@ -221,42 +221,42 @@ impl KdlValue {
 
 impl From<i128> for KdlValue {
     fn from(value: i128) -> Self {
-        KdlValue::Integer(value)
+        Self::Integer(value)
     }
 }
 
 impl From<f64> for KdlValue {
     fn from(value: f64) -> Self {
-        KdlValue::Float(value)
+        Self::Float(value)
     }
 }
 
 impl From<&str> for KdlValue {
     fn from(value: &str) -> Self {
-        KdlValue::String(value.to_string())
+        Self::String(value.to_string())
     }
 }
 
 impl From<String> for KdlValue {
     fn from(value: String) -> Self {
-        KdlValue::String(value)
+        Self::String(value)
     }
 }
 
 impl From<bool> for KdlValue {
     fn from(value: bool) -> Self {
-        KdlValue::Bool(value)
+        Self::Bool(value)
     }
 }
 
 impl<T> From<Option<T>> for KdlValue
 where
-    T: Into<KdlValue>,
+    T: Into<Self>,
 {
     fn from(value: Option<T>) -> Self {
         match value {
             Some(value) => value.into(),
-            None => KdlValue::Null,
+            None => Self::Null,
         }
     }
 }

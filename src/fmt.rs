@@ -122,7 +122,7 @@ pub(crate) fn autoformat_leading(leading: &mut String, config: &FormatConfig<'_>
                     for _ in 0..config.indent_level {
                         result.push_str(config.indent);
                     }
-                    writeln!(result, "{}", trimmed).unwrap();
+                    writeln!(result, "{trimmed}").unwrap();
                 }
             }
         }
