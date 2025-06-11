@@ -625,9 +625,7 @@ impl KdlNode {
                     }
                 }
                 if idx > current_idx {
-                    panic!(
-                        "Insertion index (is {idx}) should be <= len (is {current_idx})"
-                    );
+                    panic!("Insertion index (is {idx}) should be <= len (is {current_idx})");
                 } else {
                     self.entries.push(entry);
                     None
