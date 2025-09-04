@@ -282,12 +282,12 @@ pub(crate) fn document(input: &mut Input<'_>) -> PResult<KdlDocument> {
 
 /// `nodes := (line-space* node)* line-space*`
 fn nodes(input: &mut Input<'_>) -> PResult<KdlDocument> {
-    let leading = repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
+    let mut leading = repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
         .map(|()| ())
         .take()
         .parse_next(input)?;
     let _start = input.checkpoint();
-    let ns: Vec<KdlNode> = separated(
+    let mut ns: Vec<KdlNode> = separated(
         0..,
         node,
         alt((node_terminator.void(), (eof.void(), any.void()).void())),
@@ -299,6 +299,16 @@ fn nodes(input: &mut Input<'_>) -> PResult<KdlDocument> {
         .map(|()| ())
         .take()
         .parse_next(input)?;
+
+    // If there is a node, let it have the leading format
+    // This gives more consistent behavior
+    if let Some(first_node) = ns.get_mut(0) {
+        if let Some(first_node_format) = first_node.format_mut() {
+            first_node_format.leading = leading.into();
+            leading = "";
+        }
+    }
+
     Ok(KdlDocument {
         nodes: ns,
         format: Some(KdlDocumentFormat {
