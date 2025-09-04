@@ -186,6 +186,12 @@ pub(crate) fn is_plain_ident(ident: &str) -> bool {
             .map(|c| c == '.' || c == '-' || c == '+')
             == Some(true)
             && ident_bytes.get(1).map(|c| c.is_ascii_digit()) == Some(true))
+        && ident != "inf"
+        && ident != "-inf"
+        && ident != "nan"
+        && ident != "true"
+        && ident != "false"
+        && ident != "null"
 }
 
 #[cfg(test)]
