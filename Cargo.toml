@@ -12,7 +12,8 @@ rust-version = "1.81"
 edition = "2021"
 
 [features]
-default = ["span"]
+default = ["span", "schema"]
+schema = []
 span = []
 v1-fallback = ["v1"]
 v1 = ["kdlv1"]
