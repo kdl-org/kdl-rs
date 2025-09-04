@@ -23,33 +23,23 @@ pub enum KdlValue {
 
 impl Eq for KdlValue {}
 
+fn normalize_float(f: &f64) -> f64 {
+    match f {
+        _ if f == &f64::INFINITY => f64::MAX,
+        _ if f == &f64::NEG_INFINITY => -f64::MAX,
+        // We collapse NaN to 0.0 because we're evil like that.
+        _ if f.is_nan() => 0.0,
+        _ => *f,
+    }
+}
+
 impl PartialEq for KdlValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::String(l0), Self::String(r0)) => l0 == r0,
             (Self::Integer(l0), Self::Integer(r0)) => l0 == r0,
             (Self::Float(l0), Self::Float(r0)) => {
-                let l0 = if l0 == &f64::INFINITY {
-                    f64::MAX
-                } else if l0 == &f64::NEG_INFINITY {
-                    -f64::MAX
-                } else if l0.is_nan() {
-                    // We collapse NaN to 0.0 because we're evil like that.
-                    0.0
-                } else {
-                    *l0
-                };
-                let r0 = if r0 == &f64::INFINITY {
-                    f64::MAX
-                } else if r0 == &f64::NEG_INFINITY {
-                    -f64::MAX
-                } else if r0.is_nan() {
-                    // We collapse NaN to 0.0 because we're evil like that.
-                    0.0
-                } else {
-                    *r0
-                };
-                l0 == r0
+                normalize_float(l0) == normalize_float(r0)
             }
             (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
@@ -65,16 +55,7 @@ impl std::hash::Hash for KdlValue {
             Self::String(val) => val.hash(state),
             Self::Integer(val) => val.hash(state),
             Self::Float(val) => {
-                let val = if val == &f64::INFINITY {
-                    f64::MAX
-                } else if val == &f64::NEG_INFINITY {
-                    -f64::MAX
-                } else if val.is_nan() {
-                    // We collapse NaN to 0.0 because we're evil like that.
-                    0.0
-                } else {
-                    *val
-                };
+                let val = normalize_float(val);
                 // Good enough to be close-ish for our purposes.
                 (val.trunc() as i128).hash(state);
                 (val.fract() as i128).hash(state);
@@ -183,7 +164,7 @@ pub(crate) fn is_plain_ident(ident: &str) -> bool {
         && !(ident
             .chars()
             .next()
-            .map(|c| c == '.' || c == '-' || c == '+')
+            .map(|c| matches!(c, '.' | '-' | '+'))
             == Some(true)
             && ident_bytes.get(1).map(|c| c.is_ascii_digit()) == Some(true))
         && ident != "inf"
