@@ -140,7 +140,7 @@ impl<I: Stream> AddContext<I, KdlParseContext> for KdlParseError {
 
 impl<'a> FromExternalError<Input<'a>, ParseIntError> for KdlParseError {
     fn from_external_error(_: &Input<'a>, _kind: ErrorKind, e: ParseIntError) -> Self {
-        KdlParseError {
+        Self {
             span: None,
             message: Some(format!("{e}")),
             label: Some("invalid integer".into()),
@@ -152,7 +152,7 @@ impl<'a> FromExternalError<Input<'a>, ParseIntError> for KdlParseError {
 
 impl<'a> FromExternalError<Input<'a>, ParseFloatError> for KdlParseError {
     fn from_external_error(_input: &Input<'a>, _kind: ErrorKind, e: ParseFloatError) -> Self {
-        KdlParseError {
+        Self {
             span: None,
             label: Some("invalid float".into()),
             help: None,
@@ -170,7 +170,7 @@ impl<'a> FromExternalError<Input<'a>, NegativeUnsignedError> for KdlParseError {
         _kind: ErrorKind,
         _e: NegativeUnsignedError,
     ) -> Self {
-        KdlParseError {
+        Self {
             span: None,
             message: Some("Tried to parse a negative number as an unsigned integer".into()),
             label: Some("negative unsigned int".into()),

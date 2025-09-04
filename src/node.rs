@@ -625,10 +625,7 @@ impl KdlNode {
                     }
                 }
                 if idx > current_idx {
-                    panic!(
-                        "Insertion index (is {}) should be <= len (is {})",
-                        idx, current_idx
-                    );
+                    panic!("Insertion index (is {idx}) should be <= len (is {current_idx})");
                 } else {
                     self.entries.push(entry);
                     None
@@ -720,8 +717,7 @@ impl KdlNode {
                     }
                 }
                 panic!(
-                    "removal index (is {}) should be < number of index entries (is {})",
-                    idx, current_idx
+                    "removal index (is {idx}) should be < number of index entries (is {current_idx})"
                 );
             }
         }
@@ -766,19 +762,19 @@ pub enum NodeKey {
 
 impl From<&str> for NodeKey {
     fn from(key: &str) -> Self {
-        NodeKey::Key(key.into())
+        Self::Key(key.into())
     }
 }
 
 impl From<String> for NodeKey {
     fn from(key: String) -> Self {
-        NodeKey::Key(key.into())
+        Self::Key(key.into())
     }
 }
 
 impl From<usize> for NodeKey {
     fn from(key: usize) -> Self {
-        NodeKey::Index(key)
+        Self::Index(key)
     }
 }
 
@@ -834,12 +830,12 @@ impl KdlNode {
         indent: usize,
     ) -> std::fmt::Result {
         if let Some(KdlNodeFormat { leading, .. }) = self.format() {
-            write!(f, "{}", leading)?;
+            write!(f, "{leading}")?;
         } else {
             write!(f, "{:indent$}", "", indent = indent)?;
         }
         if let Some(ty) = &self.ty {
-            write!(f, "({})", ty)?;
+            write!(f, "({ty})")?;
         }
         write!(f, "{}", self.name)?;
         let mut space_before_children = true;
@@ -847,7 +843,7 @@ impl KdlNode {
             if entry.format().is_none() {
                 write!(f, " ")?;
             }
-            write!(f, "{}", entry)?;
+            write!(f, "{entry}")?;
             space_before_children = entry.format().is_none();
         }
         if let Some(children) = &self.children {

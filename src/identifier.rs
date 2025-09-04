@@ -68,7 +68,7 @@ impl KdlIdentifier {
 
     /// Length of this identifier when rendered as a string.
     pub fn len(&self) -> usize {
-        format!("{}", self).len()
+        format!("{self}").len()
     }
 
     /// Returns true if this identifier is completely empty.
@@ -117,7 +117,7 @@ impl KdlIdentifier {
 #[cfg(feature = "v1")]
 impl From<kdlv1::KdlIdentifier> for KdlIdentifier {
     fn from(value: kdlv1::KdlIdentifier) -> Self {
-        KdlIdentifier {
+        Self {
             value: value.value().into(),
             repr: value.repr().map(|x| x.into()),
             #[cfg(feature = "span")]
@@ -129,7 +129,7 @@ impl From<kdlv1::KdlIdentifier> for KdlIdentifier {
 impl Display for KdlIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(repr) = &self.repr {
-            write!(f, "{}", repr)
+            write!(f, "{repr}")
         } else {
             write!(f, "{}", KdlValue::String(self.value().into()))
         }
@@ -138,7 +138,7 @@ impl Display for KdlIdentifier {
 
 impl From<&str> for KdlIdentifier {
     fn from(value: &str) -> Self {
-        KdlIdentifier {
+        Self {
             value: value.to_string(),
             repr: None,
             #[cfg(feature = "span")]
@@ -149,7 +149,7 @@ impl From<&str> for KdlIdentifier {
 
 impl From<String> for KdlIdentifier {
     fn from(value: String) -> Self {
-        KdlIdentifier {
+        Self {
             value,
             repr: None,
             #[cfg(feature = "span")]
@@ -168,7 +168,7 @@ impl FromStr for KdlIdentifier {
     type Err = KdlError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        KdlIdentifier::parse(s)
+        Self::parse(s)
     }
 }
 
