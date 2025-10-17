@@ -22,7 +22,7 @@ members = ["tools/*"]
 
 [dependencies]
 miette.workspace = true
-num = "0.4.2"
+num-traits = "0.2.19"
 winnow = { version = "=0.6.24", features = ["alloc", "unstable-recover"] }
 kdlv1 = { package = "kdl", version = "4.7.0", optional = true }
 
