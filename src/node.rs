@@ -311,8 +311,10 @@ impl KdlNode {
         for entry in &mut self.entries {
             if config.entry_autoformate_keep {
                 entry.keep_format();
+                entry.autoformat();
+            } else {
+                entry.autoformat_with_multiline(config.expand_multiline);
             }
-            entry.autoformat();
         }
         if let Some(children) = self.children.as_mut() {
             children.autoformat_config(&FormatConfig {

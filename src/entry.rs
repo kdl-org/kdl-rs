@@ -169,6 +169,59 @@ impl KdlEntry {
         }
     }
 
+    /// Auto-formats this entry with multiline string handling.
+    pub(crate) fn autoformat_with_multiline(
+        &mut self,
+        expand: crate::fmt::MultilineStringExpansion,
+    ) {
+        use crate::fmt::MultilineStringExpansion::*;
+
+        let should_preserve_repr = match expand {
+            Never => false,
+            Always => {
+                if let Some(s) = self.value.as_string() {
+                    if s.contains('\n') {
+                        // Convert to multiline format
+                        let multiline = format!("\"\"\"\n{}\n\"\"\"", s);
+                        #[cfg(feature = "v1")]
+                        self.ensure_v2();
+                        self.format = Some(KdlEntryFormat {
+                            value_repr: multiline,
+                            leading: " ".into(),
+                            ..Default::default()
+                        });
+                        if let Some(name) = &mut self.name {
+                            name.autoformat();
+                        }
+                        return;
+                    }
+                }
+                false
+            }
+            TripleQuotes => self
+                .format
+                .as_ref()
+                .is_some_and(|f| f.value_repr.starts_with("\"\"\"")),
+        };
+
+        if should_preserve_repr {
+            #[cfg(feature = "v1")]
+            self.ensure_v2();
+            self.format = self.format.take().map(|f| KdlEntryFormat {
+                value_repr: f.value_repr,
+                leading: " ".into(),
+                ..Default::default()
+            });
+        } else {
+            self.autoformat();
+            return;
+        }
+
+        if let Some(name) = &mut self.name {
+            name.autoformat();
+        }
+    }
+
     /// Auto-formats this entry.
     pub fn autoformat(&mut self) {
         // TODO once MSRV allows (1.80.0):

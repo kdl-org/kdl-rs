@@ -1,5 +1,17 @@
 use std::fmt::Write as _;
 
+/// Controls how multiline strings are handled during formatting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MultilineStringExpansion {
+    /// Keep strings as-is (current behavior).
+    #[default]
+    Never,
+    /// Convert any string with `\n` to `"""..."""` syntax.
+    Always,
+    /// Only preserve existing `"""..."""` syntax.
+    TripleQuotes,
+}
+
 /// Formatting configuration for use with [`KdlDocument::autoformat_config`](`crate::KdlDocument::autoformat_config`)
 /// and [`KdlNode::autoformat_config`](`crate::KdlNode::autoformat_config`).
 #[non_exhaustive]
@@ -18,6 +30,9 @@ pub struct FormatConfig<'a> {
 
     /// Whether to keep individual entry formatting.
     pub entry_autoformate_keep: bool,
+
+    /// How to handle multiline strings during formatting.
+    pub expand_multiline: MultilineStringExpansion,
 }
 
 /// See field documentation for defaults.
@@ -48,6 +63,7 @@ impl<'a> FormatConfigBuilder<'a> {
             indent: "    ",
             no_comments: false,
             entry_autoformate_keep: false,
+            expand_multiline: MultilineStringExpansion::Never,
         })
     }
 
@@ -102,6 +118,13 @@ impl<'a> FormatConfigBuilder<'a> {
     /// Defaults to `false` iff not specified.
     pub const fn no_comments(mut self, no_comments: bool) -> Self {
         self.0.no_comments = no_comments;
+        self
+    }
+
+    /// How to handle multiline strings during formatting.
+    /// Defaults to `Never` iff not specified.
+    pub const fn expand_multiline(mut self, expand_multiline: MultilineStringExpansion) -> Self {
+        self.0.expand_multiline = expand_multiline;
         self
     }
 
@@ -168,6 +191,7 @@ mod test {
                 indent: " \t",
                 no_comments: true,
                 entry_autoformate_keep: false,
+                expand_multiline: MultilineStringExpansion::Never,
             }
         ));
         Ok(())
