@@ -111,8 +111,8 @@ impl LanguageServer for Backend {
                     .map(|diag| {
                         Diagnostic::new(
                             Range::new(
-                                char_to_position(diag.span.offset(), &doc),
-                                char_to_position(diag.span.offset() + diag.span.len(), &doc),
+                                byte_to_position(diag.span.offset(), &doc),
+                                byte_to_position(diag.span.offset() + diag.span.len(), &doc),
                             ),
                             diag.severity().map(to_lsp_sev),
                             diag.code().map(|c| NumberOrString::String(c.to_string())),
@@ -159,7 +159,8 @@ impl LanguageServer for Backend {
     // }
 }
 
-fn char_to_position(char_idx: usize, rope: &Rope) -> Position {
+fn byte_to_position(byte_idx: usize, rope: &Rope) -> Position {
+    let char_idx = rope.byte_to_char(byte_idx);
     let line_idx = rope.char_to_line(char_idx);
     let line_char_idx = rope.line_to_char(line_idx);
     let column_idx = char_idx - line_char_idx;
