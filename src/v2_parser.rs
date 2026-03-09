@@ -12,7 +12,7 @@ use winnow::{
         alt, cut_err, empty, eof, fail, not, opt, peek, preceded, repeat, repeat_till, separated,
         terminated, trace,
     },
-    error::{AddContext, ErrMode, ErrorKind, FromExternalError, FromRecoverableError, ParserError},
+    error::{AddContext, ErrMode, FromExternalError, FromRecoverableError, ParserError},
     prelude::*,
     stream::{AsChar, Location, Recover, Recoverable, Stream},
     token::{any, none_of, one_of, take_while},
@@ -24,10 +24,10 @@ use crate::{
     KdlIdentifier, KdlNode, KdlNodeFormat, KdlValue,
 };
 
-type Input<'a> = Recoverable<LocatingSlice<&'a str>, KdlParseError>;
-type PResult<T> = winnow::PResult<T, KdlParseError>;
+type Input<'a> = Recoverable<LocatingSlice<&'a str>, ErrMode<KdlParseError>>;
+type PResult<T> = winnow::ModalResult<T, KdlParseError>;
 
-pub(crate) fn try_parse<'a, P: Parser<Input<'a>, T, KdlParseError>, T>(
+pub(crate) fn try_parse<'a, P: ModalParser<Input<'a>, T, KdlParseError>, T>(
     mut parser: P,
     input: &'a str,
 ) -> Result<T, KdlError> {
@@ -39,12 +39,14 @@ pub(crate) fn try_parse<'a, P: Parser<Input<'a>, T, KdlParseError>, T>(
     }
 }
 
-pub(crate) fn failure_from_errs(errs: Vec<KdlParseError>, input: &str) -> KdlError {
+pub(crate) fn failure_from_errs(errs: Vec<ErrMode<KdlParseError>>, input: &str) -> KdlError {
     let src = Arc::new(String::from(input));
     KdlError {
         input: src.clone(),
         diagnostics: errs
             .into_iter()
+            // The parser is only called with &str so this should never panic.
+            .map(|e| e.into_inner().unwrap())
             .map(|e| KdlDiagnostic {
                 input: src.clone(),
                 span: e.span.unwrap_or_else(|| (0usize..0usize).into()),
@@ -103,7 +105,8 @@ pub(crate) struct KdlParseError {
 }
 
 impl<I: Stream> ParserError<I> for KdlParseError {
-    fn from_error_kind(_input: &I, _kind: ErrorKind) -> Self {
+    type Inner = Self;
+    fn from_input(_input: &I) -> Self {
         Self {
             message: None,
             span: None,
@@ -113,13 +116,12 @@ impl<I: Stream> ParserError<I> for KdlParseError {
         }
     }
 
-    fn append(
-        self,
-        _input: &I,
-        _token_start: &<I as Stream>::Checkpoint,
-        _kind: ErrorKind,
-    ) -> Self {
+    fn append(self, _input: &I, _token_start: &<I as Stream>::Checkpoint) -> Self {
         self
+    }
+
+    fn into_inner(self) -> Result<Self, Self> {
+        Ok(self)
     }
 }
 
@@ -139,7 +141,7 @@ impl<I: Stream> AddContext<I, KdlParseContext> for KdlParseError {
 }
 
 impl<'a> FromExternalError<Input<'a>, ParseIntError> for KdlParseError {
-    fn from_external_error(_: &Input<'a>, _kind: ErrorKind, e: ParseIntError) -> Self {
+    fn from_external_error(_: &Input<'a>, e: ParseIntError) -> Self {
         Self {
             span: None,
             message: Some(format!("{e}")),
@@ -151,7 +153,7 @@ impl<'a> FromExternalError<Input<'a>, ParseIntError> for KdlParseError {
 }
 
 impl<'a> FromExternalError<Input<'a>, ParseFloatError> for KdlParseError {
-    fn from_external_error(_input: &Input<'a>, _kind: ErrorKind, e: ParseFloatError) -> Self {
+    fn from_external_error(_input: &Input<'a>, e: ParseFloatError) -> Self {
         Self {
             span: None,
             label: Some("invalid float".into()),
@@ -165,11 +167,7 @@ impl<'a> FromExternalError<Input<'a>, ParseFloatError> for KdlParseError {
 struct NegativeUnsignedError;
 
 impl<'a> FromExternalError<Input<'a>, NegativeUnsignedError> for KdlParseError {
-    fn from_external_error(
-        _input: &Input<'a>,
-        _kind: ErrorKind,
-        _e: NegativeUnsignedError,
-    ) -> Self {
+    fn from_external_error(_input: &Input<'a>, _e: NegativeUnsignedError) -> Self {
         Self {
             span: None,
             message: Some("Tried to parse a negative number as an unsigned integer".into()),
@@ -200,7 +198,7 @@ fn span_from_checkpoint<I: Stream + Location>(
     start: &<I as Stream>::Checkpoint,
 ) -> SourceSpan {
     let offset = input.offset_from(start);
-    ((input.location() - offset)..input.location()).into()
+    ((input.current_token_start() - offset)..input.current_token_start()).into()
 }
 
 // This is just like the standard .resume_after(), except we only resume on Cut errors.
@@ -210,7 +208,7 @@ fn resume_after_cut<Input, Output, Error, ParseNext, ParseRecover>(
 ) -> impl Parser<Input, Option<Output>, Error>
 where
     Input: Stream + Recover<Error>,
-    Error: FromRecoverableError<Input, Error>,
+    Error: FromRecoverableError<Input, Error> + ParserError<Input>,
     ParseNext: Parser<Input, Output, Error>,
     ParseRecover: Parser<Input, (), Error>,
 {
@@ -223,21 +221,21 @@ fn resume_after_cut_inner<P, R, I, O, E>(
     parser: &mut P,
     recover: &mut R,
     i: &mut I,
-) -> winnow::PResult<Option<O>, E>
+) -> Result<Option<O>, E>
 where
     P: Parser<I, O, E>,
     R: Parser<I, (), E>,
     I: Stream,
     I: Recover<E>,
-    E: FromRecoverableError<I, E>,
+    E: FromRecoverableError<I, E> + ParserError<I>,
 {
     let token_start = i.checkpoint();
     let mut err = match parser.parse_next(i) {
         Ok(o) => {
             return Ok(Some(o));
         }
-        Err(ErrMode::Incomplete(e)) => return Err(ErrMode::Incomplete(e)),
-        Err(ErrMode::Backtrack(e)) => return Err(ErrMode::Backtrack(e)),
+        Err(e) if e.is_incomplete() => return Err(e),
+        Err(e) if e.is_backtrack() => return Err(e),
         Err(err) => err,
     };
     let err_start = i.checkpoint();
@@ -250,7 +248,7 @@ where
     }
 
     i.reset(&err_start);
-    err = err.map(|err| E::from_recoverable_error(&token_start, &err_start, i, err));
+    err = E::from_recoverable_error(&token_start, &err_start, i, err);
     Err(err)
 }
 
@@ -755,12 +753,12 @@ fn around_children_test() {
 /// `node-children := '{' nodes final-node? '}'`
 fn node_children(input: &mut Input<'_>) -> PResult<KdlDocument> {
     let _before_open = input.checkpoint();
-    let _before_open_loc = input.location();
+    let _before_open_loc = input.current_token_start();
     "{".parse_next(input)?;
-    let _after_open_loc = input.location();
+    let _after_open_loc = input.previous_token_end();
     let ns = trace("child nodes", nodes).parse_next(input)?;
     let _after_nodes = input.checkpoint();
-    let _after_nodes_loc = input.location();
+    let _after_nodes_loc = input.previous_token_end();
     let close_res: PResult<_> = cut_err("}")
         .context(cx().msg("No closing '}' for child block").lbl("closed"))
         .parse_next(input);
@@ -1265,7 +1263,7 @@ fn escaped_char(input: &mut Input<'_>) -> PResult<char> {
 /// multi-line-raw-string-body := (unicode - disallowed-literal-code-points)*?
 /// ```
 fn raw_string(input: &mut Input<'_>) -> PResult<KdlValue> {
-    let _start_loc = input.location();
+    let _start_loc = input.current_token_start();
     let hashes: String = repeat(1.., "#").parse_next(input)?;
     let quotes = alt((("\"\"\"", newline).take(), "\"")).parse_next(input)?;
     let is_multiline = quotes.len() > 1;
@@ -1362,7 +1360,7 @@ fn raw_string(input: &mut Input<'_>) -> PResult<KdlValue> {
     if body == "\"" {
         Err(ErrMode::Cut(KdlParseError {
             message: Some("Single-line raw strings cannot look like multi-line ones".into()),
-            span: Some((_start_loc..input.location()).into()),
+            span: Some((_start_loc..input.previous_token_end()).into()),
             label: Some("triple quotes".into()),
             help: Some("Consider using a regular escaped string if all you want is a single quote: \"\\\"\"".into()),
             severity: Some(Severity::Error),
