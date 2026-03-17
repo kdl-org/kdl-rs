@@ -414,6 +414,7 @@ fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
         )
             .parse_next(input)?
     };
+    node_space0.parse_next(input)?;
     let (before_inner_ty, ty, after_inner_ty) = ty.unwrap_or_default();
     let (before_children, children) = children
         .map(|(before_children, children)| (before_children.into(), Some(children)))
