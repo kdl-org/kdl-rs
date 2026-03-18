@@ -1,3 +1,35 @@
+//! Serde serializer for KDL documents.
+//!
+//! This module provides [`to_string`] for serializing Rust types to KDL text.
+//!
+//! # KDL Serialization Model
+//!
+//! Rust types are mapped to KDL as follows:
+//!
+//! - **Structs**: Each field becomes a KDL node at the current level, where the
+//!   node name is the field name and the node's first argument is the field value.
+//! - **Maps**: Same as structs — each key becomes a node name.
+//! - **Sequences/Tuples**: Serialized as child nodes named `-` (the KDL dash convention).
+//! - **Enums**: Unit variants are serialized as bare string arguments. Newtype, tuple,
+//!   and struct variants use the variant name as a node name.
+//! - **Options**: `None` is serialized as `#null`, `Some(v)` serializes `v` directly.
+//! - **Scalars**: Serialized as KDL values (strings, integers, floats, booleans).
+//!
+//! # Example
+//!
+//! ```rust
+//! use serde::Serialize;
+//!
+//! #[derive(Serialize)]
+//! struct Config {
+//!     name: String,
+//!     port: u16,
+//! }
+//!
+//! let config = Config { name: "my-app".into(), port: 8080 };
+//! let kdl = kdl::se::to_string(&config).unwrap();
+//! assert_eq!(kdl, "name \"my-app\"\nport 8080\n");
+//! ```
 
 use serde::ser::{self, Serialize};
 use std::fmt;
