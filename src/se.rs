@@ -1170,3 +1170,157 @@ impl ser::Serializer for KdlValueSerializer {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Serialize;
+
+    #[test]
+    fn simple_struct() {
+        #[derive(Serialize)]
+        struct Config {
+            name: String,
+            port: u16,
+        }
+
+        let config = Config {
+            name: "my-app".into(),
+            port: 8080,
+        };
+        let kdl = to_string(&config).unwrap();
+        assert_eq!(kdl, "name \"my-app\"\nport 8080\n");
+    }
+
+    #[test]
+    fn nested_struct() {
+        #[derive(Serialize)]
+        struct Config {
+            server: Server,
+        }
+
+        #[derive(Serialize)]
+        struct Server {
+            host: String,
+            port: u16,
+        }
+
+        let config = Config {
+            server: Server {
+                host: "localhost".into(),
+                port: 8080,
+            },
+        };
+        let kdl = to_string(&config).unwrap();
+
+        assert!(kdl.contains("server"));
+        assert!(kdl.contains("host \"localhost\""));
+        assert!(kdl.contains("port 8080"));
+    }
+
+    #[test]
+    fn boolean_and_null() {
+        #[derive(Serialize)]
+        struct Config {
+            enabled: bool,
+            nothing: Option<String>,
+        }
+
+        let config = Config {
+            enabled: true,
+            nothing: None,
+        };
+        let kdl = to_string(&config).unwrap();
+        assert!(kdl.contains("enabled #true"));
+        assert!(kdl.contains("nothing #null"));
+    }
+
+    #[test]
+    fn option_some() {
+        #[derive(Serialize)]
+        struct Config {
+            name: Option<String>,
+        }
+
+        let config = Config {
+            name: Some("hello".into()),
+        };
+        let kdl = to_string(&config).unwrap();
+        assert!(kdl.contains("name \"hello\""));
+    }
+
+    #[test]
+    fn unit_enum() {
+        #[derive(Serialize)]
+        enum Color {
+            Red,
+        }
+
+        #[derive(Serialize)]
+        struct Config {
+            color: Color,
+        }
+
+        let config = Config { color: Color::Red };
+        let kdl = to_string(&config).unwrap();
+        dbg!(&kdl);
+        assert!(kdl.contains("color \"Red\""));
+    }
+
+    #[test]
+    fn float_value() {
+        #[derive(Serialize)]
+        struct Config {
+            ratio: f64,
+        }
+
+        let config = Config { ratio: 3.14 };
+        let kdl = to_string(&config).unwrap();
+        assert!(kdl.contains("ratio"));
+        assert!(kdl.contains("3.14"));
+    }
+
+    #[test]
+    fn hashmap() {
+        use std::collections::BTreeMap;
+
+        let mut map = BTreeMap::new();
+        map.insert("alpha".to_string(), 1);
+        map.insert("beta".to_string(), 2);
+        let kdl = to_string(&map).unwrap();
+        assert!(kdl.contains("alpha 1"));
+        assert!(kdl.contains("beta 2"));
+    }
+
+    #[test]
+    fn newtype_struct() {
+        #[derive(Serialize)]
+        struct Port(u16);
+
+        #[derive(Serialize)]
+        struct Config {
+            port: Port,
+        }
+
+        let config = Config { port: Port(8080) };
+        let kdl = to_string(&config).unwrap();
+        assert!(kdl.contains("port 8080"));
+    }
+
+    #[test]
+    fn to_document_roundtrip() {
+        #[derive(Serialize)]
+        struct Config {
+            name: String,
+            port: u16,
+        }
+
+        let config = Config {
+            name: "test".into(),
+            port: 3000,
+        };
+        let doc = to_document(&config).unwrap();
+        assert_eq!(doc.nodes().len(), 2);
+        assert_eq!(doc.get("name").unwrap().get(0), Some(&"test".into()));
+        assert_eq!(doc.get("port").unwrap().get(0), Some(&3000.into()));
+    }
+}
