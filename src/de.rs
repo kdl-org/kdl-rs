@@ -896,3 +896,397 @@ impl<'de, 'a> de::VariantAccess<'de> for PropertyVariantAccess<'a> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
+
+    #[test]
+    fn simple_struct() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            name: String,
+            port: u16,
+        }
+
+        let kdl = r#"
+name "my-app"
+port 8080
+"#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                name: "my-app".into(),
+                port: 8080,
+            }
+        );
+    }
+
+    #[test]
+    fn nested_struct() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            server: Server,
+        }
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Server {
+            host: String,
+            port: u16,
+        }
+
+        let kdl = r#"
+server {
+    host "localhost"
+    port 8080
+}
+"#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                server: Server {
+                    host: "localhost".into(),
+                    port: 8080,
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn node_with_properties() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            server: Server,
+        }
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Server {
+            host: String,
+            port: u16,
+        }
+
+        let kdl = r#"server host="localhost" port=8080"#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                server: Server {
+                    host: "localhost".into(),
+                    port: 8080,
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn sequence_of_args() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            values: Vec<i32>,
+        }
+
+        let kdl = r#"values 1 2 3"#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                values: vec![1, 2, 3]
+            }
+        );
+    }
+
+    #[test]
+    fn repeated_nodes_as_seq() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            route: Vec<String>,
+        }
+
+        let kdl = r#"
+route "/api/users"
+route "/api/posts"
+route "/api/comments"
+"#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                route: vec![
+                    "/api/users".into(),
+                    "/api/posts".into(),
+                    "/api/comments".into(),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn boolean_and_null() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            enabled: bool,
+            disabled: bool,
+            nothing: Option<String>,
+        }
+
+        let kdl = r#"
+enabled #true
+disabled #false
+nothing #null
+"#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                enabled: true,
+                disabled: false,
+                nothing: None,
+            }
+        );
+    }
+
+    #[test]
+    fn option_some() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            name: Option<String>,
+        }
+
+        let kdl = r#"name "hello""#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                name: Some("hello".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn float_values() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            ratio: f64,
+        }
+
+        let kdl = r#"ratio 3.14"#;
+        let config: Config = from_str(kdl).unwrap();
+        assert!((config.ratio - 3.14).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn enum_unit_variant() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        enum Color {
+            Red,
+            Green,
+            Blue,
+        }
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            color: Color,
+        }
+
+        let kdl = r#"color "Red""#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(config, Config { color: Color::Red });
+    }
+
+    #[test]
+    fn deeply_nested() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Root {
+            level1: Level1,
+        }
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Level1 {
+            level2: Level2,
+        }
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Level2 {
+            value: i32,
+        }
+
+        let kdl = r#"
+level1 {
+    level2 {
+        value 42
+    }
+}
+"#;
+        let root: Root = from_str(kdl).unwrap();
+        assert_eq!(
+            root,
+            Root {
+                level1: Level1 {
+                    level2: Level2 { value: 42 },
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn children_as_seq() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Item {
+            name: String,
+        }
+
+        let kdl = r#"
+items {
+    item {
+        name "a"
+    }
+    item {
+        name "b"
+    }
+}
+"#;
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            items: Items,
+        }
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Items {
+            item: Vec<Item>,
+        }
+
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                items: Items {
+                    item: vec![Item { name: "a".into() }, Item { name: "b".into() },],
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn mixed_props_and_children() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Server {
+            host: String,
+            port: u16,
+            routes: Routes,
+        }
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Routes {
+            path: Vec<String>,
+        }
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            server: Server,
+        }
+
+        let kdl = r#"
+server host="localhost" port=8080 {
+    routes {
+        path "/a"
+        path "/b"
+    }
+}
+"#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                server: Server {
+                    host: "localhost".into(),
+                    port: 8080,
+                    routes: Routes {
+                        path: vec!["/a".into(), "/b".into()],
+                    },
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn empty_document() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {}
+
+        let config: Config = from_str("").unwrap();
+        assert_eq!(config, Config {});
+    }
+
+    #[test]
+    fn hashmap() {
+        use std::collections::HashMap;
+
+        let kdl = r#"
+alpha 1
+beta 2
+gamma 3
+"#;
+        let map: HashMap<String, i32> = from_str(kdl).unwrap();
+        assert_eq!(map.get("alpha"), Some(&1));
+        assert_eq!(map.get("beta"), Some(&2));
+        assert_eq!(map.get("gamma"), Some(&3));
+    }
+
+    #[test]
+    fn newtype_struct() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Port(u16);
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            port: Port,
+        }
+
+        let kdl = r#"port 8080"#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(config, Config { port: Port(8080) });
+    }
+
+    #[test]
+    fn integer_types() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            a: i8,
+            b: i16,
+            c: i32,
+            d: i64,
+            e: u8,
+            f: u16,
+            g: u32,
+            h: u64,
+        }
+
+        let kdl = r#"
+a 1
+b 2
+c 3
+d 4
+e 5
+f 6
+g 7
+h 8
+"#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                a: 1,
+                b: 2,
+                c: 3,
+                d: 4,
+                e: 5,
+                f: 6,
+                g: 7,
+                h: 8,
+            }
+        );
+    }
+}
