@@ -1,6 +1,41 @@
-use serde::{de, Deserialize};
-use thiserror::Error;
-use winnow::{stream::Recoverable, Located};
+//! Serde deserializer for KDL documents.
+//!
+//! This module provides [`from_str`] for deserializing Rust types from KDL text.
+//!
+//! # KDL → Serde Data Model Mapping
+//!
+//! KDL documents are mapped to serde's data model as follows:
+//!
+//! - A **KDL document** is treated as a **map** (or struct), where each top-level
+//!   node name is a key and the node's content is the value.
+//! - A **KDL node with only a single argument** and no properties/children is
+//!   treated as a **scalar value** (the argument itself).
+//! - A **KDL node with multiple arguments** is treated as a **sequence** of those arguments.
+//! - A **KDL node with properties** is treated as a **map** of property names to values.
+//! - A **KDL node with children** is treated as a **map** (or struct), where child
+//!   node names are keys.
+//! - A **KDL node with both properties and children** merges them into a single map.
+//! - **Repeated node names** at the same level are collected into a **sequence**.
+//!
+//! # Example
+//!
+//! ```rust
+//! use serde::Deserialize;
+//!
+//! #[derive(Deserialize, Debug, PartialEq)]
+//! struct Config {
+//!     name: String,
+//!     port: u16,
+//! }
+//!
+//! let kdl = r#"
+//! name "my-app"
+//! port 8080
+//! "#;
+//!
+//! let config: Config = kdl::de::from_str(kdl).unwrap();
+//! assert_eq!(config, Config { name: "my-app".into(), port: 8080 });
+//! ```
 
 use std::fmt;
 
