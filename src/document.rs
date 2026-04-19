@@ -897,6 +897,225 @@ foo 1 bar=0xdeadbeef {
         Ok(())
     }
 
+    /// Parses `input`, runs autoformat with `preserve_multiline_strings(true)`
+    /// and the given indent, and returns the formatted string.
+    fn autoformat_preserve(input: &str, indent: &str) -> miette::Result<String> {
+        let mut doc: KdlDocument = input.parse()?;
+        KdlDocument::autoformat_config(
+            &mut doc,
+            &FormatConfig::builder()
+                .indent(indent)
+                .preserve_multiline_strings(true)
+                .build(),
+        );
+        Ok(doc.to_string())
+    }
+
+    #[test]
+    fn autoformat_preserve_multiline_default_escapes() -> miette::Result<()> {
+        let input = indoc::indoc! {r##"
+            node """
+              hey
+              world
+              """
+        "##};
+        let mut doc: KdlDocument = input.parse()?;
+        KdlDocument::autoformat(&mut doc);
+        pretty_assertions::assert_eq!(doc.to_string(), "node \"hey\\nworld\"\n");
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_preserve_multiline_top_level() -> miette::Result<()> {
+        let input = indoc::indoc! {r##"
+            node """
+              hey
+              world
+              """
+        "##};
+        let expected = indoc::indoc! {r##"
+            node """
+                hey
+                world
+                """
+        "##};
+        pretty_assertions::assert_eq!(autoformat_preserve(input, "    ")?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_preserve_multiline_nested() -> miette::Result<()> {
+        let input = indoc::indoc! {r##"
+            parent {
+                child """
+                  line1
+                  line2
+                  """
+            }
+        "##};
+        let expected = indoc::indoc! {r##"
+            parent {
+                child """
+                    line1
+                    line2
+                    """
+            }
+        "##};
+        pretty_assertions::assert_eq!(autoformat_preserve(input, "    ")?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_preserve_multiline_custom_indent() -> miette::Result<()> {
+        let input = indoc::indoc! {r##"
+            node """
+              a
+              b
+              """
+        "##};
+        let expected = indoc::indoc! {r##"
+            node """
+              a
+              b
+              """
+        "##};
+        pretty_assertions::assert_eq!(autoformat_preserve(input, "  ")?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_preserve_multiline_empty_lines() -> miette::Result<()> {
+        // Empty lines inside the body should have no trailing whitespace,
+        // which the KDL spec permits even when other lines are indented.
+        let input = indoc::indoc! {r##"
+            node """
+              a
+
+              b
+              """
+        "##};
+        let expected = indoc::indoc! {r##"
+            node """
+                a
+
+                b
+                """
+        "##};
+        let formatted = autoformat_preserve(input, "    ")?;
+        pretty_assertions::assert_eq!(formatted, expected);
+        // And it must round-trip back to the same value.
+        let reparsed: KdlDocument = formatted.parse()?;
+        assert_eq!(
+            reparsed.nodes()[0].entries()[0].value().as_string(),
+            Some("a\n\nb")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_preserve_multiline_single_line_source_unchanged() -> miette::Result<()> {
+        // A single-line escaped source string should NOT be promoted to
+        // multi-line even if its value contains newlines — preservation only
+        // applies to values that were multi-line in the source.
+        pretty_assertions::assert_eq!(
+            autoformat_preserve(r#"node "a\nb""#, "    ")?,
+            "node \"a\\nb\"\n"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_preserve_multiline_raw() -> miette::Result<()> {
+        let input = indoc::indoc! {r###"
+            node #"""
+              hey
+              world
+              """#
+        "###};
+        let expected = indoc::indoc! {r###"
+            node #"""
+                hey
+                world
+                """#
+        "###};
+        let formatted = autoformat_preserve(input, "    ")?;
+        pretty_assertions::assert_eq!(formatted, expected);
+        let reparsed: KdlDocument = formatted.parse()?;
+        assert_eq!(
+            reparsed.nodes()[0].entries()[0].value().as_string(),
+            Some("hey\nworld")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_preserve_multiline_raw_bumps_hashes_for_collision() -> miette::Result<()> {
+        // Source is `##"""..."""##` (two hashes). Body contains `"""#` which
+        // is safe at two hashes. After autoformat the formatter must pick a
+        // hash count that still avoids the collision.
+        let input = indoc::indoc! {r####"
+            node ##"""
+              a
+              """# b
+              """##
+        "####};
+        let formatted = autoformat_preserve(input, "    ")?;
+        assert!(formatted.contains("##\"\"\""), "got: {formatted}");
+        let reparsed: KdlDocument = formatted.parse()?;
+        assert_eq!(
+            reparsed.nodes()[0].entries()[0].value().as_string(),
+            Some("a\n\"\"\"# b")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_preserve_multiline_property_entry() -> miette::Result<()> {
+        let input = indoc::indoc! {r##"
+            node key="""
+              one
+              two
+              """
+        "##};
+        let expected = indoc::indoc! {r##"
+            node key="""
+                one
+                two
+                """
+        "##};
+        pretty_assertions::assert_eq!(autoformat_preserve(input, "    ")?, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_preserve_multiline_reparse_roundtrip() -> miette::Result<()> {
+        let input = indoc::indoc! {r##"
+            node """
+              hey
+              world
+              """
+        "##};
+        let formatted = autoformat_preserve(input, "    ")?;
+        let reparsed: KdlDocument = formatted.parse()?;
+        assert_eq!(
+            reparsed.nodes()[0].entries()[0].value().as_string(),
+            Some("hey\nworld")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_preserve_multiline_falls_back_on_triple_quote() -> miette::Result<()> {
+        // A string that already contains `"""` can't be emitted as a
+        // triple-quoted multi-line string, so it should fall back to the
+        // escaped single-line form.
+        pretty_assertions::assert_eq!(
+            autoformat_preserve(r#"node "a\n\"\"\"b""#, "    ")?,
+            "node \"a\\n\\\"\\\"\\\"b\"\n"
+        );
+        Ok(())
+    }
+
     #[cfg(feature = "span")]
     fn check_spans_for_doc(doc: &KdlDocument, source: &impl miette::SourceCode) {
         for node in doc.nodes() {

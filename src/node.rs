@@ -312,7 +312,7 @@ impl KdlNode {
             if config.entry_autoformate_keep {
                 entry.keep_format();
             }
-            entry.autoformat();
+            entry.autoformat_config(config);
         }
         if let Some(children) = self.children.as_mut() {
             children.autoformat_config(&FormatConfig {

@@ -18,6 +18,12 @@ pub struct FormatConfig<'a> {
 
     /// Whether to keep individual entry formatting.
     pub entry_autoformate_keep: bool,
+
+    /// Whether to preserve string values containing newlines as triple-quoted
+    /// multi-line strings, with content re-indented to match the current
+    /// indent level. When `false` (the default), such strings are emitted as
+    /// single-line escaped strings (e.g. `"foo\nbar"`).
+    pub preserve_multiline_strings: bool,
 }
 
 /// See field documentation for defaults.
@@ -48,6 +54,7 @@ impl<'a> FormatConfigBuilder<'a> {
             indent: "    ",
             no_comments: false,
             entry_autoformate_keep: false,
+            preserve_multiline_strings: false,
         })
     }
 
@@ -102,6 +109,27 @@ impl<'a> FormatConfigBuilder<'a> {
     /// Defaults to `false` iff not specified.
     pub const fn no_comments(mut self, no_comments: bool) -> Self {
         self.0.no_comments = no_comments;
+        self
+    }
+
+    /// Whether to preserve string values containing newlines as triple-quoted
+    /// multi-line strings (re-indented to match the current indent level).
+    /// Defaults to `false` iff not specified.
+    pub const fn maybe_preserve_multiline_strings(
+        mut self,
+        preserve_multiline_strings: Option<bool>,
+    ) -> Self {
+        if let Some(preserve_multiline_strings) = preserve_multiline_strings {
+            self.0.preserve_multiline_strings = preserve_multiline_strings;
+        }
+        self
+    }
+
+    /// Whether to preserve string values containing newlines as triple-quoted
+    /// multi-line strings (re-indented to match the current indent level).
+    /// Defaults to `false` iff not specified.
+    pub const fn preserve_multiline_strings(mut self, preserve_multiline_strings: bool) -> Self {
+        self.0.preserve_multiline_strings = preserve_multiline_strings;
         self
     }
 
@@ -168,6 +196,7 @@ mod test {
                 indent: " \t",
                 no_comments: true,
                 entry_autoformate_keep: false,
+                preserve_multiline_strings: false,
             }
         ));
         Ok(())

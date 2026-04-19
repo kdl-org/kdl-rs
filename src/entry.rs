@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{v2_parser, KdlError, KdlIdentifier, KdlValue};
+use crate::{fmt::FormatConfig, v2_parser, KdlError, KdlIdentifier, KdlValue};
 
 /// KDL Entries are the "arguments" to KDL nodes: either a (positional)
 /// [`Argument`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#argument) or
@@ -171,15 +171,35 @@ impl KdlEntry {
 
     /// Auto-formats this entry.
     pub fn autoformat(&mut self) {
+        self.autoformat_config(&FormatConfig::default());
+    }
+
+    /// Auto-formats this entry according to `config`.
+    pub fn autoformat_config(&mut self, config: &FormatConfig<'_>) {
         // TODO once MSRV allows (1.80.0):
         //self.format.take_if(|f| !f.autoformat_keep);
-        if !self
+        let keep = self
             .format
             .as_ref()
             .map(|f| f.autoformat_keep)
-            .unwrap_or(false)
-        {
+            .unwrap_or(false);
+        if !keep {
+            let source_kind = self
+                .format
+                .as_ref()
+                .and_then(|f| multiline_source_kind(&f.value_repr));
             self.format = None;
+            if config.preserve_multiline_strings {
+                if let Some(kind) = source_kind {
+                    if let Some(repr) = multiline_string_repr(&self.value, config, kind) {
+                        self.format = Some(KdlEntryFormat {
+                            value_repr: repr,
+                            leading: " ".into(),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
         } else {
             #[cfg(feature = "v1")]
             self.ensure_v2();
@@ -471,6 +491,134 @@ impl FromStr for KdlEntry {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::parse(s)
+    }
+}
+
+/// Which kind of multi-line string was used in the original source.
+#[derive(Debug, Clone, Copy)]
+enum MultilineKind {
+    /// A plain triple-quoted multi-line string: `"""..."""`.
+    Plain,
+    /// A raw multi-line string with the given number of `#` delimiters:
+    /// `#"""..."""#`, `##"""..."""##`, etc.
+    Raw(usize),
+}
+
+/// Inspects an entry's `value_repr` to determine whether the source was a
+/// multi-line string, and if so, which flavor. Returns `None` for values that
+/// weren't multi-line strings in the source (including values with no format
+/// at all, e.g. programmatically constructed entries).
+fn multiline_source_kind(repr: &str) -> Option<MultilineKind> {
+    let trimmed = repr.trim_start();
+    if trimmed.starts_with("\"\"\"") {
+        return Some(MultilineKind::Plain);
+    }
+    let hashes = trimmed.chars().take_while(|&c| c == '#').count();
+    if hashes > 0 && trimmed[hashes..].starts_with("\"\"\"") {
+        return Some(MultilineKind::Raw(hashes));
+    }
+    None
+}
+
+/// Scans the body for the longest run of `#` that immediately follows a `"""`,
+/// so we can pick a hash count for a raw multi-line string that won't collide
+/// with the closing delimiter.
+fn max_hash_run_after_triple_quote(s: &str) -> usize {
+    let bytes = s.as_bytes();
+    let mut max_run = 0usize;
+    let mut i = 0;
+    while i + 3 <= bytes.len() {
+        if &bytes[i..i + 3] == b"\"\"\"" {
+            let mut n = 0;
+            let mut j = i + 3;
+            while j < bytes.len() && bytes[j] == b'#' {
+                n += 1;
+                j += 1;
+            }
+            if n > max_run {
+                max_run = n;
+            }
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+    max_run
+}
+
+/// Builds a `value_repr` for `value` in the requested multi-line style,
+/// re-indented one level deeper than `config.indent_level`. Returns `None` for
+/// values that are not strings, don't contain newlines, or can't safely be
+/// emitted in the requested kind (e.g. raw multi-line can't represent values
+/// containing control characters other than tab/newline).
+fn multiline_string_repr(
+    value: &KdlValue,
+    config: &FormatConfig<'_>,
+    kind: MultilineKind,
+) -> Option<String> {
+    let s = value.as_string()?;
+    if !s.contains('\n') {
+        return None;
+    }
+    let mut prefix = String::new();
+    for _ in 0..config.indent_level + 1 {
+        prefix.push_str(config.indent);
+    }
+    match kind {
+        MultilineKind::Plain => {
+            // Can't safely embed `"""` inside a plain triple-quoted string.
+            if s.contains("\"\"\"") {
+                return None;
+            }
+            let mut out = String::from("\"\"\"\n");
+            for line in s.split('\n') {
+                if !line.is_empty() {
+                    out.push_str(&prefix);
+                    for ch in line.chars() {
+                        match ch {
+                            '\\' => out.push_str("\\\\"),
+                            '\r' => out.push_str("\\r"),
+                            '\t' => out.push_str("\\t"),
+                            '\u{08}' => out.push_str("\\b"),
+                            '\u{0C}' => out.push_str("\\f"),
+                            _ => out.push(ch),
+                        }
+                    }
+                }
+                out.push('\n');
+            }
+            out.push_str(&prefix);
+            out.push_str("\"\"\"");
+            Some(out)
+        }
+        MultilineKind::Raw(min_hashes) => {
+            // Raw strings can't escape anything, so unrepresentable control
+            // chars force a fallback.
+            for ch in s.chars() {
+                match ch {
+                    '\n' | '\t' => {}
+                    c if (c as u32) < 0x20 => return None,
+                    '\u{7F}' => return None,
+                    _ => {}
+                }
+            }
+            let needed = (max_hash_run_after_triple_quote(s) + 1).max(min_hashes.max(1));
+            let hash_str = "#".repeat(needed);
+            let mut out = String::with_capacity(s.len() + 2 * needed + 8);
+            out.push_str(&hash_str);
+            out.push_str("\"\"\"\n");
+            for line in s.split('\n') {
+                if !line.is_empty() {
+                    out.push_str(&prefix);
+                    out.push_str(line);
+                }
+                out.push('\n');
+            }
+            out.push_str(&prefix);
+            out.push_str("\"\"\"");
+            out.push_str(&hash_str);
+            Some(out)
+        }
     }
 }
 
