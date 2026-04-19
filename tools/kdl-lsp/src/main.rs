@@ -160,6 +160,7 @@ impl LanguageServer for Backend {
 }
 
 fn char_to_position(char_idx: usize, rope: &Rope) -> Position {
+    let char_idx = char_idx.min(rope.len_chars());
     let line_idx = rope.char_to_line(char_idx);
     let line_char_idx = rope.line_to_char(line_idx);
     let column_idx = char_idx - line_char_idx;
