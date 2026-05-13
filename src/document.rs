@@ -260,7 +260,7 @@ impl KdlDocument {
             node.autoformat_config(config);
         }
         if let Some(KdlDocumentFormat { trailing, .. }) = (*self).format_mut() {
-            crate::fmt::autoformat_trailing(trailing, config.no_comments);
+            crate::fmt::autoformat_indented_trailing(trailing, config);
             if !has_nodes {
                 trailing.push('\n');
             }
@@ -758,7 +758,6 @@ baz
         );
     }
 
-    #[ignore = "There's still issues around formatting comments and esclines."]
     #[test]
     fn autoformat() -> miette::Result<()> {
         let mut doc: KdlDocument = r##"
@@ -770,10 +769,10 @@ baz
 
         child2 2 /-3 // comment
 
-               child3    "
+               child3    """
 
    string\t
-   " \
+   """ \
 {
        /*
 
@@ -800,22 +799,21 @@ baz
         assert_eq!(
             doc.to_string(),
             r#"/* x */
-foo 1 bar=0xdeadbeef {
+foo 1 bar=3735928559 {
     child1 1
     // child 2 comment
     child2 2 /-3 // comment
     child3 "\nstring\t" {
         /*
-
-
-       multiline*/
+        multiline*/
         inner1 value
         inner2 {
             inner3
         }
     }
 }
-// trailing comment here"#
+// trailing comment here
+"#
         );
         Ok(())
     }
@@ -832,6 +830,185 @@ foo 1 bar=0xdeadbeef {
 
         }
     }
+}
+"#
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_handles_same_line_terminator_comment() -> miette::Result<()> {
+        let mut doc: KdlDocument = r#"node 1 // keep me
+next"#
+            .parse()?;
+        KdlDocument::autoformat(&mut doc);
+        assert_eq!(
+            doc.to_string(),
+            r#"node 1 // keep me
+next
+"#
+        );
+
+        let mut doc: KdlDocument = r#"node /* c */ // keep me
+next"#
+            .parse()?;
+        KdlDocument::autoformat(&mut doc);
+        assert_eq!(
+            doc.to_string(),
+            r#"node /* c */ // keep me
+next
+"#
+        );
+
+        let mut doc: KdlDocument = r#"node 1 // remove me
+next"#
+            .parse()?;
+        KdlDocument::autoformat_no_comments(&mut doc);
+        assert_eq!(
+            doc.to_string(),
+            r#"node 1
+next
+"#
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_strips_line_escape_before_decorated_terminator() -> miette::Result<()> {
+        let mut doc: KdlDocument = r#"node \
+   /-1 // c
+next"#
+            .parse()?;
+        KdlDocument::autoformat(&mut doc);
+        assert_eq!(
+            doc.to_string(),
+            r#"node /-1 // c
+next
+"#
+        );
+
+        let mut doc: KdlDocument = r#"node \
+   /* c */ // keep me
+next"#
+            .parse()?;
+        KdlDocument::autoformat(&mut doc);
+        assert_eq!(
+            doc.to_string(),
+            r#"node /* c */ // keep me
+next
+"#
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_strips_line_escape_after_inline_decor() -> miette::Result<()> {
+        let mut doc: KdlDocument = r#"node /* c */ \
+   // keep me
+next"#
+            .parse()?;
+        KdlDocument::autoformat(&mut doc);
+        assert_eq!(
+            doc.to_string(),
+            r#"node /* c */ // keep me
+next
+"#
+        );
+
+        let reparsed: KdlDocument = doc.to_string().parse()?;
+        assert_eq!(reparsed.nodes().len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_preserves_non_line_escape_backslash_decor() -> miette::Result<()> {
+        let mut doc: KdlDocument = r#"node \ // keep"#.parse()?;
+        KdlDocument::autoformat(&mut doc);
+        assert_eq!(
+            doc.to_string(),
+            r#"node \ // keep
+
+"#
+        );
+
+        let mut doc: KdlDocument = r#"node \ /* keep */"#.parse()?;
+        KdlDocument::autoformat(&mut doc);
+        assert_eq!(
+            doc.to_string(),
+            r#"node \ /* keep */
+
+"#
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_normalizes_inline_block_comment_spacing() -> miette::Result<()> {
+        let mut doc: KdlDocument = r#"node          /* c */
+next"#
+            .parse()?;
+        KdlDocument::autoformat(&mut doc);
+        assert_eq!(
+            doc.to_string(),
+            r#"node /* c */
+
+next
+"#
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn autoformat_indents_trailing_comment() -> miette::Result<()> {
+        let mut doc: KdlDocument = r#"root {
+    child "value"
+ // comment
+}
+"#
+        .parse()?;
+
+        KdlDocument::autoformat(&mut doc);
+
+        assert_eq!(
+            doc.to_string(),
+            r#"root {
+    child value
+    // comment
+}
+"#
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "v1")]
+    #[test]
+    fn autoformat_v1_preserves_same_line_trailing_comments() -> miette::Result<()> {
+        let mut doc = KdlDocument::parse_v1(
+            r#"node 1 // comment
+next"#,
+        )?;
+
+        KdlDocument::autoformat(&mut doc);
+
+        assert_eq!(
+            doc.to_string(),
+            r#"node 1 // comment
+next
+"#
+        );
+
+        let mut doc = KdlDocument::parse_v1(
+            r#"root {
+    child 1 // comment
+}"#,
+        )?;
+
+        KdlDocument::autoformat(&mut doc);
+
+        assert_eq!(
+            doc.to_string(),
+            r#"root {
+    child 1 // comment
 }
 "#
         );

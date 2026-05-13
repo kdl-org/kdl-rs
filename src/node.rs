@@ -285,17 +285,9 @@ impl KdlNode {
         }) = self.format_mut()
         {
             crate::fmt::autoformat_leading(leading, config);
-            crate::fmt::autoformat_trailing(before_terminator, config.no_comments);
-            crate::fmt::autoformat_trailing(trailing, config.no_comments);
-            *trailing = trailing.trim().into();
-            if !terminator.starts_with('\n') {
-                *terminator = "\n".into();
-            }
-            if let Some(c) = trailing.chars().next() {
-                if !c.is_whitespace() {
-                    trailing.insert(0, ' ');
-                }
-            }
+            Self::autoformat_before_terminator(before_terminator, terminator, config);
+            Self::autoformat_after_terminator(before_terminator, terminator, trailing, config);
+            crate::fmt::autoformat_node_terminator(terminator, config);
 
             *before_children = " ".into();
         } else {
@@ -326,6 +318,52 @@ impl KdlNode {
                     trailing.push_str(config.indent);
                 }
             }
+        }
+    }
+
+    fn autoformat_before_terminator(
+        before_terminator: &mut String,
+        terminator: &str,
+        config: &FormatConfig<'_>,
+    ) {
+        crate::fmt::strip_leading_line_escape(before_terminator);
+        let before_terminator_trimmed = before_terminator.trim();
+        // Parser attachment can put slashdash decor, or inline decor before a
+        // same-line `//` terminator, in `before_terminator`. Both still belong
+        // on the formatted node line.
+        if !config.no_comments
+            && (is_single_line_slashdash(before_terminator_trimmed)
+                || (is_same_line_comment_terminator(terminator)
+                    && is_single_line_decor(before_terminator_trimmed)))
+        {
+            *before_terminator = format!(" {before_terminator_trimmed}");
+            return;
+        }
+
+        crate::fmt::autoformat_trailing(before_terminator, config.no_comments);
+    }
+
+    fn autoformat_after_terminator(
+        before_terminator: &mut String,
+        terminator: &mut String,
+        trailing: &mut String,
+        config: &FormatConfig<'_>,
+    ) {
+        let trailing_trimmed = trailing.trim();
+        if !config.no_comments && is_single_line_slashdash(trailing_trimmed) {
+            // Slashdash decor can be attached on either side of the parsed
+            // terminator; it still formats as part of the node line.
+            *before_terminator = format!(" {trailing_trimmed}");
+            trailing.clear();
+        } else if !config.no_comments
+            && is_v1_same_line_trailing_comment(trailing, trailing_trimmed)
+        {
+            // KDL v1 conversion stores same-line `//` node comments in
+            // trailing decor; v2 stores them in the terminator.
+            *terminator = format!(" {trailing_trimmed}\n");
+            trailing.clear();
+        } else {
+            crate::fmt::autoformat_indented_trailing(trailing, config);
         }
     }
 
@@ -876,6 +914,22 @@ impl KdlNode {
         }
         Ok(())
     }
+}
+
+fn is_single_line_decor(decor: &str) -> bool {
+    !decor.is_empty() && !decor.contains('\n')
+}
+
+fn is_single_line_slashdash(decor: &str) -> bool {
+    decor.starts_with("/-") && is_single_line_decor(decor)
+}
+
+fn is_same_line_comment_terminator(terminator: &str) -> bool {
+    !terminator.starts_with('\n') && terminator.trim().starts_with("//")
+}
+
+fn is_v1_same_line_trailing_comment(trailing: &str, trimmed: &str) -> bool {
+    trimmed.starts_with("//") && !trailing.contains('\n')
 }
 
 /// Formatting details for [`KdlNode`].
