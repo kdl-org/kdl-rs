@@ -1357,7 +1357,7 @@ h 8
             server: Server,
         }
 
-        let kdl = r#"server host="localhost" port=8080"#;
+        let kdl = "server host=localhost port=8080";
         let config: Config = from_str(kdl).unwrap();
         assert_eq!(
             config,
@@ -1387,7 +1387,7 @@ h 8
             server: Server,
         }
 
-        let kdl = r#"server "localhost" port=8080 "remote""#;
+        let kdl = "server localhost port=8080 remote";
         let config: Config = from_str(kdl).unwrap();
         assert_eq!(
             config,
@@ -1416,7 +1416,7 @@ h 8
             command: Command,
         }
 
-        let kdl = r#"command name="run" "--verbose" "--output" "result.txt""#;
+        let kdl = "command name=run --verbose --output result.txt";
         let config: Config = from_str(kdl).unwrap();
         assert_eq!(
             config,
@@ -1444,7 +1444,7 @@ h 8
             server: Server,
         }
 
-        let kdl = r#"server host="localhost" 8080 8081 8082"#;
+        let kdl = "server host=localhost 8080 8081 8082";
         let config: Config = from_str(kdl).unwrap();
         assert_eq!(
             config,
