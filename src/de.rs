@@ -2,6 +2,16 @@
 //!
 //! This module provides [`from_str`] for deserializing Rust types from KDL text.
 //!
+//! Due to the fact that `serde` was developed with JSON in mind, and the incompatibility
+//! between KDL and JSON's data model, not all `serde` concepts apply smoothly to KDL. This
+//! leads to the fact that some KDL concepts are inexpressible in terms of `serde` derives
+//! and may require manual deserialization.
+//!
+//! The most notable restriction is the ability to distinguish between *arguments*,
+//! *properties* and *child nodes*, as JSON does not have such conception.
+//!
+//! Due to that the mapping is performed in a best effort manner.
+//!
 //! # KDL → Serde Data Model Mapping
 //!
 //! KDL documents are mapped to serde's data model as follows:
@@ -35,6 +45,90 @@
 //!
 //! let config: Config = kdl::de::from_str(kdl).unwrap();
 //! assert_eq!(config, Config { name: "my-app".into(), port: 8080 });
+//! ```
+//!
+//! ## Arguments mapping
+//!
+//! This library supports two kinds of special renaming for arguments - `$argument{n}` and `$arguments`:
+//!
+//! - `argument{n}`: This is used when you want to access argument at a specific position. The field
+//! name should start with `$argument`, then follow by the position of the argument in numerical
+//! order starting from 1.
+//!
+//! ```rust
+//! use serde::Deserialize;
+//!
+//! #[derive(Deserialize, Debug, PartialEq)]
+//! struct Config {
+//!     server: Server,
+//! }
+//!
+//! #[derive(Deserialize, Debug, PartialEq)]
+//! struct Server {
+//!     #[serde(rename = "$argument1")]
+//!     name: String,
+//!     #[serde(rename = "$argument2")]
+//!     port: u16,
+//! }
+//!
+//! let kdl = r#"
+//! server "my-app" 8080
+//! "#;
+//!
+//! let config: Config = kdl::de::from_str(kdl).unwrap();
+//! assert_eq!(config, Config { server: Server { name: "my-app".into(), port: 8080 }});
+//! ```
+//!
+//! - `$arguments`: This is used when you want to collect *all* the arguments of the node.
+//!
+//! ```rust
+//! use serde::Deserialize;
+//!
+//! #[derive(Deserialize, Debug, PartialEq)]
+//! struct Config {
+//!     server: Server,
+//! }
+//!
+//! #[derive(Deserialize, Debug, PartialEq)]
+//! struct Server {
+//!     #[serde(rename = "$arguments")]
+//!     info: Vec<String>,
+//! }
+//!
+//! let kdl = r#"
+//! server "my-app" "https://example.com"
+//! "#;
+//!
+//! let config: Config = kdl::de::from_str(kdl).unwrap();
+//! assert_eq!(config, Config { server: Server { info: Vec::from(["my-app".into(), "https://example.com".into()]) }});
+//! ```
+//!
+//! ## Properties mapping
+//!
+//! You can use `@field-name` on a field that will be used for a property.
+//!
+//! ```rust
+//! use serde::Deserialize;
+//!
+//! #[derive(Deserialize, Debug, PartialEq)]
+//! struct Config {
+//!     server: Server,
+//! }
+//!
+//! #[derive(Deserialize, Debug, PartialEq)]
+//! struct Server {
+//!     #[serde(rename = "$argument1")]
+//!     name: String,
+//!     #[serde(rename = "@port")]
+//!     port: u16,
+//! }
+//!
+//! let kdl = r#"
+//! server "my-app" port=8080
+//! "#;
+//!
+//! let config: Config = kdl::de::from_str(kdl).unwrap();
+//! assert_eq!(config, Config { server: Server { name: "my-app".into(), port: 8080 }});
 //! ```
 
 use std::borrow::Cow;

@@ -30,6 +30,8 @@
 //! let kdl = kdl::se::to_string(&config).unwrap();
 //! assert_eq!(kdl, "name \"my-app\"\nport 8080\n");
 //! ```
+//!
+//! You can refer to the [crate::de] module to further customize the serizliation model.
 
 use serde::ser::{self, Serialize};
 use std::fmt;
