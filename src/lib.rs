@@ -140,7 +140,7 @@
 //!
 //! ## Minimum Supported Rust Version (MSRV)
 //!
-//! You must be at least `1.82` tall to get on this ride.
+//! You must be at least `1.96` tall to get on this ride.
 //!
 //! ## License
 //!
