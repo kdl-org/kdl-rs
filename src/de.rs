@@ -44,7 +44,7 @@ use serde::de::value::StringDeserializer;
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
 
-use crate::{KdlDocument, KdlEntry, KdlNode, KdlValue};
+use crate::{KdlDocument, KdlEntry, KdlIdentifier, KdlNode, KdlValue};
 
 /// Errors that can occur during KDL deserialization.
 #[derive(Debug, Clone)]
@@ -109,6 +109,49 @@ where
     let doc: KdlDocument = input.parse().map_err(Error::from)?;
     let de = DocumentDeserializer { doc: &doc };
     T::deserialize(de)
+}
+
+struct IdentDeserializer<'a> {
+    ident: &'a KdlIdentifier,
+}
+
+impl<'de, 'a> de::Deserializer<'de> for IdentDeserializer<'a> {
+    type Error = Error;
+
+    fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        visitor.visit_str(self.ident.value())
+    }
+
+    fn deserialize_string<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        visitor.visit_string(self.ident.value().into())
+    }
+
+    fn deserialize_str<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        visitor.visit_str(self.ident.value())
+    }
+
+    fn deserialize_newtype_struct<V: Visitor<'de>>(
+        self,
+        _name: &'static str,
+        visitor: V,
+    ) -> Result<V::Value, Self::Error> {
+        visitor.visit_newtype_struct(self)
+    }
+    
+    fn deserialize_enum<V: Visitor<'de>>(
+        self,
+        _name: &'static str,
+        _variants: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error> {
+        visitor.visit_enum(str_deserializer(self.ident.value()))
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char
+        bytes byte_buf unit unit_struct seq tuple
+        tuple_struct map struct option identifier ignored_any
+    }
 }
 
 struct ValueDeserializer<'a> {
@@ -698,6 +741,7 @@ struct NodeMapAccess<'a> {
 }
 
 enum NodeMapValue<'a> {
+    Ident(&'a KdlIdentifier),
     Arg(&'a KdlValue),
     Args(Vec<&'a KdlEntry>),
     SingleNode(&'a KdlNode),
@@ -708,6 +752,10 @@ impl<'a> NodeMapAccess<'a> {
     fn new(node: &'a KdlNode) -> Self {
         let mut entries: Vec<(Cow<'a, str>, NodeMapValue<'a>)> = Vec::new();
 
+        entries.push(("#name".into(), NodeMapValue::Ident(node.name())));
+        if let Some(ty) = node.ty() {
+            entries.push(("#type".into(), NodeMapValue::Ident(ty)))
+        }
         let args: Vec<_> = node
             .entries()
             .iter()
@@ -720,19 +768,25 @@ impl<'a> NodeMapAccess<'a> {
             .collect();
 
         for (i, arg) in args.iter().enumerate() {
-            entries.push((
-                format!("$argument{}", i + 1).into(),
-                NodeMapValue::Arg(arg.value()),
-            ));
+            entries.push((format!("#{}", i).into(), NodeMapValue::Arg(arg.value())));
+            if let Some(ty) = arg.ty() {
+                entries.push((format!("#{}#type", i).into(), NodeMapValue::Ident(ty)));
+            }
         }
 
         if !args.is_empty() {
-            entries.push(("$arguments".into(), NodeMapValue::Args(args.clone())));
+            entries.push(("#args".into(), NodeMapValue::Args(args.clone())));
         }
 
         for prop in &props {
             let name = prop.name().unwrap().value();
-            entries.push((format!("@{}", name).into(), NodeMapValue::Arg(prop.value())));
+            entries.push((
+                format!("#@{}", name).into(),
+                NodeMapValue::Arg(prop.value()),
+            ));
+            if let Some(ty) = prop.ty() {
+                entries.push((format!("#@{}#type", name).into(), NodeMapValue::Ident(ty)));
+            }
             entries.push((name.into(), NodeMapValue::Arg(prop.value())));
         }
 
@@ -786,6 +840,7 @@ impl<'de, 'a> MapAccess<'de> for NodeMapAccess<'a> {
         let (_, ref value) = self.entries[self.idx];
         self.idx += 1;
         match value {
+            NodeMapValue::Ident(ident) => seed.deserialize(IdentDeserializer { ident }),
             NodeMapValue::Arg(v) => seed.deserialize(ValueDeserializer { value: v }),
             NodeMapValue::Args(entries) => seed.deserialize(ArgsSeqDeserializer {
                 entries: entries.clone(),
@@ -1346,9 +1401,9 @@ h 8
     fn rename_props() {
         #[derive(Deserialize, Debug, PartialEq)]
         struct Server {
-            #[serde(rename = "@host")]
+            #[serde(rename = "#@host")]
             host: String,
-            #[serde(rename = "@port")]
+            #[serde(rename = "#@port")]
             port: u16,
         }
 
@@ -1373,12 +1428,25 @@ h 8
     #[test]
     fn rename_args() {
         #[derive(Deserialize, Debug, PartialEq)]
+        #[serde(rename_all = "kebab-case")]
+        enum HostType {
+            IpAddr,
+            Hostname
+        }
+        
+        #[derive(Deserialize, Debug, PartialEq)]
         struct Server {
-            #[serde(rename = "$argument1")]
+            #[serde(rename = "#type")]
+            server_type: String,
+            #[serde(rename = "#0#type")]
+            host_type: HostType,
+            #[serde(rename = "#0")]
             host: String,
-            #[serde(rename = "@port")]
+            #[serde(rename = "#@port#type")]
+            port_type: String,
+            #[serde(rename = "#@port")]
             port: u16,
-            #[serde(rename = "$arguments")]
+            #[serde(rename = "#args")]
             all: Vec<String>,
         }
 
@@ -1387,13 +1455,16 @@ h 8
             server: Server,
         }
 
-        let kdl = "server localhost port=8080 remote";
+        let kdl = "(linux-debian-arm64)server (hostname)localhost port=(number)8080 remote";
         let config: Config = from_str(kdl).unwrap();
         assert_eq!(
             config,
             Config {
                 server: Server {
+                    server_type: "linux-debian-arm64".into(),
+                    host_type: HostType::Hostname,
                     host: "localhost".into(),
+                    port_type: "number".into(),
                     port: 8080,
                     all: Vec::from(["localhost".into(), "remote".into()])
                 },
@@ -1405,9 +1476,9 @@ h 8
     fn rename_all_args() {
         #[derive(Deserialize, Debug, PartialEq)]
         struct Command {
-            #[serde(rename = "@name")]
+            #[serde(rename = "#@name")]
             name: String,
-            #[serde(rename = "$arguments")]
+            #[serde(rename = "#args")]
             args: Vec<String>,
         }
 
@@ -1433,9 +1504,9 @@ h 8
     fn rename_children_args() {
         #[derive(Deserialize, Debug, PartialEq)]
         struct Server {
-            #[serde(rename = "@host")]
+            #[serde(rename = "#@host")]
             host: String,
-            #[serde(rename = "$arguments")]
+            #[serde(rename = "#args")]
             ports: Vec<u16>,
         }
 
