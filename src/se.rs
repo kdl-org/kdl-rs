@@ -28,13 +28,13 @@
 //!
 //! let config = Config { name: "my-app".into(), port: 8080 };
 //! let kdl = kdl::se::to_string(&config).unwrap();
-//! assert_eq!(kdl, "name \"my-app\"\nport 8080\n");
+//! assert_eq!(kdl, "name my-app\nport 8080\n");
 //! ```
 
 use serde::ser::{self, Serialize};
 use std::fmt;
 
-use crate::{KdlDocument, KdlEntry, KdlEntryFormat, KdlNode, KdlValue};
+use crate::{KdlDocument, KdlEntry, KdlNode, KdlValue};
 
 /// Errors that can occur during KDL serialization.
 #[derive(Debug)]
@@ -73,7 +73,7 @@ impl ser::Error for Error {
 ///
 /// let config = Config { name: "my-app".into(), port: 8080 };
 /// let kdl = kdl::se::to_string(&config).unwrap();
-/// assert_eq!(kdl, "name \"my-app\"\nport 8080\n");
+/// assert_eq!(kdl, "name my-app\nport 8080\n");
 /// ```
 pub fn to_string<T: Serialize>(value: &T) -> Result<String, Error> {
     let doc = to_document(value)?;
@@ -89,7 +89,7 @@ pub fn to_document<T: Serialize>(value: &T) -> Result<KdlDocument, Error> {
         doc: KdlDocument::new(),
     };
     value.serialize(&mut ser)?;
-    Ok(ser.doc)
+    Ok(dbg!(ser.doc))
 }
 
 struct DocumentSerializer {
@@ -160,12 +160,7 @@ impl<'a> ser::Serializer for &'a mut DocumentSerializer {
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-        let mut entry = KdlEntry::new(KdlValue::String(v.to_string()));
-        entry.set_format(KdlEntryFormat {
-            value_repr: format!("\"{}\"", v.escape_default()),
-            leading: " ".to_string(),
-            ..Default::default()
-        });
+        let entry = KdlEntry::new(KdlValue::String(v.to_string()));
         let mut node = KdlNode::new("-");
         node.entries_mut().push(entry);
         self.doc.nodes_mut().push(node);
@@ -515,12 +510,7 @@ impl<'a> ser::Serializer for &'a mut NodeValueSerializer<'a> {
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-        let mut entry = KdlEntry::new(KdlValue::String(v.to_string()));
-        entry.set_format(KdlEntryFormat {
-            value_repr: format!("\"{}\"", v.escape_default()),
-            leading: " ".to_string(),
-            ..Default::default()
-        });
+        let entry = KdlEntry::new(KdlValue::String(v.to_string()));
         self.node.entries_mut().push(entry);
         Ok(())
     }
@@ -761,15 +751,17 @@ impl<'a> ser::SerializeStruct for NodeChildMapSerializer<'a> {
         key: &'static str,
         value: &T,
     ) -> Result<(), Self::Error> {
-        if let Some(attr_name) = key.strip_prefix('@') {
+        if let Some(attr_name) = key.strip_prefix("#@") {
             let kdl_val = to_kdl_value(value)?;
             self.node
                 .entries_mut()
                 .push(KdlEntry::new_prop(attr_name, kdl_val));
-        } else if key == "$arguments" {
+        } else if key == "#args" {
             let mut ser = ArgsSerializer { node: self.node };
             value.serialize(&mut ser)?;
-        } else if key.starts_with("$argument") {
+        } else if key.starts_with("#") {
+            // TODO(@zkat): How do we get the ordering here?... This will just
+            // insert stuff as we discover it.
             let kdl_val = to_kdl_value(value)?;
             self.node.entries_mut().push(KdlEntry::new(kdl_val));
         } else {
@@ -1430,7 +1422,7 @@ mod tests {
             port: 8080,
         };
         let kdl = to_string(&config).unwrap();
-        assert_eq!(kdl, "name \"my-app\"\nport 8080\n");
+        assert_eq!(kdl, "name my-app\nport 8080\n");
     }
 
     #[test]
@@ -1455,7 +1447,7 @@ mod tests {
         let kdl = to_string(&config).unwrap();
 
         assert!(kdl.contains("server"));
-        assert!(kdl.contains("host \"localhost\""));
+        assert!(kdl.contains("host localhost"));
         assert!(kdl.contains("port 8080"));
     }
 
@@ -1487,7 +1479,7 @@ mod tests {
             name: Some("hello".into()),
         };
         let kdl = to_string(&config).unwrap();
-        assert!(kdl.contains("name \"hello\""));
+        assert!(kdl.contains("name hello"));
     }
 
     #[test]
@@ -1505,7 +1497,7 @@ mod tests {
         let config = Config { color: Color::Red };
         let kdl = to_string(&config).unwrap();
         dbg!(&kdl);
-        assert!(kdl.contains("color \"Red\""));
+        assert!(kdl.contains("color Red"));
     }
 
     #[test]
@@ -1570,9 +1562,9 @@ mod tests {
     fn rename_props() {
         #[derive(Serialize)]
         struct Server {
-            #[serde(rename = "@host")]
+            #[serde(rename = "#@host")]
             host: String,
-            #[serde(rename = "@port")]
+            #[serde(rename = "#@port")]
             port: u16,
         }
 
@@ -1597,9 +1589,9 @@ mod tests {
     fn rename_args() {
         #[derive(Serialize)]
         struct Server {
-            #[serde(rename = "$argument1")]
+            #[serde(rename = "#0")]
             host: String,
-            #[serde(rename = "@port")]
+            #[serde(rename = "#@port")]
             port: u16,
         }
 
@@ -1624,9 +1616,9 @@ mod tests {
     fn rename_all_args() {
         #[derive(Serialize)]
         struct Command {
-            #[serde(rename = "@name")]
+            #[serde(rename = "#@name")]
             name: String,
-            #[serde(rename = "$arguments")]
+            #[serde(rename = "#args")]
             args: Vec<String>,
         }
 
