@@ -183,7 +183,6 @@
 #![deny(missing_debug_implementations, nonstandard_style)]
 #![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
 #![cfg_attr(test, deny(warnings))]
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![doc(html_favicon_url = "https://kdl.dev/favicon.ico")]
 #![doc(html_logo_url = "https://kdl.dev/logo.svg")]
 
