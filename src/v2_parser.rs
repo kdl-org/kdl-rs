@@ -380,12 +380,12 @@ fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
     // _both_ the error message for a string/ident parser error _and_ the error
     // message for a node name being expected.
     if !name_is_valid {
-        resume_after_cut(|input: &mut Input<'_>| -> PResult<()> {
+        resume_after_cut((|input: &mut Input<'_>| -> PResult<()> {
                 Err(ErrMode::Cut(KdlParseError {
                    span: Some(span_from_checkpoint(input, &_before_ident)),
                    ..Default::default()
                 }))
-            }.context(cx().msg("Found invalid node name")
+            }).context(cx().msg("Found invalid node name")
                           .lbl("node name")
                           .hlp("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.")),
         empty).parse_next(input)?;

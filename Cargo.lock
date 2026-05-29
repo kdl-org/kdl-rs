@@ -399,6 +399,7 @@ dependencies = [
  "miette 7.6.0",
  "num",
  "pretty_assertions",
+ "serde",
  "thiserror 2.0.17",
  "winnow",
 ]
