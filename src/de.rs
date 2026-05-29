@@ -137,13 +137,15 @@ impl<'de, 'a> de::Deserializer<'de> for IdentDeserializer<'a> {
     ) -> Result<V::Value, Self::Error> {
         visitor.visit_newtype_struct(self)
     }
-    
+
     fn deserialize_enum<V: Visitor<'de>>(
         self,
         _name: &'static str,
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
+        dbg!(_name);
+        dbg!(_variants);
         visitor.visit_enum(str_deserializer(self.ident.value()))
     }
 
@@ -200,6 +202,8 @@ impl<'de, 'a> de::Deserializer<'de> for ValueDeserializer<'a> {
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
+        dbg!(_name);
+        dbg!(_variants);
         match self.value {
             KdlValue::String(s) => visitor.visit_enum(str_deserializer(s.as_str())),
             _ => Err(de::Error::custom("expected a string for unit enum variant")),
@@ -291,6 +295,8 @@ impl<'de, 'a> de::Deserializer<'de> for DocumentDeserializer<'a> {
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
+        dbg!(_name);
+        dbg!(_variants);
         // For enums at document level, treat as a single-node document where
         // the node name is the variant.
         let nodes = self.doc.nodes();
@@ -597,6 +603,8 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
+        dbg!(_name);
+        dbg!(_variants);
         // If the node is a scalar string, treat it as a unit variant name.
         if self.is_scalar() {
             if let KdlValue::String(s) = self.args()[0].value() {
@@ -1431,9 +1439,9 @@ h 8
         #[serde(rename_all = "kebab-case")]
         enum HostType {
             IpAddr,
-            Hostname
+            Hostname,
         }
-        
+
         #[derive(Deserialize, Debug, PartialEq)]
         struct Server {
             #[serde(rename = "#type")]
@@ -1527,4 +1535,41 @@ h 8
             }
         );
     }
+
+    // TODO(@zkat): Can't figure out how to do internally tagged stuff just yet...
+    // #[test]
+    // fn internal_tag_rename() {
+    //     #[derive(Deserialize, Debug, PartialEq)]
+    //     #[serde(tag = "#0", rename_all = "kebab-case")]
+    //     enum Upstream {
+    //         Git {
+    //             #[serde(rename = "#1")]
+    //             url: String,
+    //             hash: Option<String>,
+    //         },
+    //         Svn {
+    //             #[serde(rename = "#1")]
+    //             url: String,
+    //             rev: Option<String>,
+    //         },
+    //     }
+
+    //     #[derive(Deserialize, Debug, PartialEq)]
+    //     struct Config {
+    //         #[serde(rename = "upstream")]
+    //         upstreams: Vec<Upstream>,
+    //     }
+
+    //     let kdl = r#"upstream git "https://codeberg.org/kdl/kdl-rs""#;
+    //     let config: Config = from_str(kdl).unwrap();
+    //     assert_eq!(
+    //         config,
+    //         Config {
+    //             upstreams: vec![Upstream::Git {
+    //                 url: "https://codeberg.org/kdl/kdl-rs".into(),
+    //                 hash: None,
+    //             }]
+    //         }
+    //     );
+    // }
 }
