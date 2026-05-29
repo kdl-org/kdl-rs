@@ -5,7 +5,7 @@ use std::{
 
 use miette::{Severity, SourceSpan};
 
-use num::CheckedMul;
+use num_traits::CheckedMul;
 use winnow::{
     ascii::{digit1, hex_digit1, oct_digit1, Caseless},
     combinator::{
