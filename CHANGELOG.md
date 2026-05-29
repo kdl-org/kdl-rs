@@ -1,5 +1,11 @@
 # `kdl` Release Changelog
 
+<a name="6.6.1"></a>
+## 6.6.1 (2026-05-29)
+
+### Bug Fixes
+
+* **docs:** remove docsrs thing that was preventing doc build ([80db365d](https://github.com/kdl-org/kdl-rs/commit/80db365d7a43518a7fde2b88c6ffbbe4a45ae43f))
 
 <a name="6.6.0"></a>
 ## 6.6.0 (2026-05-29)
