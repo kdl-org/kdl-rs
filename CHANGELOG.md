@@ -1,5 +1,13 @@
 # `kdl` Release Changelog
 
+<a name="6.7.0"></a>
+## 6.7.0 (2026-05-30)
+
+### Features
+
+* **serde:** add diagnostic info to error (#162) ([f824881c](https://github.com/kdl-org/kdl-rs/commit/f824881cabce33c2bbcfc1cd51862977c59dd8f4))
+* **serde:** Add support for flags and #rest (#163) ([e81b1482](https://github.com/kdl-org/kdl-rs/commit/e81b148201ad0f1fda58e2b327394c7ba0ca556b))
+
 <a name="6.6.1"></a>
 ## 6.6.1 (2026-05-29)
 
