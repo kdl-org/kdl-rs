@@ -238,8 +238,6 @@ impl<'de, 'a> de::Deserializer<'de> for IdentDeserializer<'a> {
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        dbg!(_name);
-        dbg!(_variants);
         visitor.visit_enum(str_deserializer(self.ident.value()))
     }
 
@@ -296,8 +294,6 @@ impl<'de, 'a> de::Deserializer<'de> for ValueDeserializer<'a> {
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        dbg!(_name);
-        dbg!(_variants);
         match self.value {
             KdlValue::String(s) => visitor.visit_enum(str_deserializer(s.as_str())),
             _ => Err(de::Error::custom("expected a string for unit enum variant")),
@@ -389,8 +385,6 @@ impl<'de, 'a> de::Deserializer<'de> for DocumentDeserializer<'a> {
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        dbg!(_name);
-        dbg!(_variants);
         // For enums at document level, treat as a single-node document where
         // the node name is the variant.
         let nodes = self.doc.nodes();
@@ -697,8 +691,6 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        dbg!(_name);
-        dbg!(_variants);
         // If the node is a scalar string, treat it as a unit variant name.
         if self.is_scalar() {
             if let KdlValue::String(s) = self.args()[0].value() {
