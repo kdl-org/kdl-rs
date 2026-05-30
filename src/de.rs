@@ -18,6 +18,8 @@
 //!
 //! - A **KDL document** is treated as a **map** (or struct), where each top-level
 //!   node name is a key and the node's content is the value.
+//! - A **KDL node with no arguments** and no properties/children is treated as
+//!   a **boolean flag**.
 //! - A **KDL node with only a single argument** and no properties/children is
 //!   treated as a **scalar value** (the argument itself).
 //! - A **KDL node with multiple arguments** is treated as a **sequence** of those arguments.
@@ -36,20 +38,22 @@
 //! struct Config {
 //!     name: String,
 //!     port: u16,
+//!     active: bool
 //! }
 //!
 //! let kdl = r#"
 //! name my-app
 //! port 8080
+//! active
 //! "#;
 //!
 //! let config: Config = kdl::de::from_str(kdl).unwrap();
-//! assert_eq!(config, Config { name: "my-app".into(), port: 8080 });
+//! assert_eq!(config, Config { name: "my-app".into(), port: 8080, active: true });
 //! ```
 //!
 //! ## Arguments mapping
 //!
-//! This library supports two kinds of special renaming for arguments - `#{n}` and `#args`:
+//! This library supports three kinds of special renaming for arguments - `#{n}`, `#args`, and `#rest`:
 //!
 //! - `#{n}`: This is used when you want to access argument at a specific
 //!   position. The field name should start with `#`, then follow by the position
@@ -103,6 +107,33 @@
 //! assert_eq!(config, Config { server: Server { info: Vec::from(["my-app".into(), "https://example.com".into()]) }});
 //! ```
 //!
+//! - `#rest`: This is used when you want to collect everything that wasn't
+//!   referenced by an `#{n}` rename.
+//!
+//! ```rust
+//! use serde::Deserialize;
+//!
+//! #[derive(Deserialize, Debug, PartialEq)]
+//! struct Config {
+//!     command: Command,
+//! }
+//!
+//! #[derive(Deserialize, Debug, PartialEq)]
+//! struct Command {
+//!     #[serde(rename = "#0")]
+//!     cmd: String,
+//!     #[serde(rename = "#rest")]
+//!     args: Vec<String>,
+//! }
+//!
+//! let kdl = r#"
+//! command frob "https://example.com" x y
+//! "#;
+//!
+//! let config: Config = kdl::de::from_str(kdl).unwrap();
+//! assert_eq!(config, Config { command: Command { cmd: "frob".into(), args: vec!["https://example.com".into(), "x".into(), "y".into()]}});
+//! ```
+//!
 //! ## Properties mapping
 //!
 //! You can use `#@field-name` on a field that will be used for a property.
@@ -130,15 +161,52 @@
 //! let config: Config = kdl::de::from_str(kdl).unwrap();
 //! assert_eq!(config, Config { server: Server { name: "my-app".into(), port: 8080 }});
 //! ```
+//!
+//! ## Types mapping
+//!
+//! You can extract type annotations for nodes, arguments and properties by
+//! using `#type`:
+//!
+//! ```rust
+//! use serde::Deserialize;
+//!
+//! #[derive(Deserialize, Debug, PartialEq)]
+//! struct Config {
+//!     server: Server,
+//! }
+//!
+//! #[derive(Deserialize, Debug, PartialEq)]
+//! #[serde(rename_all = "kebab-case")]
+//! enum ServerKind {
+//!     Big,
+//!     Small,
+//! }
+//! #[derive(Deserialize, Debug, PartialEq)]
+//! struct Server {
+//!     #[serde(rename = "#type")]
+//!     server_kind: ServerKind,
+//!     #[serde(rename = "#0#type")]
+//!     app_type: String,
+//!     #[serde(rename = "#@port#type")]
+//!     port_type: String,
+//! }
+//!
+//! let kdl = r#"
+//! (big)server (cool)my-app port=(internal)8080
+//! "#;
+//!
+//! let config: Config = kdl::de::from_str(kdl).unwrap();
+//! assert_eq!(config, Config { server: Server { server_kind: ServerKind::Big, app_type: "cool".into(), port_type: "internal".into() }});
+//! ```
 
 use std::borrow::Cow;
 use std::sync::Arc;
 use std::{fmt, iter};
 
 use miette::{Diagnostic, LabeledSpan, Severity, SourceCode, SourceSpan};
+use serde::Deserialize;
 use serde::de::value::StringDeserializer;
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
-use serde::Deserialize;
 
 use crate::{KdlDiagnostic, KdlDocument, KdlEntry, KdlIdentifier, KdlNode, KdlValue};
 
@@ -698,8 +766,8 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         if self.is_empty() {
-            // Node with no data → null/unit
-            return visitor.visit_unit();
+            // Node with no data → bool flag
+            return visitor.visit_bool(true);
         }
         if self.is_scalar() {
             // Single argument → deserialize as scalar
@@ -726,6 +794,8 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
     fn deserialize_bool<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         if self.is_scalar() {
             ValueDeserializer::new(self.args()[0], self.input).deserialize_any(visitor)
+        } else if self.is_empty() {
+            visitor.visit_bool(true)
         } else {
             Err(Error::new("expected a boolean value")).map_err(|err| {
                 err.with_span(
@@ -866,16 +936,16 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
     }
 
     fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        visitor.visit_map(NodeMapAccess::new(self.node, self.input))
+        visitor.visit_map(NodeMapAccess::new(self.node, self.input, None))
     }
 
     fn deserialize_struct<V: Visitor<'de>>(
         self,
         _name: &'static str,
-        _fields: &'static [&'static str],
+        fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        self.deserialize_map(visitor)
+        visitor.visit_map(NodeMapAccess::new(self.node, self.input, Some(fields)))
     }
 
     fn deserialize_enum<V: Visitor<'de>>(
@@ -885,18 +955,18 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
         // If the node is a scalar string, treat it as a unit variant name.
-        if self.is_scalar() {
-            if let KdlValue::String(s) = self.args()[0].value() {
-                return visitor
-                    .visit_enum(str_deserializer(s.as_str()))
-                    .map_err(|err| {
-                        err.with_span(
-                            self.input,
-                            entry_span(self.args()[0]),
-                            "while deserializing this enum variant",
-                        )
-                    });
-            }
+        if self.is_scalar()
+            && let KdlValue::String(s) = self.args()[0].value()
+        {
+            return visitor
+                .visit_enum(str_deserializer(s.as_str()))
+                .map_err(|err| {
+                    err.with_span(
+                        self.input,
+                        entry_span(self.args()[0]),
+                        "while deserializing this enum variant",
+                    )
+                });
         }
 
         // Otherwise, try treating the node as an externally-tagged enum:
@@ -1042,6 +1112,7 @@ impl<'de, 'a> SeqAccess<'de> for NodeGroupSeqAccess<'a> {
     }
 }
 
+#[derive(Debug)]
 struct NodeMapAccess<'a> {
     /// Properties and children combined as (key, value_source).
     entries: Vec<(Cow<'a, str>, NodeMapValue<'a>)>,
@@ -1049,51 +1120,86 @@ struct NodeMapAccess<'a> {
     input: &'a Arc<String>,
 }
 
+#[derive(Debug)]
 enum NodeMapValue<'a> {
     Ident(&'a KdlIdentifier),
     Arg(&'a KdlEntry),
     Args(Vec<&'a KdlEntry>),
     SingleNode(&'a KdlNode),
     MultiNode(Vec<&'a KdlNode>),
+    Omitted,
 }
 
 impl<'a> NodeMapAccess<'a> {
-    fn new(node: &'a KdlNode, input: &'a Arc<String>) -> Self {
+    fn new(
+        node: &'a KdlNode,
+        input: &'a Arc<String>,
+        fields: Option<&'static [&'static str]>,
+    ) -> Self {
         let mut entries: Vec<(Cow<'a, str>, NodeMapValue<'a>)> = Vec::new();
 
-        entries.push(("#name".into(), NodeMapValue::Ident(node.name())));
-        if let Some(ty) = node.ty() {
-            entries.push(("#type".into(), NodeMapValue::Ident(ty)))
+        if let Some(fields) = fields {
+            if fields.contains(&"#name") {
+                entries.push(("#name".into(), NodeMapValue::Ident(node.name())));
+            }
+            if fields.contains(&"#type")
+                && let Some(ty) = node.ty()
+            {
+                entries.push(("#type".into(), NodeMapValue::Ident(ty)));
+            }
         }
-        let args: Vec<_> = node
-            .entries()
-            .iter()
-            .filter(|e| e.name().is_none())
-            .collect();
-        let props: Vec<_> = node
-            .entries()
-            .iter()
-            .filter(|e| e.name().is_some())
-            .collect();
-
-        for (i, arg) in args.iter().enumerate() {
-            entries.push((format!("#{}", i).into(), NodeMapValue::Arg(arg)));
-            if let Some(ty) = arg.ty() {
-                entries.push((format!("#{}#type", i).into(), NodeMapValue::Ident(ty)));
+        if let Some(fields) = fields
+            && let collect_all = fields.contains(&"#args")
+            && let collect_rest = fields.contains(&"#rest")
+        {
+            let mut args = Vec::new();
+            let mut rest = Vec::new();
+            for (i, arg) in node
+                .entries()
+                .iter()
+                .filter(|e| e.name().is_none())
+                .enumerate()
+            {
+                if collect_all {
+                    args.push(arg);
+                }
+                let idx_name = format!("#{i}");
+                let ty_name = format!("{idx_name}#type");
+                if let Some(ty) = arg.ty() {
+                    entries.push((ty_name.into(), NodeMapValue::Ident(ty)));
+                }
+                if fields.contains(&idx_name.as_ref()) {
+                    entries.push((idx_name.into(), NodeMapValue::Arg(arg)));
+                } else if collect_rest {
+                    rest.push(arg);
+                }
+            }
+            if collect_all {
+                entries.push(("#args".into(), NodeMapValue::Args(args)));
+            }
+            if collect_rest {
+                entries.push(("#rest".into(), NodeMapValue::Args(rest)));
             }
         }
 
-        if !args.is_empty() {
-            entries.push(("#args".into(), NodeMapValue::Args(args.clone())));
-        }
-
-        for prop in &props {
+        let mut used_names = Vec::new();
+        for prop in node.entries().iter().filter(|e| e.name().is_some()) {
+            // SAFETY: we just filtered for things with names.
             let name = prop.name().unwrap().value();
-            entries.push((format!("#@{}", name).into(), NodeMapValue::Arg(prop)));
-            if let Some(ty) = prop.ty() {
-                entries.push((format!("#@{}#type", name).into(), NodeMapValue::Ident(ty)));
+            if let Some(fields) = fields {
+                let hash_name = format!("#@{name}");
+                let ty_name = format!("{hash_name}#type");
+                if fields.contains(&hash_name.as_ref()) {
+                    entries.push((hash_name.into(), NodeMapValue::Arg(prop)));
+                }
+                if let Some(ty) = prop.ty()
+                    && fields.contains(&ty_name.as_ref())
+                {
+                    entries.push((ty_name.into(), NodeMapValue::Ident(ty)));
+                }
             }
             entries.push((name.into(), NodeMapValue::Arg(prop)));
+            used_names.push(name);
         }
 
         // Add children (grouped by node name)
@@ -1103,6 +1209,7 @@ impl<'a> NodeMapAccess<'a> {
                 std::collections::HashMap::new();
             for child in children.nodes() {
                 let name = child.name().value();
+                used_names.push(name);
                 if !child_groups.contains_key(name) {
                     child_keys.push(name);
                 }
@@ -1117,7 +1224,15 @@ impl<'a> NodeMapAccess<'a> {
                 }
             }
         }
+        if let Some(fields) = fields {
+            for field in fields {
+                if !field.starts_with('#') && !used_names.contains(field) {
+                    entries.push((String::from(*field).into(), NodeMapValue::Omitted));
+                }
+            }
+        }
 
+        dbg!(&entries);
         NodeMapAccess {
             entries,
             idx: 0,
@@ -1166,6 +1281,7 @@ impl<'de, 'a> MapAccess<'de> for NodeMapAccess<'a> {
                 nodes,
                 input: self.input,
             }),
+            NodeMapValue::Omitted => seed.deserialize(OmittedChildDeserializer),
         }
     }
 }
@@ -1211,6 +1327,36 @@ impl<'de, 'a> Deserializer<'de> for ArgsSeqDeserializer<'a> {
     serde::forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
         bytes byte_buf unit unit_struct tuple
+        tuple_struct map struct enum identifier ignored_any
+    }
+}
+
+struct OmittedChildDeserializer;
+
+impl<'de> Deserializer<'de> for OmittedChildDeserializer {
+    type Error = Error;
+
+    fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        visitor.visit_bool(false)
+    }
+
+    fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_bool(false)
+    }
+
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        visitor.visit_none()
+    }
+
+    serde::forward_to_deserialize_any! {
+        i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+        bytes byte_buf unit unit_struct tuple newtype_struct seq
         tuple_struct map struct enum identifier ignored_any
     }
 }
@@ -1886,6 +2032,34 @@ h 8
     }
 
     #[test]
+    fn rename_rest_args() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Command {
+            #[serde(rename = "#0")]
+            name: String,
+            #[serde(rename = "#rest")]
+            args: Vec<String>,
+        }
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            command: Command,
+        }
+
+        let kdl = "command run --verbose --output result.txt";
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                command: Command {
+                    name: "run".into(),
+                    args: vec!["--verbose".into(), "--output".into(), "result.txt".into(),],
+                },
+            }
+        );
+    }
+
+    #[test]
     fn rename_children_args() {
         #[derive(Deserialize, Debug, PartialEq)]
         struct Server {
@@ -1908,6 +2082,69 @@ h 8
                 server: Server {
                     host: "localhost".into(),
                     ports: vec![8080, 8081, 8082],
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn bool_flag_children() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        #[serde(rename_all = "kebab-case")]
+        struct Server {
+            host: String,
+            active: bool,
+        }
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            server: Server,
+        }
+
+        let kdl = "server host=localhost { active }";
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                server: Server {
+                    host: "localhost".into(),
+                    active: true,
+                },
+            }
+        );
+
+        let kdl = "server host=localhost active=#true";
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                server: Server {
+                    host: "localhost".into(),
+                    active: true,
+                },
+            }
+        );
+
+        let kdl = "server host=localhost";
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                server: Server {
+                    host: "localhost".into(),
+                    active: false,
+                },
+            }
+        );
+
+        let kdl = "server host=localhost { }";
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                server: Server {
+                    host: "localhost".into(),
+                    active: false,
                 },
             }
         );

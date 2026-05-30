@@ -10,8 +10,8 @@ use std::{
 use miette::SourceSpan;
 
 use crate::{
-    v2_parser, FormatConfig, KdlDocument, KdlDocumentFormat, KdlEntry, KdlError, KdlIdentifier,
-    KdlValue,
+    FormatConfig, KdlDocument, KdlDocumentFormat, KdlEntry, KdlError, KdlIdentifier, KdlValue,
+    v2_parser,
 };
 
 /// Represents an individual KDL
@@ -291,10 +291,10 @@ impl KdlNode {
             if !terminator.starts_with('\n') {
                 *terminator = "\n".into();
             }
-            if let Some(c) = trailing.chars().next() {
-                if !c.is_whitespace() {
-                    trailing.insert(0, ' ');
-                }
+            if let Some(c) = trailing.chars().next()
+                && !c.is_whitespace()
+            {
+                trailing.insert(0, ' ');
             }
 
             *before_children = " ".into();
