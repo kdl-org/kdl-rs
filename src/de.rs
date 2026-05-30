@@ -132,18 +132,80 @@
 //! ```
 
 use std::borrow::Cow;
-use std::fmt;
+use std::sync::Arc;
+use std::{fmt, iter};
 
+use miette::{Diagnostic, LabeledSpan, Severity, SourceCode, SourceSpan};
 use serde::de::value::StringDeserializer;
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
 
-use crate::{KdlDocument, KdlEntry, KdlIdentifier, KdlNode, KdlValue};
+use crate::{KdlDiagnostic, KdlDocument, KdlEntry, KdlIdentifier, KdlNode, KdlValue};
 
 /// Errors that can occur during KDL deserialization.
 #[derive(Debug, Clone)]
 pub struct Error {
     msg: String,
+    input: Option<Arc<String>>,
+    span: Option<SourceSpan>,
+    label: Option<String>,
+    diagnostics: Vec<KdlDiagnostic>,
+}
+
+impl Error {
+    fn new(msg: impl fmt::Display) -> Self {
+        Error {
+            msg: msg.to_string(),
+            input: None,
+            span: None,
+            label: None,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// Gets the source span associated with this deserialization error.
+    pub fn span(&self) -> Option<SourceSpan> {
+        self.span
+    }
+
+    /// Gets this error as a KDL diagnostic, if available.
+    pub fn diagnostic(&self) -> Option<KdlDiagnostic> {
+        if let Some(diagnostic) = self.diagnostics.first() {
+            Some(diagnostic.clone())
+        } else {
+            Some(KdlDiagnostic {
+                input: self.input.clone()?,
+                span: self.span?,
+                message: Some(self.msg.clone()),
+                label: self.label.clone(),
+                help: None,
+                severity: Severity::Error,
+            })
+        }
+    }
+
+    fn with_input(mut self, input: &Arc<String>) -> Self {
+        if self.input.is_none() {
+            self.input = Some(input.clone());
+        }
+        self
+    }
+
+    fn with_span(
+        mut self,
+        input: &Arc<String>,
+        span: SourceSpan,
+        label: impl Into<String>,
+    ) -> Self {
+        if self.input.is_none() {
+            self.input = Some(input.clone());
+        }
+        if self.span.is_none() {
+            self.span = Some(span);
+            self.label = Some(label.into());
+        }
+        self
+    }
 }
 
 impl fmt::Display for Error {
@@ -154,18 +216,51 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+impl Diagnostic for Error {
+    fn source_code(&self) -> Option<&dyn SourceCode> {
+        self.input.as_ref().map(|input| input as &dyn SourceCode)
+    }
+
+    fn severity(&self) -> Option<Severity> {
+        Some(Severity::Error)
+    }
+
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        let span = self.span?;
+        let label = self.label.clone();
+        Some(Box::new(iter::once(LabeledSpan::new_with_span(
+            label, span,
+        ))))
+    }
+
+    fn related<'a>(&'a self) -> Option<Box<dyn Iterator<Item = &'a dyn Diagnostic> + 'a>> {
+        if self.diagnostics.is_empty() {
+            None
+        } else {
+            Some(Box::new(
+                self.diagnostics.iter().map(|d| d as &dyn Diagnostic),
+            ))
+        }
+    }
+}
+
 impl de::Error for Error {
     fn custom<T: fmt::Display>(msg: T) -> Self {
-        Error {
-            msg: msg.to_string(),
-        }
+        Error::new(msg)
     }
 }
 
 impl From<crate::KdlError> for Error {
     fn from(e: crate::KdlError) -> Self {
         Error {
-            msg: format!("{}", e),
+            msg: e.to_string(),
+            input: Some(e.input.clone()),
+            span: e.diagnostics.first().map(|diagnostic| diagnostic.span),
+            label: e
+                .diagnostics
+                .first()
+                .and_then(|diagnostic| diagnostic.label.clone()),
+            diagnostics: e.diagnostics,
         }
     }
 }
@@ -173,6 +268,39 @@ impl From<crate::KdlError> for Error {
 /// Helper to produce a `StrDeserializer` with our error type.
 fn str_deserializer(s: &str) -> de::value::StrDeserializer<'_, Error> {
     de::IntoDeserializer::into_deserializer(s)
+}
+
+fn entry_span(entry: &KdlEntry) -> SourceSpan {
+    #[cfg(feature = "span")]
+    {
+        entry.span()
+    }
+    #[cfg(not(feature = "span"))]
+    {
+        SourceSpan::from(0..0)
+    }
+}
+
+fn ident_span(ident: &KdlIdentifier) -> SourceSpan {
+    #[cfg(feature = "span")]
+    {
+        ident.span()
+    }
+    #[cfg(not(feature = "span"))]
+    {
+        SourceSpan::from(0..0)
+    }
+}
+
+fn node_span(node: &KdlNode) -> SourceSpan {
+    #[cfg(feature = "span")]
+    {
+        node.span()
+    }
+    #[cfg(not(feature = "span"))]
+    {
+        SourceSpan::from(0..0)
+    }
 }
 
 /// Deserialize a type from a KDL string.
@@ -200,28 +328,34 @@ pub fn from_str<'a, T>(input: &'a str) -> Result<T, Error>
 where
     T: Deserialize<'a>,
 {
-    let doc: KdlDocument = input.parse().map_err(Error::from)?;
-    let de = DocumentDeserializer { doc: &doc };
-    T::deserialize(de)
+    let doc = input.parse()?;
+    let input = input.to_owned().into();
+    let de = DocumentDeserializer {
+        doc: &doc,
+        input: &input,
+    };
+    T::deserialize(de).map_err(|err| err.with_input(&input))
 }
 
 struct IdentDeserializer<'a> {
     ident: &'a KdlIdentifier,
+    input: &'a Arc<String>,
+    span: SourceSpan,
 }
 
 impl<'de, 'a> de::Deserializer<'de> for IdentDeserializer<'a> {
     type Error = Error;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        visitor.visit_str(self.ident.value())
+        self.annotate(visitor.visit_str(self.ident.value()))
     }
 
     fn deserialize_string<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        visitor.visit_string(self.ident.value().into())
+        self.annotate(visitor.visit_string(self.ident.value().into()))
     }
 
     fn deserialize_str<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        visitor.visit_str(self.ident.value())
+        self.annotate(visitor.visit_str(self.ident.value()))
     }
 
     fn deserialize_newtype_struct<V: Visitor<'de>>(
@@ -238,7 +372,7 @@ impl<'de, 'a> de::Deserializer<'de> for IdentDeserializer<'a> {
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        visitor.visit_enum(str_deserializer(self.ident.value()))
+        self.annotate(visitor.visit_enum(str_deserializer(self.ident.value())))
     }
 
     serde::forward_to_deserialize_any! {
@@ -248,8 +382,46 @@ impl<'de, 'a> de::Deserializer<'de> for IdentDeserializer<'a> {
     }
 }
 
+impl<'a> IdentDeserializer<'a> {
+    fn new(ident: &'a KdlIdentifier, input: &'a Arc<String>) -> Self {
+        IdentDeserializer {
+            ident,
+            input,
+            span: ident_span(ident),
+        }
+    }
+
+    fn annotate<T>(&self, result: Result<T, Error>) -> Result<T, Error> {
+        result.map_err(|err| {
+            err.with_span(
+                self.input,
+                self.span,
+                "while deserializing this KDL identifier",
+            )
+        })
+    }
+}
+
 struct ValueDeserializer<'a> {
     value: &'a KdlValue,
+    input: &'a Arc<String>,
+    span: SourceSpan,
+}
+
+impl<'a> ValueDeserializer<'a> {
+    fn new(entry: &'a KdlEntry, input: &'a Arc<String>) -> Self {
+        ValueDeserializer {
+            value: entry.value(),
+            input,
+            span: entry_span(entry),
+        }
+    }
+
+    fn annotate<T>(&self, result: Result<T, Error>) -> Result<T, Error> {
+        result.map_err(|err| {
+            err.with_span(self.input, self.span, "while deserializing this KDL value")
+        })
+    }
 }
 
 impl<'de, 'a> de::Deserializer<'de> for ValueDeserializer<'a> {
@@ -257,25 +429,25 @@ impl<'de, 'a> de::Deserializer<'de> for ValueDeserializer<'a> {
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         match self.value {
-            KdlValue::String(s) => visitor.visit_str(s),
+            KdlValue::String(s) => self.annotate(visitor.visit_str(s)),
             KdlValue::Integer(n) => {
                 if let Ok(i) = i64::try_from(*n) {
-                    visitor.visit_i64(i)
+                    self.annotate(visitor.visit_i64(i))
                 } else if let Ok(u) = u64::try_from(*n) {
-                    visitor.visit_u64(u)
+                    self.annotate(visitor.visit_u64(u))
                 } else {
-                    visitor.visit_i128(*n)
+                    self.annotate(visitor.visit_i128(*n))
                 }
             }
-            KdlValue::Float(f) => visitor.visit_f64(*f),
-            KdlValue::Bool(b) => visitor.visit_bool(*b),
-            KdlValue::Null => visitor.visit_unit(),
+            KdlValue::Float(f) => self.annotate(visitor.visit_f64(*f)),
+            KdlValue::Bool(b) => self.annotate(visitor.visit_bool(*b)),
+            KdlValue::Null => self.annotate(visitor.visit_unit()),
         }
     }
 
     fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         match self.value {
-            KdlValue::Null => visitor.visit_none(),
+            KdlValue::Null => self.annotate(visitor.visit_none()),
             _ => visitor.visit_some(self),
         }
     }
@@ -294,22 +466,22 @@ impl<'de, 'a> de::Deserializer<'de> for ValueDeserializer<'a> {
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        match self.value {
+        self.annotate(match self.value {
             KdlValue::String(s) => visitor.visit_enum(str_deserializer(s.as_str())),
-            _ => Err(de::Error::custom("expected a string for unit enum variant")),
-        }
+            _ => Err(Error::new("expected a string for unit enum variant")),
+        })
     }
 
     fn deserialize_string<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         match self.value {
-            KdlValue::String(s) => visitor.visit_string(s.clone()),
+            KdlValue::String(s) => self.annotate(visitor.visit_string(s.clone())),
             _ => self.deserialize_any(visitor),
         }
     }
 
     fn deserialize_str<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         match self.value {
-            KdlValue::String(s) => visitor.visit_str(s),
+            KdlValue::String(s) => self.annotate(visitor.visit_str(s)),
             _ => self.deserialize_any(visitor),
         }
     }
@@ -323,6 +495,7 @@ impl<'de, 'a> de::Deserializer<'de> for ValueDeserializer<'a> {
 
 struct DocumentDeserializer<'a> {
     doc: &'a KdlDocument,
+    input: &'a Arc<String>,
 }
 
 impl<'de, 'a> de::Deserializer<'de> for DocumentDeserializer<'a> {
@@ -333,7 +506,7 @@ impl<'de, 'a> de::Deserializer<'de> for DocumentDeserializer<'a> {
     }
 
     fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        visitor.visit_map(DocumentMapAccess::new(self.doc))
+        visitor.visit_map(DocumentMapAccess::new(self.doc, self.input))
     }
 
     fn deserialize_struct<V: Visitor<'de>>(
@@ -348,6 +521,7 @@ impl<'de, 'a> de::Deserializer<'de> for DocumentDeserializer<'a> {
     fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         visitor.visit_seq(NodeListSeqAccess {
             iter: self.doc.nodes().iter(),
+            input: self.input,
         })
     }
 
@@ -389,11 +563,15 @@ impl<'de, 'a> de::Deserializer<'de> for DocumentDeserializer<'a> {
         // the node name is the variant.
         let nodes = self.doc.nodes();
         if nodes.len() == 1 {
-            visitor.visit_enum(NodeEnumAccess { node: &nodes[0] })
+            visitor.visit_enum(NodeEnumAccess {
+                node: &nodes[0],
+                input: self.input,
+            })
         } else {
-            Err(de::Error::custom(
+            Err(Error::new(
                 "expected exactly one node for enum deserialization",
             ))
+            .map_err(|err| err.with_input(self.input))
         }
     }
 
@@ -418,10 +596,13 @@ struct DocumentMapAccess<'a> {
 
     /// Current index into `keys`.
     idx: usize,
+
+    /// The input string.
+    input: &'a Arc<String>,
 }
 
 impl<'a> DocumentMapAccess<'a> {
-    fn new(doc: &'a KdlDocument) -> Self {
+    fn new(doc: &'a KdlDocument, input: &'a Arc<String>) -> Self {
         let mut keys = Vec::new();
         let mut groups: std::collections::HashMap<&'a str, Vec<&'a KdlNode>> =
             std::collections::HashMap::new();
@@ -436,6 +617,7 @@ impl<'a> DocumentMapAccess<'a> {
             keys,
             groups,
             idx: 0,
+            input,
         }
     }
 }
@@ -462,16 +644,23 @@ impl<'de, 'a> MapAccess<'de> for DocumentMapAccess<'a> {
         self.idx += 1;
         let nodes = self.groups.get(key).unwrap();
         if nodes.len() == 1 {
-            seed.deserialize(NodeDeserializer { node: nodes[0] })
+            seed.deserialize(NodeDeserializer {
+                node: nodes[0],
+                input: self.input,
+            })
         } else {
             // Multiple nodes with same name → sequence
-            seed.deserialize(NodeGroupDeserializer { nodes })
+            seed.deserialize(NodeGroupDeserializer {
+                nodes,
+                input: self.input,
+            })
         }
     }
 }
 
 struct NodeDeserializer<'a> {
     node: &'a KdlNode,
+    input: &'a Arc<String>,
 }
 
 impl<'a> NodeDeserializer<'a> {
@@ -515,10 +704,7 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
         if self.is_scalar() {
             // Single argument → deserialize as scalar
             let entry = self.args()[0];
-            return ValueDeserializer {
-                value: entry.value(),
-            }
-            .deserialize_any(visitor);
+            return ValueDeserializer::new(entry, self.input).deserialize_any(visitor);
         }
 
         let args = self.args();
@@ -529,6 +715,7 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
             // Only positional args → sequence
             return visitor.visit_seq(ArgSeqAccess {
                 iter: args.into_iter(),
+                input: self.input,
             });
         }
 
@@ -538,12 +725,15 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
 
     fn deserialize_bool<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         if self.is_scalar() {
-            ValueDeserializer {
-                value: self.args()[0].value(),
-            }
-            .deserialize_any(visitor)
+            ValueDeserializer::new(self.args()[0], self.input).deserialize_any(visitor)
         } else {
-            Err(de::Error::custom("expected a boolean value"))
+            Err(Error::new("expected a boolean value")).map_err(|err| {
+                err.with_span(
+                    self.input,
+                    node_span(self.node),
+                    "while deserializing this KDL node",
+                )
+            })
         }
     }
 
@@ -641,16 +831,19 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
             // Arguments → sequence
             visitor.visit_seq(ArgSeqAccess {
                 iter: args.into_iter(),
+                input: self.input,
             })
         } else if let Some(children) = self.node.children() {
             // Children → sequence of nodes
             visitor.visit_seq(NodeListSeqAccess {
                 iter: children.nodes().iter(),
+                input: self.input,
             })
         } else {
             // Empty → empty sequence
             visitor.visit_seq(ArgSeqAccess {
                 iter: Vec::new().into_iter(),
+                input: self.input,
             })
         }
     }
@@ -673,7 +866,7 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
     }
 
     fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        visitor.visit_map(NodeMapAccess::new(self.node))
+        visitor.visit_map(NodeMapAccess::new(self.node, self.input))
     }
 
     fn deserialize_struct<V: Visitor<'de>>(
@@ -694,7 +887,15 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
         // If the node is a scalar string, treat it as a unit variant name.
         if self.is_scalar() {
             if let KdlValue::String(s) = self.args()[0].value() {
-                return visitor.visit_enum(str_deserializer(s.as_str()));
+                return visitor
+                    .visit_enum(str_deserializer(s.as_str()))
+                    .map_err(|err| {
+                        err.with_span(
+                            self.input,
+                            entry_span(self.args()[0]),
+                            "while deserializing this enum variant",
+                        )
+                    });
             }
         }
 
@@ -705,6 +906,7 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
             if child_nodes.len() == 1 {
                 return visitor.visit_enum(NodeEnumAccess {
                     node: &child_nodes[0],
+                    input: self.input,
                 });
             }
         }
@@ -716,12 +918,16 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
             let name = prop.name().unwrap().value();
             return visitor.visit_enum(PropertyEnumAccess {
                 key: name,
-                value: prop.value(),
+                entry: prop,
+                input: self.input,
             });
         }
 
         // Fall back: just node name is variant
-        visitor.visit_enum(NodeEnumAccess { node: self.node })
+        visitor.visit_enum(NodeEnumAccess {
+            node: self.node,
+            input: self.input,
+        })
     }
 
     fn deserialize_identifier<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
@@ -736,10 +942,7 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
 impl<'a> NodeDeserializer<'a> {
     fn deserialize_scalar<'de, V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         if self.is_scalar() {
-            ValueDeserializer {
-                value: self.args()[0].value(),
-            }
-            .deserialize_any(visitor)
+            ValueDeserializer::new(self.args()[0], self.input).deserialize_any(visitor)
         } else {
             self.deserialize_any(visitor)
         }
@@ -748,6 +951,7 @@ impl<'a> NodeDeserializer<'a> {
 
 struct ArgSeqAccess<'a> {
     iter: std::vec::IntoIter<&'a KdlEntry>,
+    input: &'a Arc<String>,
 }
 
 impl<'de, 'a> SeqAccess<'de> for ArgSeqAccess<'a> {
@@ -757,19 +961,16 @@ impl<'de, 'a> SeqAccess<'de> for ArgSeqAccess<'a> {
         &mut self,
         seed: T,
     ) -> Result<Option<T::Value>, Self::Error> {
-        match self.iter.next() {
-            Some(entry) => seed
-                .deserialize(ValueDeserializer {
-                    value: entry.value(),
-                })
-                .map(Some),
-            None => Ok(None),
-        }
+        self.iter
+            .next()
+            .map(|e| seed.deserialize(ValueDeserializer::new(e, self.input)))
+            .transpose()
     }
 }
 
 struct NodeListSeqAccess<'a> {
     iter: std::slice::Iter<'a, KdlNode>,
+    input: &'a Arc<String>,
 }
 
 impl<'de, 'a> SeqAccess<'de> for NodeListSeqAccess<'a> {
@@ -779,15 +980,21 @@ impl<'de, 'a> SeqAccess<'de> for NodeListSeqAccess<'a> {
         &mut self,
         seed: T,
     ) -> Result<Option<T::Value>, Self::Error> {
-        match self.iter.next() {
-            Some(node) => seed.deserialize(NodeDeserializer { node }).map(Some),
-            None => Ok(None),
-        }
+        self.iter
+            .next()
+            .map(|node| {
+                seed.deserialize(NodeDeserializer {
+                    node,
+                    input: self.input,
+                })
+            })
+            .transpose()
     }
 }
 
 struct NodeGroupDeserializer<'a> {
     nodes: &'a [&'a KdlNode],
+    input: &'a Arc<String>,
 }
 
 impl<'de, 'a> de::Deserializer<'de> for NodeGroupDeserializer<'a> {
@@ -800,6 +1007,7 @@ impl<'de, 'a> de::Deserializer<'de> for NodeGroupDeserializer<'a> {
     fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         visitor.visit_seq(NodeGroupSeqAccess {
             iter: self.nodes.iter(),
+            input: self.input,
         })
     }
 
@@ -812,6 +1020,7 @@ impl<'de, 'a> de::Deserializer<'de> for NodeGroupDeserializer<'a> {
 
 struct NodeGroupSeqAccess<'a> {
     iter: std::slice::Iter<'a, &'a KdlNode>,
+    input: &'a Arc<String>,
 }
 
 impl<'de, 'a> SeqAccess<'de> for NodeGroupSeqAccess<'a> {
@@ -821,10 +1030,15 @@ impl<'de, 'a> SeqAccess<'de> for NodeGroupSeqAccess<'a> {
         &mut self,
         seed: T,
     ) -> Result<Option<T::Value>, Self::Error> {
-        match self.iter.next() {
-            Some(node) => seed.deserialize(NodeDeserializer { node }).map(Some),
-            None => Ok(None),
-        }
+        self.iter
+            .next()
+            .map(|node| {
+                seed.deserialize(NodeDeserializer {
+                    node,
+                    input: self.input,
+                })
+            })
+            .transpose()
     }
 }
 
@@ -832,18 +1046,19 @@ struct NodeMapAccess<'a> {
     /// Properties and children combined as (key, value_source).
     entries: Vec<(Cow<'a, str>, NodeMapValue<'a>)>,
     idx: usize,
+    input: &'a Arc<String>,
 }
 
 enum NodeMapValue<'a> {
     Ident(&'a KdlIdentifier),
-    Arg(&'a KdlValue),
+    Arg(&'a KdlEntry),
     Args(Vec<&'a KdlEntry>),
     SingleNode(&'a KdlNode),
     MultiNode(Vec<&'a KdlNode>),
 }
 
 impl<'a> NodeMapAccess<'a> {
-    fn new(node: &'a KdlNode) -> Self {
+    fn new(node: &'a KdlNode, input: &'a Arc<String>) -> Self {
         let mut entries: Vec<(Cow<'a, str>, NodeMapValue<'a>)> = Vec::new();
 
         entries.push(("#name".into(), NodeMapValue::Ident(node.name())));
@@ -862,7 +1077,7 @@ impl<'a> NodeMapAccess<'a> {
             .collect();
 
         for (i, arg) in args.iter().enumerate() {
-            entries.push((format!("#{}", i).into(), NodeMapValue::Arg(arg.value())));
+            entries.push((format!("#{}", i).into(), NodeMapValue::Arg(arg)));
             if let Some(ty) = arg.ty() {
                 entries.push((format!("#{}#type", i).into(), NodeMapValue::Ident(ty)));
             }
@@ -874,14 +1089,11 @@ impl<'a> NodeMapAccess<'a> {
 
         for prop in &props {
             let name = prop.name().unwrap().value();
-            entries.push((
-                format!("#@{}", name).into(),
-                NodeMapValue::Arg(prop.value()),
-            ));
+            entries.push((format!("#@{}", name).into(), NodeMapValue::Arg(prop)));
             if let Some(ty) = prop.ty() {
                 entries.push((format!("#@{}#type", name).into(), NodeMapValue::Ident(ty)));
             }
-            entries.push((name.into(), NodeMapValue::Arg(prop.value())));
+            entries.push((name.into(), NodeMapValue::Arg(prop)));
         }
 
         // Add children (grouped by node name)
@@ -906,7 +1118,11 @@ impl<'a> NodeMapAccess<'a> {
             }
         }
 
-        NodeMapAccess { entries, idx: 0 }
+        NodeMapAccess {
+            entries,
+            idx: 0,
+            input,
+        }
     }
 }
 
@@ -934,19 +1150,29 @@ impl<'de, 'a> MapAccess<'de> for NodeMapAccess<'a> {
         let (_, ref value) = self.entries[self.idx];
         self.idx += 1;
         match value {
-            NodeMapValue::Ident(ident) => seed.deserialize(IdentDeserializer { ident }),
-            NodeMapValue::Arg(v) => seed.deserialize(ValueDeserializer { value: v }),
+            NodeMapValue::Ident(ident) => {
+                seed.deserialize(IdentDeserializer::new(ident, self.input))
+            }
+            NodeMapValue::Arg(entry) => seed.deserialize(ValueDeserializer::new(entry, self.input)),
             NodeMapValue::Args(entries) => seed.deserialize(ArgsSeqDeserializer {
                 entries: entries.clone(),
+                input: self.input,
             }),
-            NodeMapValue::SingleNode(node) => seed.deserialize(NodeDeserializer { node }),
-            NodeMapValue::MultiNode(nodes) => seed.deserialize(NodeGroupDeserializer { nodes }),
+            NodeMapValue::SingleNode(node) => seed.deserialize(NodeDeserializer {
+                node,
+                input: self.input,
+            }),
+            NodeMapValue::MultiNode(nodes) => seed.deserialize(NodeGroupDeserializer {
+                nodes,
+                input: self.input,
+            }),
         }
     }
 }
 
 struct ArgsSeqDeserializer<'a> {
     entries: Vec<&'a KdlEntry>,
+    input: &'a Arc<String>,
 }
 
 impl<'de, 'a> Deserializer<'de> for ArgsSeqDeserializer<'a> {
@@ -955,12 +1181,14 @@ impl<'de, 'a> Deserializer<'de> for ArgsSeqDeserializer<'a> {
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         visitor.visit_seq(ArgSeqAccess {
             iter: self.entries.into_iter(),
+            input: self.input,
         })
     }
 
     fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
         visitor.visit_seq(ArgSeqAccess {
             iter: self.entries.into_iter(),
+            input: self.input,
         })
     }
 
@@ -989,6 +1217,7 @@ impl<'de, 'a> Deserializer<'de> for ArgsSeqDeserializer<'a> {
 
 struct NodeEnumAccess<'a> {
     node: &'a KdlNode,
+    input: &'a Arc<String>,
 }
 
 impl<'de, 'a> de::EnumAccess<'de> for NodeEnumAccess<'a> {
@@ -1000,13 +1229,28 @@ impl<'de, 'a> de::EnumAccess<'de> for NodeEnumAccess<'a> {
         seed: V,
     ) -> Result<(V::Value, Self::Variant), Self::Error> {
         let variant_name = self.node.name().value();
-        let val = seed.deserialize(str_deserializer(variant_name))?;
-        Ok((val, NodeVariantAccess { node: self.node }))
+        let val = seed
+            .deserialize(str_deserializer(variant_name))
+            .map_err(|err| {
+                err.with_span(
+                    self.input,
+                    node_span(self.node),
+                    "while deserializing this enum variant",
+                )
+            })?;
+        Ok((
+            val,
+            NodeVariantAccess {
+                node: self.node,
+                input: self.input,
+            },
+        ))
     }
 }
 
 struct NodeVariantAccess<'a> {
     node: &'a KdlNode,
+    input: &'a Arc<String>,
 }
 
 impl<'de, 'a> de::VariantAccess<'de> for NodeVariantAccess<'a> {
@@ -1020,7 +1264,10 @@ impl<'de, 'a> de::VariantAccess<'de> for NodeVariantAccess<'a> {
         self,
         seed: T,
     ) -> Result<T::Value, Self::Error> {
-        seed.deserialize(NodeDeserializer { node: self.node })
+        seed.deserialize(NodeDeserializer {
+            node: self.node,
+            input: self.input,
+        })
     }
 
     fn tuple_variant<V: Visitor<'de>>(
@@ -1028,7 +1275,13 @@ impl<'de, 'a> de::VariantAccess<'de> for NodeVariantAccess<'a> {
         _len: usize,
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        de::Deserializer::deserialize_seq(NodeDeserializer { node: self.node }, visitor)
+        de::Deserializer::deserialize_seq(
+            NodeDeserializer {
+                node: self.node,
+                input: self.input,
+            },
+            visitor,
+        )
     }
 
     fn struct_variant<V: Visitor<'de>>(
@@ -1036,13 +1289,20 @@ impl<'de, 'a> de::VariantAccess<'de> for NodeVariantAccess<'a> {
         _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        de::Deserializer::deserialize_map(NodeDeserializer { node: self.node }, visitor)
+        de::Deserializer::deserialize_map(
+            NodeDeserializer {
+                node: self.node,
+                input: self.input,
+            },
+            visitor,
+        )
     }
 }
 
 struct PropertyEnumAccess<'a> {
     key: &'a str,
-    value: &'a KdlValue,
+    entry: &'a KdlEntry,
+    input: &'a Arc<String>,
 }
 
 impl<'de, 'a> de::EnumAccess<'de> for PropertyEnumAccess<'a> {
@@ -1053,13 +1313,28 @@ impl<'de, 'a> de::EnumAccess<'de> for PropertyEnumAccess<'a> {
         self,
         seed: V,
     ) -> Result<(V::Value, Self::Variant), Self::Error> {
-        let val = seed.deserialize(str_deserializer(self.key))?;
-        Ok((val, PropertyVariantAccess { value: self.value }))
+        let val = seed
+            .deserialize(str_deserializer(self.key))
+            .map_err(|err| {
+                err.with_span(
+                    self.input,
+                    entry_span(self.entry),
+                    "while deserializing this enum variant",
+                )
+            })?;
+        Ok((
+            val,
+            PropertyVariantAccess {
+                entry: self.entry,
+                input: self.input,
+            },
+        ))
     }
 }
 
 struct PropertyVariantAccess<'a> {
-    value: &'a KdlValue,
+    entry: &'a KdlEntry,
+    input: &'a Arc<String>,
 }
 
 impl<'de, 'a> de::VariantAccess<'de> for PropertyVariantAccess<'a> {
@@ -1073,7 +1348,7 @@ impl<'de, 'a> de::VariantAccess<'de> for PropertyVariantAccess<'a> {
         self,
         seed: T,
     ) -> Result<T::Value, Self::Error> {
-        seed.deserialize(ValueDeserializer { value: self.value })
+        seed.deserialize(ValueDeserializer::new(self.entry, self.input))
     }
 
     fn tuple_variant<V: Visitor<'de>>(
@@ -1081,9 +1356,16 @@ impl<'de, 'a> de::VariantAccess<'de> for PropertyVariantAccess<'a> {
         _len: usize,
         _visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        Err(de::Error::custom(
+        Err(Error::new(
             "tuple variants not supported from KDL properties",
         ))
+        .map_err(|err| {
+            err.with_span(
+                self.input,
+                entry_span(self.entry),
+                "while deserializing this KDL property",
+            )
+        })
     }
 
     fn struct_variant<V: Visitor<'de>>(
@@ -1091,15 +1373,24 @@ impl<'de, 'a> de::VariantAccess<'de> for PropertyVariantAccess<'a> {
         _fields: &'static [&'static str],
         _visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        Err(de::Error::custom(
+        Err(Error::new(
             "struct variants not supported from KDL properties",
         ))
+        .map_err(|err| {
+            err.with_span(
+                self.input,
+                entry_span(self.entry),
+                "while deserializing this KDL property",
+            )
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "span")]
+    use miette::SourceCode;
     use serde::Deserialize;
 
     #[test]
@@ -1658,4 +1949,44 @@ h 8
     //         }
     //     );
     // }
+
+    #[test]
+    fn error_span_and_diagnostic() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            port: u16,
+        }
+
+        let kdl = "port nope";
+        let err = from_str::<Config>(kdl).unwrap_err();
+
+        let labels: Vec<_> = err.labels().unwrap().collect();
+        assert_eq!(
+            labels[0].label().unwrap(),
+            "while deserializing this KDL value"
+        );
+        let diagnostic = err.diagnostic().unwrap();
+        let diag_labels: Vec<_> = diagnostic.labels().unwrap().collect();
+        assert_eq!(
+            diag_labels[0].label().unwrap(),
+            "while deserializing this KDL value"
+        );
+
+        #[cfg(feature = "span")]
+        {
+            let span = err.span().unwrap();
+            assert_eq!(span, diagnostic.span);
+            assert_eq!(kdl.read_span(&span, 0, 0).unwrap().data(), b"nope",);
+
+            assert_eq!(
+                diagnostic
+                    .source_code()
+                    .unwrap()
+                    .read_span(labels[0].inner(), 0, 0)
+                    .unwrap()
+                    .data(),
+                b"nope",
+            );
+        }
+    }
 }
