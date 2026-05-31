@@ -393,7 +393,7 @@ dependencies = [
 
 [[package]]
 name = "kdl"
-version = "6.7.0"
+version = "6.7.1"
 dependencies = [
  "kdl 4.7.1",
  "miette 7.6.0",
@@ -406,10 +406,10 @@ dependencies = [
 
 [[package]]
 name = "kdl-lsp"
-version = "6.7.0"
+version = "6.7.1"
 dependencies = [
  "dashmap 6.1.0",
- "kdl 6.7.0",
+ "kdl 6.7.1",
  "miette 7.6.0",
  "ropey",
  "tokio",
