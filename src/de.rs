@@ -1232,7 +1232,6 @@ impl<'a> NodeMapAccess<'a> {
             }
         }
 
-        dbg!(&entries);
         NodeMapAccess {
             entries,
             idx: 0,
