@@ -13,7 +13,8 @@
 //! - **Enums**: Unit variants are serialized as bare string arguments. Newtype, tuple,
 //!   and struct variants use the variant name as a node name.
 //! - **Options**: `None` is serialized as `#null`, `Some(v)` serializes `v` directly.
-//! - **Scalars**: Serialized as KDL values (strings, integers, floats, booleans).
+//! - **Booleans and Null**: Serialized as KDL flags (child present if true, missing if false).
+//! - **Scalars**: Serialized as KDL values (strings, integers, floats).
 //!
 //! # Example
 //!
@@ -34,7 +35,7 @@
 //! (de)serialization model.
 
 use serde::ser::{self, Serialize};
-use std::fmt;
+use std::{collections::HashSet, fmt};
 
 use crate::{KdlDocument, KdlEntry, KdlNode, KdlValue};
 
@@ -91,7 +92,7 @@ pub fn to_document<T: Serialize>(value: &T) -> Result<KdlDocument, Error> {
         doc: KdlDocument::new(),
     };
     value.serialize(&mut ser)?;
-    Ok(dbg!(ser.doc))
+    Ok(ser.doc)
 }
 
 struct DocumentSerializer {
@@ -290,6 +291,7 @@ impl<'a> ser::Serializer for &'a mut DocumentSerializer {
             parent_nodes: &mut self.doc.nodes,
             variant,
             children: KdlDocument::new(),
+            used_indices: Default::default(),
         })
     }
 }
@@ -395,7 +397,14 @@ impl<'a> ser::SerializeStruct for MapNodeSerializer<'a> {
     ) -> Result<(), Self::Error> {
         let mut node = KdlNode::new(key);
         serialize_value_into_node(&mut node, value)?;
-        self.nodes.push(node);
+        match node.get(0) {
+            Some(KdlValue::Bool(false)) | Some(KdlValue::Null) => {
+                // Skip adding this node
+            }
+            _ => {
+                self.nodes.push(node);
+            }
+        }
         Ok(())
     }
 
@@ -407,6 +416,7 @@ impl<'a> ser::SerializeStruct for MapNodeSerializer<'a> {
 struct StructVariantSerializer<'a> {
     parent_nodes: &'a mut Vec<KdlNode>,
     variant: &'static str,
+    used_indices: HashSet<usize>,
     children: KdlDocument,
 }
 
@@ -420,8 +430,40 @@ impl<'a> ser::SerializeStructVariant for StructVariantSerializer<'a> {
         value: &T,
     ) -> Result<(), Self::Error> {
         let mut node = KdlNode::new(key);
-        serialize_value_into_node(&mut node, value)?;
-        self.children.nodes_mut().push(node);
+        if let Some(attr_name) = key.strip_prefix("#@") {
+            let kdl_val = to_kdl_value(value)?;
+            node.entries_mut()
+                .push(KdlEntry::new_prop(attr_name, kdl_val));
+        } else if key == "#args" {
+            let mut ser = ArgsSerializer { node: &mut node };
+            value.serialize(&mut ser)?;
+        } else if key == "#rest" {
+            let mut ser = RestSerializer {
+                node: &mut node,
+                used_indices: &self.used_indices,
+            };
+            value.serialize(&mut ser)?;
+        } else if key.starts_with("#") {
+            let idx: usize = key.strip_prefix('#').unwrap().parse().map_err(|e| Error {
+                msg: format!("Failed to parse index rename {key}: {e}"),
+            })?;
+            self.used_indices.insert(idx);
+            let kdl_val = to_kdl_value(value)?;
+            node.entries_mut().push(KdlEntry::new(kdl_val));
+        } else {
+            let mut child = KdlNode::new(key);
+            let mut child_ser = NodeValueSerializer { node: &mut child };
+            value.serialize(&mut child_ser)?;
+            let children = node.ensure_children();
+            match child.get(0) {
+                Some(KdlValue::Bool(false)) | Some(KdlValue::Null) => {
+                    // Skip adding this node
+                }
+                _ => {
+                    children.nodes_mut().push(child);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -734,8 +776,15 @@ impl<'a> ser::SerializeMap for NodeChildMapSerializer<'a> {
         let mut child = KdlNode::new(key);
         let mut child_ser = NodeValueSerializer { node: &mut child };
         value.serialize(&mut child_ser)?;
-        let children = self.node.ensure_children();
-        children.nodes_mut().push(child);
+        match child.get(0) {
+            Some(KdlValue::Bool(false)) | Some(KdlValue::Null) => {
+                // Skip adding this node
+            }
+            _ => {
+                let children = self.node.ensure_children();
+                children.nodes_mut().push(child);
+            }
+        }
         Ok(())
     }
 
@@ -761,6 +810,10 @@ impl<'a> ser::SerializeStruct for NodeChildMapSerializer<'a> {
         } else if key == "#args" {
             let mut ser = ArgsSerializer { node: self.node };
             value.serialize(&mut ser)?;
+        } else if key == "#rest" {
+            // TODO(@zkat): do this properly. Need to keep track of what args have been picked out.
+            let mut ser = ArgsSerializer { node: self.node };
+            value.serialize(&mut ser)?;
         } else if key.starts_with("#") {
             // TODO(@zkat): How do we get the ordering here?... This will just
             // insert stuff as we discover it.
@@ -771,7 +824,14 @@ impl<'a> ser::SerializeStruct for NodeChildMapSerializer<'a> {
             let mut child_ser = NodeValueSerializer { node: &mut child };
             value.serialize(&mut child_ser)?;
             let children = self.node.ensure_children();
-            children.nodes_mut().push(child);
+            match child.get(0) {
+                Some(KdlValue::Bool(false)) | Some(KdlValue::Null) => {
+                    // Skip adding this node
+                }
+                _ => {
+                    children.nodes_mut().push(child);
+                }
+            }
         }
         Ok(())
     }
@@ -796,10 +856,36 @@ impl<'a> ser::SerializeStructVariant for NodeChildStructVariantSerializer<'a> {
         key: &'static str,
         value: &T,
     ) -> Result<(), Self::Error> {
-        let mut child = KdlNode::new(key);
-        let mut child_ser = NodeValueSerializer { node: &mut child };
-        value.serialize(&mut child_ser)?;
-        self.children.nodes_mut().push(child);
+        let mut node = KdlNode::new(key);
+        if let Some(attr_name) = key.strip_prefix("#@") {
+            let kdl_val = to_kdl_value(value)?;
+            self.parent
+                .entries_mut()
+                .push(KdlEntry::new_prop(attr_name, kdl_val));
+        } else if key == "#args" {
+            let mut ser = ArgsSerializer { node: &mut node };
+            value.serialize(&mut ser)?;
+        } else if key == "#rest" {
+            // TODO(@zkat): do this properly. Need to keep track of what args have been picked out.
+            let mut ser = ArgsSerializer { node: &mut node };
+            value.serialize(&mut ser)?;
+        } else if key.starts_with("#") {
+            // TODO(@zkat): How do we get the ordering here?... This will just
+            // insert stuff as we discover it.
+            let kdl_val = to_kdl_value(value)?;
+            self.parent.entries_mut().push(KdlEntry::new(kdl_val));
+        } else {
+            let mut child_ser = NodeValueSerializer { node: &mut node };
+            value.serialize(&mut child_ser)?;
+            match node.get(0) {
+                Some(KdlValue::Bool(false)) | Some(KdlValue::Null) => {
+                    // Skip adding this node
+                }
+                _ => {
+                    self.children.nodes_mut().push(node);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -1177,6 +1263,245 @@ impl ser::Serializer for KdlValueSerializer {
     }
 }
 
+struct RestSerializer<'a> {
+    node: &'a mut KdlNode,
+    used_indices: &'a HashSet<usize>,
+}
+
+impl<'a> ser::Serializer for &'a mut RestSerializer<'a> {
+    type Ok = ();
+    type Error = Error;
+
+    type SerializeSeq = RestSeqSerializer<'a>;
+    type SerializeTuple = RestSeqSerializer<'a>;
+    type SerializeTupleStruct = RestSeqSerializer<'a>;
+    type SerializeTupleVariant = ser::Impossible<(), Error>;
+    type SerializeMap = ser::Impossible<(), Error>;
+    type SerializeStruct = ser::Impossible<(), Error>;
+    type SerializeStructVariant = ser::Impossible<(), Error>;
+
+    fn serialize_seq(self, _: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        Ok(RestSeqSerializer {
+            node: self.node,
+            used_indices: self.used_indices,
+            current_idx: 0,
+        })
+    }
+
+    fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
+        self.serialize_seq(Some(len))
+    }
+
+    fn serialize_tuple_struct(
+        self,
+        _: &'static str,
+        len: usize,
+    ) -> Result<Self::SerializeTupleStruct, Self::Error> {
+        self.serialize_seq(Some(len))
+    }
+
+    fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
+        self.node.entries_mut().push(KdlEntry::new(v));
+        Ok(())
+    }
+
+    fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
+        self.serialize_i64(v as i64)
+    }
+    fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
+        self.serialize_i64(v as i64)
+    }
+    fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
+        self.serialize_i64(v as i64)
+    }
+    fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
+        self.node
+            .entries_mut()
+            .push(KdlEntry::new(KdlValue::Integer(v as i128)));
+        Ok(())
+    }
+
+    fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
+        self.serialize_u64(v as u64)
+    }
+    fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
+        self.serialize_u64(v as u64)
+    }
+    fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
+        self.serialize_u64(v as u64)
+    }
+    fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
+        self.node
+            .entries_mut()
+            .push(KdlEntry::new(KdlValue::Integer(v as i128)));
+        Ok(())
+    }
+
+    fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
+        self.serialize_f64(v as f64)
+    }
+    fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
+        self.node
+            .entries_mut()
+            .push(KdlEntry::new(KdlValue::Float(v)));
+        Ok(())
+    }
+
+    fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
+        self.serialize_str(&v.to_string())
+    }
+
+    fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
+        self.node
+            .entries_mut()
+            .push(KdlEntry::new(KdlValue::String(v.to_string())));
+        Ok(())
+    }
+
+    fn serialize_bytes(self, _: &[u8]) -> Result<Self::Ok, Self::Error> {
+        Err(ser::Error::custom(
+            "bytes cannot be represented as KDL arguments",
+        ))
+    }
+
+    fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
+        self.node.entries_mut().push(KdlEntry::new(KdlValue::Null));
+        Ok(())
+    }
+
+    fn serialize_some<T: ?Sized + Serialize>(self, value: &T) -> Result<Self::Ok, Self::Error> {
+        value.serialize(self)
+    }
+
+    fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
+        self.node.entries_mut().push(KdlEntry::new(KdlValue::Null));
+        Ok(())
+    }
+
+    fn serialize_unit_struct(self, _: &'static str) -> Result<Self::Ok, Self::Error> {
+        self.serialize_unit()
+    }
+
+    fn serialize_unit_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        variant: &'static str,
+    ) -> Result<Self::Ok, Self::Error> {
+        self.serialize_str(variant)
+    }
+
+    fn serialize_newtype_struct<T: ?Sized + Serialize>(
+        self,
+        _: &'static str,
+        value: &T,
+    ) -> Result<Self::Ok, Self::Error> {
+        value.serialize(self)
+    }
+
+    fn serialize_newtype_variant<T: ?Sized + Serialize>(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: &T,
+    ) -> Result<Self::Ok, Self::Error> {
+        Err(ser::Error::custom(
+            "newtype variants cannot be represented as KDL arguments",
+        ))
+    }
+
+    fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+        Err(ser::Error::custom(
+            "maps are cannot be represented as KDL arguments",
+        ))
+    }
+
+    fn serialize_struct(
+        self,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeStruct, Self::Error> {
+        Err(ser::Error::custom(
+            "structs are cannot be represented as KDL arguments",
+        ))
+    }
+
+    fn serialize_struct_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeStructVariant, Self::Error> {
+        Err(ser::Error::custom(
+            "struct variants cannot be represented as KDL arguments",
+        ))
+    }
+
+    fn serialize_tuple_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeTupleVariant, Self::Error> {
+        Err(ser::Error::custom(
+            "tuple variants cannot be represented as KDL arguments",
+        ))
+    }
+}
+
+struct RestSeqSerializer<'a> {
+    node: &'a mut KdlNode,
+    used_indices: &'a HashSet<usize>,
+    current_idx: usize,
+}
+
+impl<'a> ser::SerializeSeq for RestSeqSerializer<'a> {
+    type Ok = ();
+    type Error = Error;
+
+    fn serialize_element<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
+        if !self.used_indices.contains(&self.current_idx) {
+            let kdl_val = to_kdl_value(value)?;
+            self.node.entries_mut().push(KdlEntry::new(kdl_val));
+        }
+        self.current_idx += 1;
+        Ok(())
+    }
+
+    fn end(self) -> Result<Self::Ok, Self::Error> {
+        Ok(())
+    }
+}
+
+impl<'a> ser::SerializeTuple for RestSeqSerializer<'a> {
+    type Ok = ();
+    type Error = Error;
+
+    fn serialize_element<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
+        ser::SerializeSeq::serialize_element(self, value)
+    }
+
+    fn end(self) -> Result<Self::Ok, Self::Error> {
+        ser::SerializeSeq::end(self)
+    }
+}
+
+impl<'a> ser::SerializeTupleStruct for RestSeqSerializer<'a> {
+    type Ok = ();
+    type Error = Error;
+
+    fn serialize_field<T: ?Sized + Serialize>(&mut self, value: &T) -> Result<(), Self::Error> {
+        ser::SerializeSeq::serialize_element(self, value)
+    }
+
+    fn end(self) -> Result<Self::Ok, Self::Error> {
+        ser::SerializeSeq::end(self)
+    }
+}
+
 struct ArgsSerializer<'a> {
     node: &'a mut KdlNode,
 }
@@ -1458,16 +1783,22 @@ mod tests {
         #[derive(Serialize)]
         struct Config {
             enabled: bool,
-            nothing: Option<String>,
+            disabled: bool,
+            something: Option<usize>,
+            nothing: Option<usize>,
         }
 
         let config = Config {
             enabled: true,
+            disabled: false,
+            something: Some(1),
             nothing: None,
         };
         let kdl = to_string(&config).unwrap();
-        assert!(kdl.contains("enabled #true"));
-        assert!(kdl.contains("nothing #null"));
+        assert!(kdl.contains("enabled"));
+        assert!(!kdl.contains("disabled"));
+        assert!(kdl.contains("something 1"));
+        assert!(!kdl.contains("nothing"));
     }
 
     #[test]
@@ -1498,7 +1829,6 @@ mod tests {
 
         let config = Config { color: Color::Red };
         let kdl = to_string(&config).unwrap();
-        dbg!(&kdl);
         assert!(kdl.contains("color Red"));
     }
 
@@ -1618,10 +1948,12 @@ mod tests {
     fn rename_all_args() {
         #[derive(Serialize)]
         struct Command {
-            #[serde(rename = "#@name")]
+            #[serde(rename = "#0")]
             name: String,
             #[serde(rename = "#args")]
             args: Vec<String>,
+            #[serde(rename = "#rest")]
+            rest: Vec<String>,
         }
 
         #[derive(Serialize)]
@@ -1632,13 +1964,70 @@ mod tests {
         let config = Config {
             command: Command {
                 name: "run".into(),
-                args: vec!["--verbose".into(), "--output".into()],
+                args: vec!["run".into(), "--verbose".into(), "--output".into()],
+                rest: vec!["--verbose".into(), "--output".into()],
             },
         };
         let kdl = to_string(&config).unwrap();
         assert!(kdl.contains("command"));
-        assert!(kdl.contains("name=run"));
+        assert!(kdl.contains("run"));
         assert!(kdl.contains("--verbose"));
         assert!(kdl.contains("--output"));
     }
+
+    #[test]
+    fn complex_enum() {
+        #[derive(Serialize)]
+        struct Config {
+            command: Command,
+        }
+
+        #[derive(Serialize)]
+        #[serde(rename_all = "kebab-case")]
+        enum Command {
+            #[serde(rename_all = "kebab-case")]
+            Up {
+                #[serde(rename = "#0")]
+                towards: String,
+                how_high: Option<usize>,
+                enabled: bool,
+            },
+            Down(usize),
+            Left(usize, usize),
+            Right,
+        }
+
+        let config = Config {
+            command: Command::Up {
+                towards: "sky".into(),
+                how_high: Some(1),
+                enabled: false,
+            },
+        };
+        let kdl = to_string(&config).unwrap();
+        assert!(kdl.contains("command sky"));
+        assert!(kdl.contains("up"));
+        assert!(kdl.contains("how-high 1"));
+
+        let config = Config {
+            command: Command::Down(4),
+        };
+        let kdl = to_string(&config).unwrap();
+        assert!(kdl.contains("down 4"));
+
+        let config = Config {
+            command: Command::Left(1, 2),
+        };
+        let kdl = to_string(&config).unwrap();
+        assert!(kdl.contains("left 1 2"));
+
+        let config = Config {
+            command: Command::Right,
+        };
+        let kdl = to_string(&config).unwrap();
+        assert_eq!(kdl, "command right\n");
+    }
 }
+
+#[test]
+fn rename_rest_args() {}
