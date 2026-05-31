@@ -1,5 +1,12 @@
 # `kdl` Release Changelog
 
+<a name="6.7.1"></a>
+## 6.7.1 (2026-05-31)
+
+### Bug Fixes
+
+* **serde:** get flag bools/options and #rest working for `se` (#166) ([c7121536](https://github.com/kdl-org/kdl-rs/commit/c71215361addc7dd03efd16a1c4b0e799c17e259))
+
 <a name="6.7.0"></a>
 ## 6.7.0 (2026-05-30)
 
