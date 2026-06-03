@@ -6,7 +6,7 @@ use std::fmt::Display;
 use crate::KdlNodeFormat;
 use crate::{
     FormatConfig, KdlError, KdlNode, KdlValue,
-    v2_parser::{Input, KdlParser, KdlVersion},
+    v2_parser::{KdlParser, KdlVersion},
 };
 
 /// Represents a KDL
@@ -374,14 +374,14 @@ impl KdlDocument {
     /// Parses a KDL v2 string into a document.
     pub fn parse_v2(s: &str) -> Result<Self, KdlError> {
         let parser = KdlParser::new(KdlVersion::V2);
-        KdlParser::try_parse(|input: &mut Input<'_>| parser.document(input), s)
+        parser.try_parse(KdlParser::document, s)
     }
 
     /// Parses a KDL v1 string into a document.
     #[cfg(feature = "v1")]
     pub fn parse_v1(s: &str) -> Result<Self, KdlError> {
         let parser = KdlParser::new(KdlVersion::V1);
-        KdlParser::try_parse(|input: &mut Input<'_>| parser.document(input), s)
+        parser.try_parse(KdlParser::document, s)
     }
 
     /// Takes a KDL v1 document string and returns the same document, but

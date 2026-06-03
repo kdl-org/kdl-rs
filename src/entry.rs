@@ -2,7 +2,10 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{KdlError, KdlIdentifier, KdlValue, v2_parser};
+use crate::{
+    KdlError, KdlIdentifier, KdlValue,
+    v2_parser::{self, KdlParser, KdlVersion},
+};
 
 /// KDL Entries are the "arguments" to KDL nodes: either a (positional)
 /// [`Argument`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#argument) or
@@ -202,13 +205,15 @@ impl KdlEntry {
     /// to parse again as a KDL v1 entry. If both fail, only the v2 parse
     /// errors will be returned.
     pub fn parse(s: &str) -> Result<Self, KdlError> {
+        let parser_v2 = KdlParser::new(KdlVersion::V2);
         #[cfg(not(feature = "v1-fallback"))]
         {
-            v2_parser::KdlParser::try_parse(v2_parser::padded_node_entry, s)
+            parser_v2.try_parse(KdlParser::padded_node_entry, s)
         }
         #[cfg(feature = "v1-fallback")]
         {
-            v2_parser::KdlParser::try_parse(v2_parser::padded_node_entry, s)
+            parser_v2
+                .try_parse(KdlParser::padded_node_entry, s)
                 .or_else(|e| KdlEntry::parse_v1(s).map_err(|_| e))
         }
     }
@@ -216,8 +221,8 @@ impl KdlEntry {
     /// Parses a KDL v1 string into an entry.
     #[cfg(feature = "v1")]
     pub fn parse_v1(s: &str) -> Result<Self, KdlError> {
-        let ret: Result<kdlv1::KdlEntry, kdlv1::KdlError> = s.parse();
-        ret.map(|x| x.into()).map_err(|e| e.into())
+        let parser_v1 = KdlParser::new(KdlVersion::V1);
+        parser_v1.try_parse(KdlParser::padded_node_entry, s)
     }
 
     /// Makes sure this entry is in v2 format.
