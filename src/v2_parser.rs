@@ -24,18 +24,232 @@ use crate::{
     KdlIdentifier, KdlNode, KdlNodeFormat, KdlValue,
 };
 
-type Input<'a> = Recoverable<LocatingSlice<&'a str>, ErrMode<KdlParseError>>;
+pub(crate) type Input<'a> = Recoverable<LocatingSlice<&'a str>, ErrMode<KdlParseError>>;
 type PResult<T> = winnow::ModalResult<T, KdlParseError>;
 
-pub(crate) fn try_parse<'a, P: ModalParser<Input<'a>, T, KdlParseError>, T>(
-    mut parser: P,
-    input: &'a str,
-) -> Result<T, KdlError> {
-    let (_, maybe_val, errs) = parser.recoverable_parse(LocatingSlice::new(input));
-    if let (Some(v), true) = (maybe_val, errs.is_empty()) {
-        Ok(v)
-    } else {
-        Err(failure_from_errs(errs, input))
+pub(crate) enum KdlVersion {
+    V1,
+    V2,
+}
+
+pub(crate) struct KdlParser {
+    kdl_version: KdlVersion,
+}
+
+impl KdlParser {
+    pub(crate) fn new(kdl_version: KdlVersion) -> Self {
+        Self { kdl_version }
+    }
+
+    pub(crate) fn try_parse<'a, P: ModalParser<Input<'a>, T, KdlParseError>, T>(
+        mut parser: P,
+        input: &'a str,
+    ) -> Result<T, KdlError> {
+        let (_, maybe_val, errs) = parser.recoverable_parse(LocatingSlice::new(input));
+        if let (Some(v), true) = (maybe_val, errs.is_empty()) {
+            Ok(v)
+        } else {
+            Err(failure_from_errs(errs, input))
+        }
+    }
+
+    /// `document := bom? nodes`
+    pub(crate) fn document(&self, input: &mut Input<'_>) -> PResult<KdlDocument> {
+        let bom = opt(bom.take()).parse_next(input)?;
+        let mut doc = (|input: &mut Input<'_>| self.nodes(input)).parse_next(input)?;
+        let badend = resume_after_cut(
+            cut_err(eof).context(cx().lbl("EOF").msg("Expected end of document")),
+            any.void(),
+        )
+        .parse_next(input)?
+        .is_none();
+        if badend {
+            (|input: &mut Input<'_>| self.document(input)).parse_next(input)?;
+        }
+        if let Some(bom) = bom
+            && let Some(fmt) = doc.format_mut()
+        {
+            fmt.leading = format!("{bom}{}", fmt.leading);
+        }
+        Ok(doc)
+    }
+
+    /// `nodes := (line-space* node)* line-space*`
+    fn nodes(&self, input: &mut Input<'_>) -> PResult<KdlDocument> {
+        let mut leading = repeat(
+            0..,
+            alt((
+                line_space.void(),
+                (slashdash, (|input: &mut Input<'_>| self.base_node(input))).void(),
+            )),
+        )
+        .map(|()| ())
+        .take()
+        .parse_next(input)?;
+        let _start = input.checkpoint();
+        let mut ns: Vec<KdlNode> = separated(
+            0..,
+            |input: &mut Input<'_>| self.node(input),
+            alt((node_terminator.void(), (eof.void(), any.void()).void())),
+        )
+        .parse_next(input)?;
+        let _span = span_from_checkpoint(input, &_start);
+        opt(node_terminator).parse_next(input)?;
+        let trailing = repeat(
+            0..,
+            alt((
+                line_space.void(),
+                (slashdash, (|input: &mut Input<'_>| self.base_node(input))).void(),
+            )),
+        )
+        .map(|()| ())
+        .take()
+        .parse_next(input)?;
+
+        // If there is a node, let it have the leading format
+        // This gives more consistent behavior
+        if let Some(first_node) = ns.get_mut(0)
+            && let Some(first_node_format) = first_node.format_mut()
+        {
+            first_node_format.leading = leading.into();
+            leading = "";
+        }
+
+        Ok(KdlDocument {
+            nodes: ns,
+            format: Some(KdlDocumentFormat {
+                leading: leading.into(),
+                trailing: trailing.into(),
+            }),
+            #[cfg(feature = "span")]
+            span: _span,
+        })
+    }
+
+    /// base-node := slashdash? type? node-space* string
+    ///      (node-space+ slashdash? node-prop-or-arg)*
+    ///      (node-space+ slashdash node-children)*
+    ///      (node-space+ node-children)?
+    ///      (node-space+ slashdash node-children)*
+    ///      node-space*
+    /// node := base-node node-space* node-terminator
+    /// final-node := base-node node-space* node-terminator?
+    fn node(&self, input: &mut Input<'_>) -> PResult<KdlNode> {
+        let leading = repeat(
+            0..,
+            alt((
+                line_space.void(),
+                (slashdash, (|input: &mut Input<'_>| self.base_node(input))).void(),
+            )),
+        )
+        .map(|()| ())
+        .take()
+        .parse_next(input)?;
+        let mut nd = (|input: &mut Input<'_>| self.base_node(input)).parse_next(input)?;
+        if let Some(fmt) = nd.format_mut() {
+            fmt.leading = leading.into();
+        }
+        Ok(nd)
+    }
+
+    fn base_node(&self, input: &mut Input<'_>) -> PResult<KdlNode> {
+        trace("children closing check", not(alt(("}".void(), eof.void())))).parse_next(input)?;
+        let _start = input.checkpoint();
+        let open_curly = resume_after_cut(
+        cut_err(not("{").context(
+            cx().msg("Found child block instead of node name")
+                .lbl("node name")
+                .hlp("Did you forget to add the node name itself? Or perhaps terminated the node before its child block?"))),
+        "{".void(),
+    )
+    .parse_next(input)?;
+        if open_curly.is_none() {
+            // If we got a weird misplaced `{`, we consume the "child block" here,
+            // because otherwise the error message is going to include the entire
+            // child block as its span, but we only want to point to the offending
+            // curly.
+            input.reset(&_start);
+            node_children.parse_next(input)?;
+            opt(slashdashed_children).parse_next(input)?;
+            peek(opt(node_terminator)).parse_next(input)?;
+            // We also return a fake node here, for good measure.
+            return Ok(KdlNode::new("<<BAD_NODE>>"));
+        }
+        let ty = opt(ty).parse_next(input)?;
+        let after_ty = node_space0.take().parse_next(input)?;
+        let _before_ident = input.checkpoint();
+        let name = resume_after_cut(cut_err(identifier).context(
+        cx().msg("Found invalid node name")
+                                  .lbl("node name")
+                                  .hlp("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.")
+
+    ), badval)
+        .parse_next(input)?
+        .unwrap_or_else(|| KdlIdentifier::from("/BAD_IDENT\\"));
+        let name_is_valid = name.repr.as_ref().map(|s| s.is_empty()) != Some(true);
+        // resume_after_cut() only picks up context from parsers passed into it. In
+        // order to add an error that's more specific about us wanting a _node name_
+        // here, we have to do some shenanigans with a "fake" parse here.
+        // While this does result in double errors, I think it's still useful to get
+        // _both_ the error message for a string/ident parser error _and_ the error
+        // message for a node name being expected.
+        if !name_is_valid {
+            resume_after_cut((|input: &mut Input<'_>| -> PResult<()> {
+                Err(ErrMode::Cut(KdlParseError {
+                   span: Some(span_from_checkpoint(input, &_before_ident)),
+                   ..Default::default()
+                }))
+            }).context(cx().msg("Found invalid node name")
+                          .lbl("node name")
+                          .hlp("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.")),
+        empty).parse_next(input)?;
+        }
+        let entries = repeat(
+            0..,
+            (peek(node_space1), node_entry).map(|(_, e): ((), _)| e),
+        )
+        .map(|e: Vec<Option<KdlEntry>>| e.into_iter().flatten().collect::<Vec<KdlEntry>>())
+        .parse_next(input)?;
+        let children = opt((
+            before_node_children.take(),
+            trace("node children", node_children),
+        ))
+        .parse_next(input)?;
+        let (before_terminator, terminator) = if children.is_some() {
+            (
+                opt(slashdashed_children).take(),
+                peek(opt(node_terminator).take()),
+            )
+                .parse_next(input)?
+        } else {
+            (
+                before_node_children.take(),
+                peek(opt(node_terminator).take()),
+            )
+                .parse_next(input)?
+        };
+        node_space0.parse_next(input)?;
+        let (before_inner_ty, ty, after_inner_ty) = ty.unwrap_or_default();
+        let (before_children, children) = children
+            .map(|(before_children, children)| (before_children.into(), Some(children)))
+            .unwrap_or(("".into(), None));
+        Ok(KdlNode {
+            ty,
+            name,
+            entries,
+            children,
+            format: Some(KdlNodeFormat {
+                before_ty_name: before_inner_ty.into(),
+                after_ty_name: after_inner_ty.into(),
+                after_ty: after_ty.into(),
+                before_children,
+                before_terminator: before_terminator.into(),
+                terminator: terminator.into(),
+                ..Default::default()
+            }),
+            #[cfg(feature = "span")]
+            span: span_from_checkpoint(input, &_start),
+        })
     }
 }
 
@@ -257,192 +471,15 @@ fn new_input(s: &str) -> Input<'_> {
     Recoverable::new(LocatingSlice::new(s))
 }
 
-/// `document := bom? nodes`
-pub(crate) fn document(input: &mut Input<'_>) -> PResult<KdlDocument> {
-    let bom = opt(bom.take()).parse_next(input)?;
-    let mut doc = nodes.parse_next(input)?;
-    let badend = resume_after_cut(
-        cut_err(eof).context(cx().lbl("EOF").msg("Expected end of document")),
-        any.void(),
-    )
-    .parse_next(input)?
-    .is_none();
-    if badend {
-        document.parse_next(input)?;
-    }
-    if let Some(bom) = bom
-        && let Some(fmt) = doc.format_mut()
-    {
-        fmt.leading = format!("{bom}{}", fmt.leading);
-    }
-    Ok(doc)
-}
-
-/// `nodes := (line-space* node)* line-space*`
-fn nodes(input: &mut Input<'_>) -> PResult<KdlDocument> {
-    let mut leading = repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
-        .map(|()| ())
-        .take()
-        .parse_next(input)?;
-    let _start = input.checkpoint();
-    let mut ns: Vec<KdlNode> = separated(
-        0..,
-        node,
-        alt((node_terminator.void(), (eof.void(), any.void()).void())),
-    )
-    .parse_next(input)?;
-    let _span = span_from_checkpoint(input, &_start);
-    opt(node_terminator).parse_next(input)?;
-    let trailing = repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
-        .map(|()| ())
-        .take()
-        .parse_next(input)?;
-
-    // If there is a node, let it have the leading format
-    // This gives more consistent behavior
-    if let Some(first_node) = ns.get_mut(0)
-        && let Some(first_node_format) = first_node.format_mut()
-    {
-        first_node_format.leading = leading.into();
-        leading = "";
-    }
-
-    Ok(KdlDocument {
-        nodes: ns,
-        format: Some(KdlDocumentFormat {
-            leading: leading.into(),
-            trailing: trailing.into(),
-        }),
-        #[cfg(feature = "span")]
-        span: _span,
-    })
-}
-
-/// base-node := slashdash? type? node-space* string
-///      (node-space+ slashdash? node-prop-or-arg)*
-///      (node-space+ slashdash node-children)*
-///      (node-space+ node-children)?
-///      (node-space+ slashdash node-children)*
-///      node-space*
-/// node := base-node node-space* node-terminator
-/// final-node := base-node node-space* node-terminator?
-fn node(input: &mut Input<'_>) -> PResult<KdlNode> {
-    let leading = repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
-        .map(|()| ())
-        .take()
-        .parse_next(input)?;
-    let mut nd = base_node.parse_next(input)?;
-    if let Some(fmt) = nd.format_mut() {
-        fmt.leading = leading.into();
-    }
-    Ok(nd)
-}
-
-fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
-    trace("children closing check", not(alt(("}".void(), eof.void())))).parse_next(input)?;
-    let _start = input.checkpoint();
-    let open_curly = resume_after_cut(
-        cut_err(not("{").context(
-            cx().msg("Found child block instead of node name")
-                .lbl("node name")
-                .hlp("Did you forget to add the node name itself? Or perhaps terminated the node before its child block?"))),
-        "{".void(),
-    )
-    .parse_next(input)?;
-    if open_curly.is_none() {
-        // If we got a weird misplaced `{`, we consume the "child block" here,
-        // because otherwise the error message is going to include the entire
-        // child block as its span, but we only want to point to the offending
-        // curly.
-        input.reset(&_start);
-        node_children.parse_next(input)?;
-        opt(slashdashed_children).parse_next(input)?;
-        peek(opt(node_terminator)).parse_next(input)?;
-        // We also return a fake node here, for good measure.
-        return Ok(KdlNode::new("<<BAD_NODE>>"));
-    }
-    let ty = opt(ty).parse_next(input)?;
-    let after_ty = node_space0.take().parse_next(input)?;
-    let _before_ident = input.checkpoint();
-    let name = resume_after_cut(cut_err(identifier).context(
-        cx().msg("Found invalid node name")
-                                  .lbl("node name")
-                                  .hlp("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.")
-
-    ), badval)
-        .parse_next(input)?
-        .unwrap_or_else(|| KdlIdentifier::from("/BAD_IDENT\\"));
-    let name_is_valid = name.repr.as_ref().map(|s| s.is_empty()) != Some(true);
-    // resume_after_cut() only picks up context from parsers passed into it. In
-    // order to add an error that's more specific about us wanting a _node name_
-    // here, we have to do some shenanigans with a "fake" parse here.
-    // While this does result in double errors, I think it's still useful to get
-    // _both_ the error message for a string/ident parser error _and_ the error
-    // message for a node name being expected.
-    if !name_is_valid {
-        resume_after_cut((|input: &mut Input<'_>| -> PResult<()> {
-                Err(ErrMode::Cut(KdlParseError {
-                   span: Some(span_from_checkpoint(input, &_before_ident)),
-                   ..Default::default()
-                }))
-            }).context(cx().msg("Found invalid node name")
-                          .lbl("node name")
-                          .hlp("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.")),
-        empty).parse_next(input)?;
-    }
-    let entries = repeat(
-        0..,
-        (peek(node_space1), node_entry).map(|(_, e): ((), _)| e),
-    )
-    .map(|e: Vec<Option<KdlEntry>>| e.into_iter().flatten().collect::<Vec<KdlEntry>>())
-    .parse_next(input)?;
-    let children = opt((
-        before_node_children.take(),
-        trace("node children", node_children),
-    ))
-    .parse_next(input)?;
-    let (before_terminator, terminator) = if children.is_some() {
-        (
-            opt(slashdashed_children).take(),
-            peek(opt(node_terminator).take()),
-        )
-            .parse_next(input)?
-    } else {
-        (
-            before_node_children.take(),
-            peek(opt(node_terminator).take()),
-        )
-            .parse_next(input)?
-    };
-    node_space0.parse_next(input)?;
-    let (before_inner_ty, ty, after_inner_ty) = ty.unwrap_or_default();
-    let (before_children, children) = children
-        .map(|(before_children, children)| (before_children.into(), Some(children)))
-        .unwrap_or(("".into(), None));
-    Ok(KdlNode {
-        ty,
-        name,
-        entries,
-        children,
-        format: Some(KdlNodeFormat {
-            before_ty_name: before_inner_ty.into(),
-            after_ty_name: after_inner_ty.into(),
-            after_ty: after_ty.into(),
-            before_children,
-            before_terminator: before_terminator.into(),
-            terminator: terminator.into(),
-            ..Default::default()
-        }),
-        #[cfg(feature = "span")]
-        span: span_from_checkpoint(input, &_start),
-    })
-}
-
 #[cfg(test)]
 #[test]
 fn test_node() {
+    let parser_v1 = KdlParser::new(KdlVersion::V1);
+    let parser_v2 = KdlParser::new(KdlVersion::V2);
     assert_eq!(
-        node.parse(new_input("foo")).unwrap(),
+        (|input: &mut Input<'_>| parser_v2.node(input))
+            .parse(new_input("foo"))
+            .unwrap(),
         KdlNode {
             ty: None,
             name: KdlIdentifier {
@@ -460,7 +497,45 @@ fn test_node() {
     );
 
     assert_eq!(
-        node.parse(new_input("foo bar")).unwrap(),
+        (|input: &mut Input<'_>| parser_v1.node(input))
+            .parse(new_input("foo bat=true"))
+            .unwrap(),
+        KdlNode {
+            ty: None,
+            name: KdlIdentifier {
+                value: "foo".into(),
+                repr: Some("foo".into()),
+                #[cfg(feature = "span")]
+                span: SourceSpan::new(0.into(), 3),
+            },
+            entries: vec![KdlEntry {
+                ty: None,
+                name: Some(KdlIdentifier {
+                    value: "bat".into(),
+                    repr: Some("bat".into()),
+                    #[cfg(feature = "span")]
+                    span: SourceSpan::new(4.into(), 3)
+                }),
+                value: KdlValue::Bool(true),
+                format: Some(KdlEntryFormat {
+                    value_repr: "true".into(),
+                    leading: " ".into(),
+                    ..Default::default()
+                }),
+                #[cfg(feature = "span")]
+                span: SourceSpan::new(4.into(), 8)
+            }],
+            children: None,
+            format: Some(Default::default()),
+            #[cfg(feature = "span")]
+            span: (0..12).into()
+        }
+    );
+
+    assert_eq!(
+        (|input: &mut Input<'_>| parser_v2.node(input))
+            .parse(new_input("foo bar"))
+            .unwrap(),
         KdlNode {
             ty: None,
             name: KdlIdentifier {
@@ -492,8 +567,9 @@ fn test_node() {
 }
 
 pub(crate) fn padded_node(input: &mut Input<'_>) -> PResult<KdlNode> {
+    let parser_v2 = KdlParser::new(KdlVersion::V2);
     let ((mut node, _terminator, trailing), _span) = (
-        node,
+        (|input: &mut Input<'_>| parser_v2.node(input)),
         opt(node_terminator),
         repeat(0.., alt((line_space, node_space)))
             .map(|_: ()| ())
@@ -753,11 +829,16 @@ fn around_children_test() {
 
 /// `node-children := '{' nodes final-node? '}'`
 fn node_children(input: &mut Input<'_>) -> PResult<KdlDocument> {
+    let parser_v2 = KdlParser::new(KdlVersion::V2);
+
     let _before_open = input.checkpoint();
     let _before_open_loc = input.current_token_start();
     "{".parse_next(input)?;
     let _after_open_loc = input.previous_token_end();
-    let ns = trace("child nodes", nodes).parse_next(input)?;
+    let ns = trace("child nodes", |input: &mut Input<'_>| {
+        parser_v2.nodes(input)
+    })
+    .parse_next(input)?;
     let _after_nodes = input.checkpoint();
     let _after_nodes_loc = input.previous_token_end();
     let close_res: PResult<_> = cut_err("}")
@@ -1547,16 +1628,16 @@ mod string_tests {
 /// keyword-number := '#inf' | '#-inf' | '#nan'
 /// ````
 fn keyword(input: &mut Input<'_>) -> PResult<KdlValue> {
-    let _ = "#".parse_next(input)?;
-    not(one_of(['#', '"'])).parse_next(input)?;
-    cut_err(alt((
+    // let _ = "#".parse_next(input)?;
+    // not(one_of(['#', '"'])).parse_next(input)?;
+    alt((
         "true".value(KdlValue::Bool(true)),
         "false".value(KdlValue::Bool(false)),
         "null".value(KdlValue::Null),
         "nan".value(KdlValue::Float(f64::NAN)),
         "inf".value(KdlValue::Float(f64::INFINITY)),
         "-inf".value(KdlValue::Float(f64::NEG_INFINITY)),
-    )))
+    ))
     .context(cx().lbl("keyword").hlp(
         "Available keywords in KDL are '#true', '#false', '#null', '#nan', '#inf', and '#-inf'; they are case-sensitive.",
     ))
@@ -1610,7 +1691,11 @@ fn escline(input: &mut Input<'_>) -> PResult<()> {
 #[cfg(test)]
 #[test]
 fn escline_test() {
-    let node = node.parse(new_input("foo bar\\\n   baz")).unwrap();
+    let parser_v2 = KdlParser::new(KdlVersion::V2);
+
+    let node = (|input: &mut Input<'_>| parser_v2.node(input))
+        .parse(new_input("foo bar\\\n   baz"))
+        .unwrap();
     assert_eq!(node.entries().len(), 2);
 }
 
@@ -1723,6 +1808,11 @@ fn slashdash(input: &mut Input<'_>) -> PResult<()> {
 #[cfg(test)]
 #[test]
 fn slashdash_tests() {
+    let parser_v2 = KdlParser::new(KdlVersion::V2);
+
+    let mut document = |input: &mut Input<'_>| KdlParser::new(KdlVersion::V2).document(input);
+    let mut node = |input: &mut Input<'_>| parser_v2.node(input);
+
     assert!(document.parse(new_input("/- foo bar")).is_ok());
     assert!(document.parse(new_input("/- foo bar;")).is_ok());
     assert!(document.parse(new_input("/-n 1;")).is_ok());

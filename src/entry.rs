@@ -204,11 +204,11 @@ impl KdlEntry {
     pub fn parse(s: &str) -> Result<Self, KdlError> {
         #[cfg(not(feature = "v1-fallback"))]
         {
-            v2_parser::try_parse(v2_parser::padded_node_entry, s)
+            v2_parser::KdlParser::try_parse(v2_parser::padded_node_entry, s)
         }
         #[cfg(feature = "v1-fallback")]
         {
-            v2_parser::try_parse(v2_parser::padded_node_entry, s)
+            v2_parser::KdlParser::try_parse(v2_parser::padded_node_entry, s)
                 .or_else(|e| KdlEntry::parse_v1(s).map_err(|_| e))
         }
     }

@@ -338,11 +338,11 @@ impl KdlNode {
     pub fn parse(s: &str) -> Result<Self, KdlError> {
         #[cfg(not(feature = "v1-fallback"))]
         {
-            v2_parser::try_parse(v2_parser::padded_node, s)
+            v2_parser::KdlParser::try_parse(v2_parser::padded_node, s)
         }
         #[cfg(feature = "v1-fallback")]
         {
-            v2_parser::try_parse(v2_parser::padded_node, s)
+            v2_parser::KdlParser::try_parse(v2_parser::padded_node, s)
                 .or_else(|e| KdlNode::parse_v1(s).map_err(|_| e))
         }
     }
@@ -813,7 +813,7 @@ impl FromStr for KdlNode {
     type Err = KdlError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        v2_parser::try_parse(v2_parser::padded_node, input)
+        v2_parser::KdlParser::try_parse(v2_parser::padded_node, input)
     }
 }
 

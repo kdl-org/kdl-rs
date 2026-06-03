@@ -97,11 +97,11 @@ impl KdlIdentifier {
     pub fn parse(s: &str) -> Result<Self, KdlError> {
         #[cfg(not(feature = "v1-fallback"))]
         {
-            v2_parser::try_parse(v2_parser::identifier, s)
+            v2_parser::KdlParser::try_parse(v2_parser::identifier, s)
         }
         #[cfg(feature = "v1-fallback")]
         {
-            v2_parser::try_parse(v2_parser::identifier, s)
+            v2_parser::KdlParser::try_parse(v2_parser::identifier, s)
                 .or_else(|e| KdlIdentifier::parse_v1(s).map_err(|_| e))
         }
     }

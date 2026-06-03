@@ -1702,6 +1702,7 @@ nothing #null
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn float_values() {
         #[derive(Deserialize, Debug, PartialEq)]
         struct Config {

@@ -4,7 +4,10 @@ use std::fmt::Display;
 
 #[cfg(feature = "v1")]
 use crate::KdlNodeFormat;
-use crate::{FormatConfig, KdlError, KdlNode, KdlValue};
+use crate::{
+    FormatConfig, KdlError, KdlNode, KdlValue,
+    v2_parser::{Input, KdlParser, KdlVersion},
+};
 
 /// Represents a KDL
 /// [`Document`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#document).
@@ -370,14 +373,15 @@ impl KdlDocument {
 
     /// Parses a KDL v2 string into a document.
     pub fn parse_v2(s: &str) -> Result<Self, KdlError> {
-        crate::v2_parser::try_parse(crate::v2_parser::document, s)
+        let parser = KdlParser::new(KdlVersion::V2);
+        KdlParser::try_parse(|input: &mut Input<'_>| parser.document(input), s)
     }
 
     /// Parses a KDL v1 string into a document.
     #[cfg(feature = "v1")]
     pub fn parse_v1(s: &str) -> Result<Self, KdlError> {
-        let ret: Result<kdlv1::KdlDocument, kdlv1::KdlError> = s.parse();
-        ret.map(|x| x.into()).map_err(|e| e.into())
+        let parser = KdlParser::new(KdlVersion::V1);
+        KdlParser::try_parse(|input: &mut Input<'_>| parser.document(input), s)
     }
 
     /// Takes a KDL v1 document string and returns the same document, but
@@ -920,10 +924,11 @@ foo 1 bar=0xdeadbeef {
             if let Some(ty) = entry.ty() {
                 check_span_for_ident(ty, source);
             }
-            if let Some(KdlEntryFormat { value_repr, .. }) = entry.format() {
-                if entry.name().is_none() && entry.ty().is_none() {
-                    check_span(value_repr, entry.span(), source);
-                }
+            if let Some(KdlEntryFormat { value_repr, .. }) = entry.format()
+                && entry.name().is_none()
+                && entry.ty().is_none()
+            {
+                check_span(value_repr, entry.span(), source);
             }
         }
         if let Some(children) = node.children() {
