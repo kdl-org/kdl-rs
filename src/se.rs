@@ -1833,6 +1833,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)]
     fn float_value() {
         #[derive(Serialize)]
         struct Config {

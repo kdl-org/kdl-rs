@@ -11,7 +11,7 @@ use miette::SourceSpan;
 
 use crate::{
     FormatConfig, KdlDocument, KdlDocumentFormat, KdlEntry, KdlError, KdlIdentifier, KdlValue,
-    v2_parser,
+    v2_parser::{self, KdlParser, KdlVersion},
 };
 
 /// Represents an individual KDL
@@ -336,13 +336,15 @@ impl KdlNode {
     /// to parse again as a KDL v1 node. If both fail, only the v2 parse
     /// errors will be returned.
     pub fn parse(s: &str) -> Result<Self, KdlError> {
+        let parser_v2 = KdlParser::new(KdlVersion::V2);
         #[cfg(not(feature = "v1-fallback"))]
         {
-            v2_parser::try_parse(v2_parser::padded_node, s)
+            KdlParser::try_parse(|input: &mut Input<'_>| parser_v2.padded_node(input), s)
         }
         #[cfg(feature = "v1-fallback")]
         {
-            v2_parser::try_parse(v2_parser::padded_node, s)
+            parser_v2
+                .try_parse(KdlParser::padded_node, s)
                 .or_else(|e| KdlNode::parse_v1(s).map_err(|_| e))
         }
     }
@@ -350,8 +352,8 @@ impl KdlNode {
     /// Parses a KDL v1 string into a document.
     #[cfg(feature = "v1")]
     pub fn parse_v1(s: &str) -> Result<Self, KdlError> {
-        let ret: Result<kdlv1::KdlNode, kdlv1::KdlError> = s.parse();
-        ret.map(|x| x.into()).map_err(|e| e.into())
+        let parser_v1 = KdlParser::new(KdlVersion::V1);
+        parser_v1.try_parse(KdlParser::padded_node, s)
     }
 
     /// Makes sure this node is in v2 format.
@@ -813,7 +815,8 @@ impl FromStr for KdlNode {
     type Err = KdlError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        v2_parser::try_parse(v2_parser::padded_node, input)
+        // TEST: need test
+        KdlNode::parse(input)
     }
 }
 

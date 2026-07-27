@@ -2,7 +2,10 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{KdlError, KdlValue, v2_parser};
+use crate::{
+    KdlError, KdlValue,
+    v2_parser::{KdlParser, KdlVersion},
+};
 
 /// Represents a KDL
 /// [Identifier](https://github.com/kdl-org/kdl/blob/main/SPEC.md#identifier).
@@ -95,13 +98,15 @@ impl KdlIdentifier {
     /// to parse again as a KDL v1 entry. If both fail, only the v2 parse
     /// errors will be returned.
     pub fn parse(s: &str) -> Result<Self, KdlError> {
+        let parser_v2 = KdlParser::new(KdlVersion::V2);
         #[cfg(not(feature = "v1-fallback"))]
         {
-            v2_parser::try_parse(v2_parser::identifier, s)
+            parser_v2.try_parse(KdlParser::identifier, s)
         }
         #[cfg(feature = "v1-fallback")]
         {
-            v2_parser::try_parse(v2_parser::identifier, s)
+            parser_v2
+                .try_parse(KdlParser::identifier, s)
                 .or_else(|e| KdlIdentifier::parse_v1(s).map_err(|_| e))
         }
     }
@@ -109,8 +114,8 @@ impl KdlIdentifier {
     /// Parses a KDL v1 string into an entry.
     #[cfg(feature = "v1")]
     pub fn parse_v1(s: &str) -> Result<Self, KdlError> {
-        let ret: Result<kdlv1::KdlIdentifier, kdlv1::KdlError> = s.parse();
-        ret.map(|x| x.into()).map_err(|e| e.into())
+        let parser_v1 = KdlParser::new(KdlVersion::V1);
+        parser_v1.try_parse(KdlParser::identifier, s)
     }
 }
 
