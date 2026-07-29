@@ -111,8 +111,8 @@ impl LanguageServer for Backend {
                     .map(|diag| {
                         Diagnostic::new(
                             Range::new(
-                                char_to_position(diag.span.offset(), &doc),
-                                char_to_position(diag.span.offset() + diag.span.len(), &doc),
+                                byte_to_position(diag.span.offset(), &doc),
+                                byte_to_position(diag.span.offset() + diag.span.len(), &doc),
                             ),
                             diag.severity().map(to_lsp_sev),
                             diag.code().map(|c| NumberOrString::String(c.to_string())),
@@ -159,12 +159,22 @@ impl LanguageServer for Backend {
     // }
 }
 
-fn char_to_position(char_idx: usize, rope: &Rope) -> Position {
-    let char_idx = char_idx.min(rope.len_chars());
-    let line_idx = rope.char_to_line(char_idx);
-    let line_char_idx = rope.line_to_char(line_idx);
-    let column_idx = char_idx - line_char_idx;
-    Position::new(line_idx as u32, column_idx as u32)
+/// Converts a byte offset to an LSP [`Position`].
+///
+/// This panics when we feed it a byte index that falls somewhere inside a multi-byte UTF-8 char.
+fn byte_to_position(byte_idx: usize, rope: &Rope) -> Position {
+    // Clamp the byte position to the end of the buffer. Just in case.
+    let byte_idx = byte_idx.min(rope.len_bytes());
+    // Get the correct line for that byte offset
+    let line_idx = rope.byte_to_line(byte_idx);
+    // Calculate the correct UTF-16 code unit.
+    // The LSP doesn't use characters for columns, but instead for some reason they chose to use
+    // UTF-16 code units.
+    // If not not explicitly handled as such, passing a UTF-8 char column position would result
+    // in a shift of one char backwards per prior 4-byte UTF-16 character in the current line.
+    let col_idx = rope.char_to_utf16_cu(rope.byte_to_char(byte_idx))
+        - rope.char_to_utf16_cu(rope.line_to_char(line_idx));
+    Position::new(line_idx as u32, col_idx as u32)
 }
 
 fn to_lsp_sev(sev: miette::Severity) -> DiagnosticSeverity {
