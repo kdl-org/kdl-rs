@@ -555,11 +555,16 @@ fn node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
         None
     };
     let entry = if let Some(after_key) = after_key {
-        let (after_eq, value) = (
-            node_space0.take(),
-            cut_err(value.context(cx().lbl("property value"))),
-        )
-            .parse_next(input)?;
+        let after_eq = node_space0.take().parse_next(input)?;
+        let _span = input.checkpoint();
+        let value = cut_err(value.context(cx().lbl("property value")))
+            .parse_next(input)
+            .map_err(|e| {
+                e.map(|mut e: KdlParseError| {
+                    e.span = e.span.or_else(|| Some(span_from_checkpoint(input, &_span)));
+                    e
+                })
+            })?;
         value.map(|mut value| {
             value.name = maybe_ident;
             if let Some(fmt) = value.format_mut() {
