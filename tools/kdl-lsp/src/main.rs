@@ -111,8 +111,8 @@ impl LanguageServer for Backend {
                     .map(|diag| {
                         Diagnostic::new(
                             Range::new(
-                                char_to_position(diag.span.offset(), &doc),
-                                char_to_position(diag.span.offset() + diag.span.len(), &doc),
+                                byte_to_position(diag.span.offset(), &doc),
+                                byte_to_position(diag.span.offset() + diag.span.len(), &doc),
                             ),
                             diag.severity().map(to_lsp_sev),
                             diag.code().map(|c| NumberOrString::String(c.to_string())),
@@ -159,12 +159,14 @@ impl LanguageServer for Backend {
     // }
 }
 
-fn char_to_position(char_idx: usize, rope: &Rope) -> Position {
-    let char_idx = char_idx.min(rope.len_chars());
-    let line_idx = rope.char_to_line(char_idx);
-    let line_char_idx = rope.line_to_char(line_idx);
-    let column_idx = char_idx - line_char_idx;
-    Position::new(line_idx as u32, column_idx as u32)
+/// Converts a byte offset to an LSP [`Position`].
+fn byte_to_position(byte_idx: usize, rope: &Rope) -> Position {
+    // Clamp the byte position to the end of the buffer. Just in case.
+    let byte_idx = byte_idx.min(rope.len_bytes());
+    // Get the correct line for that byte offset
+    let line_idx = rope.byte_to_line(byte_idx);
+    let col_idx = rope.byte_to_char(byte_idx) - rope.line_to_char(line_idx);
+    Position::new(line_idx as u32, col_idx as u32)
 }
 
 fn to_lsp_sev(sev: miette::Severity) -> DiagnosticSeverity {
