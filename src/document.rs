@@ -560,6 +560,24 @@ impl IntoIterator for KdlDocument {
     }
 }
 
+impl<'a> IntoIterator for &'a KdlDocument {
+    type Item = &'a KdlNode;
+    type IntoIter = std::slice::Iter<'a, KdlNode>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.nodes.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut KdlDocument {
+    type Item = &'a mut KdlNode;
+    type IntoIter = std::slice::IterMut<'a, KdlNode>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.nodes.iter_mut()
+    }
+}
+
 /// Formatting details for [`KdlDocument`]s.
 #[derive(Debug, Clone, Default, Hash, Eq, PartialEq)]
 pub struct KdlDocumentFormat {
