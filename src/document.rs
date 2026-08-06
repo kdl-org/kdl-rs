@@ -1144,7 +1144,7 @@ plugins {
         welcome_screen true
     }
     filepicker location="zellij:strider" {
-        cwd "\/"
+        cwd "/"
     }
 }
 mouse_mode false
