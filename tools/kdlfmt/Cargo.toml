@@ -1,0 +1,30 @@
+[package]
+name = "kdlfmt"
+version = "0.1.7"
+authors = ["Mads Hougesen <mads@mhouge.dk>"]
+edition = "2024"
+description = "A code formatter for kdl documents."
+documentation = "https://github.com/hougesen/kdlfmt#readme"
+readme = "README.md"
+homepage = "https://github.com/hougesen/kdlfmt?tab=readme-ov-file"
+repository = "https://github.com/hougesen/kdlfmt"
+license = "MIT"
+keywords = ["code-formatter", "formatter", "kdl", "pretty-printing"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+clap = { version = "4.6.6", features = ["derive"] }
+clap_complete = "4.6.9"
+clap_complete_nushell = "4.6.2"
+console = "0.16.4"
+ec4rs = "1.2.0"
+env_logger = "0.11.11"
+ignore = "0.4.33"
+kdl = { path = "../../", version = "6.7.1", features = ["v1"] }
+log = "0.4.33"
+miette = { workspace = true, features = ["fancy"] }
+
+[dev-dependencies]
+assert_cmd = "2.2.2"
+predicates = "3.1.4"
+tempfile = "3.27.0"
