@@ -4,7 +4,7 @@ use clap::{Args, Parser, Subcommand};
 
 const HELP_TEMPLATE: &str = "\
 {before-help}{name} {version}
-{about-with-newline}{author-with-newline}
+{about-with-newline}
 {usage-heading} {usage}
 
 {all-args}{after-help}
