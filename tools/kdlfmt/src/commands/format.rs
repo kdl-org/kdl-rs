@@ -20,7 +20,7 @@ fn run_from_stdin(args: &FormatCommandArguments, config: &KdlFmtConfig) -> Resul
 
     let formatted = format_kdl(parsed, &format_config, version);
 
-    println!("{formatted}");
+    print!("{formatted}");
 
     Ok(())
 }
