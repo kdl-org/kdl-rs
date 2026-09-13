@@ -275,6 +275,9 @@ impl KdlNode {
 
     /// Auto-formats this node and its contents according to `config`.
     pub fn autoformat_config(&mut self, config: &FormatConfig<'_>) {
+        if self.format.is_none() {
+            self.set_format(KdlNodeFormat::default());
+        }
         if let Some(KdlNodeFormat {
             leading,
             before_terminator,
@@ -298,11 +301,6 @@ impl KdlNode {
             }
 
             *before_children = " ".into();
-        } else {
-            self.set_format(KdlNodeFormat {
-                terminator: "\n".into(),
-                ..Default::default()
-            })
         }
         self.name.clear_format();
         if let Some(ty) = self.ty.as_mut() {
