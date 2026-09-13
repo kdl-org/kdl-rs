@@ -1533,6 +1533,8 @@ impl<'de, 'a> de::VariantAccess<'de> for PropertyVariantAccess<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::f32::consts::PI;
+
     use super::*;
     #[cfg(feature = "span")]
     use miette::SourceCode;
@@ -1710,7 +1712,7 @@ nothing #null
 
         let kdl = r#"ratio 3.14"#;
         let config: Config = from_str(kdl).unwrap();
-        assert!((config.ratio - 3.14).abs() < f64::EPSILON);
+        assert!((config.ratio - PI as f64).abs() < f64::EPSILON);
     }
 
     #[test]

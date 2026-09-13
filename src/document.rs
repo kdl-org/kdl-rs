@@ -938,10 +938,11 @@ foo 1 bar=0xdeadbeef {
             if let Some(ty) = entry.ty() {
                 check_span_for_ident(ty, source);
             }
-            if let Some(KdlEntryFormat { value_repr, .. }) = entry.format() {
-                if entry.name().is_none() && entry.ty().is_none() {
-                    check_span(value_repr, entry.span(), source);
-                }
+            if let Some(KdlEntryFormat { value_repr, .. }) = entry.format()
+                && entry.name().is_none()
+                && entry.ty().is_none()
+            {
+                check_span(value_repr, entry.span(), source);
             }
         }
         if let Some(children) = node.children() {

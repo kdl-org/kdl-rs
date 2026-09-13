@@ -140,10 +140,10 @@ fn normalize_identifiers(doc: &mut KdlDocument) {
     for node in doc.nodes_mut() {
         node.name_mut().clear_format();
         for entry in node.entries_mut() {
-            if entry.name().is_some() {
-                if let Some(x) = entry.name_mut() {
-                    x.clear_format()
-                }
+            if entry.name().is_some()
+                && let Some(x) = entry.name_mut()
+            {
+                x.clear_format()
             }
         }
         if let Some(children) = node.children_mut() {
@@ -170,13 +170,13 @@ fn dedupe_props(doc: &mut KdlDocument) {
             .iter()
             .enumerate()
             .filter_map(|(idx, entry)| {
-                if let Some(name) = entry.name() {
-                    if let Some(indices) = props.get(name) {
-                        if &idx == indices.last().unwrap() {
-                            return Some(entry.clone());
-                        } else {
-                            return None;
-                        }
+                if let Some(name) = entry.name()
+                    && let Some(indices) = props.get(name)
+                {
+                    if &idx == indices.last().unwrap() {
+                        return Some(entry.clone());
+                    } else {
+                        return None;
                     }
                 }
                 Some(entry.clone())
