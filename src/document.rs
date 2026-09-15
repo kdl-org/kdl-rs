@@ -88,6 +88,26 @@ impl KdlDocument {
             .find(move |n| n.name().value() == name)
     }
 
+    /// Get the mutable reference to the first child node with a given `name`.
+    ///
+    /// If no such child exists, an empty node with said name is created.
+    ///
+    /// ```rust
+    /// # use kdl::{KdlDocument};
+    /// let mut doc = KdlDocument::new();
+    /// let _node = doc.ensure_child("foo");
+    /// assert!(doc.get("foo").is_some());
+    /// ```
+    pub fn ensure_child<'a>(&'a mut self, name: &str) -> &'a mut KdlNode {
+        // TODO: Replace this with a proper match block as soon as polonius landed on stable.
+        if let Some(idx) = self.nodes.iter().position(|n| n.name().value() == name) {
+            return &mut self.nodes[idx];
+        };
+
+        let node = KdlNode::new(name);
+        self.nodes_mut().push_mut(node)
+    }
+
     /// Gets the first argument (value) of the first child node with a
     /// matching name. This is a shorthand utility for cases where a document
     /// is being used as a key/value store.
