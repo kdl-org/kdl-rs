@@ -590,6 +590,7 @@ impl<'de, 'a> de::Deserializer<'de> for DocumentDeserializer<'a> {
         visitor.visit_seq(NodeListSeqAccess {
             iter: self.doc.nodes().iter(),
             input: self.input,
+            first_node: None,
         })
     }
 
@@ -712,10 +713,7 @@ impl<'de, 'a> MapAccess<'de> for DocumentMapAccess<'a> {
         self.idx += 1;
         let nodes = self.groups.get(key).unwrap();
         if nodes.len() == 1 {
-            seed.deserialize(NodeDeserializer {
-                node: nodes[0],
-                input: self.input,
-            })
+            seed.deserialize(NodeDeserializer::new(nodes[0], self.input))
         } else {
             // Multiple nodes with same name → sequence
             seed.deserialize(NodeGroupDeserializer {
@@ -729,9 +727,28 @@ impl<'de, 'a> MapAccess<'de> for DocumentMapAccess<'a> {
 struct NodeDeserializer<'a> {
     node: &'a KdlNode,
     input: &'a Arc<String>,
+    first_node: Option<&'a KdlNode>,
 }
 
 impl<'a> NodeDeserializer<'a> {
+    fn new(node: &'a KdlNode, input: &'a Arc<String>) -> Self {
+        NodeDeserializer {
+            node,
+            input,
+            first_node: None,
+        }
+    }
+
+    fn fallback_node(&self) -> &'a KdlNode {
+        if let Some(n) = self.first_node
+            && self.is_scalar()
+        {
+            n
+        } else {
+            self.node
+        }
+    }
+
     fn args(&self) -> Vec<&'a KdlEntry> {
         self.node
             .entries()
@@ -908,6 +925,7 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
             visitor.visit_seq(NodeListSeqAccess {
                 iter: children.nodes().iter(),
                 input: self.input,
+                first_node: (children.nodes().len() == 1).then_some(self.node),
             })
         } else {
             // Empty → empty sequence
@@ -936,7 +954,7 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
     }
 
     fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        visitor.visit_map(NodeMapAccess::new(self.node, self.input, None))
+        visitor.visit_map(NodeMapAccess::new(self.fallback_node(), self.input, None))
     }
 
     fn deserialize_struct<V: Visitor<'de>>(
@@ -945,7 +963,11 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
         fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        visitor.visit_map(NodeMapAccess::new(self.node, self.input, Some(fields)))
+        visitor.visit_map(NodeMapAccess::new(
+            self.fallback_node(),
+            self.input,
+            Some(fields),
+        ))
     }
 
     fn deserialize_enum<V: Visitor<'de>>(
@@ -1041,6 +1063,7 @@ impl<'de, 'a> SeqAccess<'de> for ArgSeqAccess<'a> {
 struct NodeListSeqAccess<'a> {
     iter: std::slice::Iter<'a, KdlNode>,
     input: &'a Arc<String>,
+    first_node: Option<&'a KdlNode>,
 }
 
 impl<'de, 'a> SeqAccess<'de> for NodeListSeqAccess<'a> {
@@ -1056,6 +1079,7 @@ impl<'de, 'a> SeqAccess<'de> for NodeListSeqAccess<'a> {
                 seed.deserialize(NodeDeserializer {
                     node,
                     input: self.input,
+                    first_node: self.first_node,
                 })
             })
             .transpose()
@@ -1102,12 +1126,7 @@ impl<'de, 'a> SeqAccess<'de> for NodeGroupSeqAccess<'a> {
     ) -> Result<Option<T::Value>, Self::Error> {
         self.iter
             .next()
-            .map(|node| {
-                seed.deserialize(NodeDeserializer {
-                    node,
-                    input: self.input,
-                })
-            })
+            .map(|node| seed.deserialize(NodeDeserializer::new(node, self.input)))
             .transpose()
     }
 }
@@ -1272,10 +1291,9 @@ impl<'de, 'a> MapAccess<'de> for NodeMapAccess<'a> {
                 entries: entries.clone(),
                 input: self.input,
             }),
-            NodeMapValue::SingleNode(node) => seed.deserialize(NodeDeserializer {
-                node,
-                input: self.input,
-            }),
+            NodeMapValue::SingleNode(node) => {
+                seed.deserialize(NodeDeserializer::new(node, self.input))
+            }
             NodeMapValue::MultiNode(nodes) => seed.deserialize(NodeGroupDeserializer {
                 nodes,
                 input: self.input,
@@ -1409,10 +1427,7 @@ impl<'de, 'a> de::VariantAccess<'de> for NodeVariantAccess<'a> {
         self,
         seed: T,
     ) -> Result<T::Value, Self::Error> {
-        seed.deserialize(NodeDeserializer {
-            node: self.node,
-            input: self.input,
-        })
+        seed.deserialize(NodeDeserializer::new(self.node, self.input))
     }
 
     fn tuple_variant<V: Visitor<'de>>(
@@ -1420,13 +1435,7 @@ impl<'de, 'a> de::VariantAccess<'de> for NodeVariantAccess<'a> {
         _len: usize,
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        de::Deserializer::deserialize_seq(
-            NodeDeserializer {
-                node: self.node,
-                input: self.input,
-            },
-            visitor,
-        )
+        de::Deserializer::deserialize_seq(NodeDeserializer::new(self.node, self.input), visitor)
     }
 
     fn struct_variant<V: Visitor<'de>>(
@@ -1434,13 +1443,7 @@ impl<'de, 'a> de::VariantAccess<'de> for NodeVariantAccess<'a> {
         _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        de::Deserializer::deserialize_map(
-            NodeDeserializer {
-                node: self.node,
-                input: self.input,
-            },
-            visitor,
-        )
+        de::Deserializer::deserialize_map(NodeDeserializer::new(self.node, self.input), visitor)
     }
 }
 
@@ -1655,6 +1658,25 @@ route "/api/comments"
                     "/api/posts".into(),
                     "/api/comments".into(),
                 ],
+            }
+        );
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Configs {
+            config: Vec<Config>,
+        }
+
+        let single_kdl = r#"
+config { route "/api/users"; }
+        "#;
+
+        let config: Configs = from_str(single_kdl).unwrap();
+        assert_eq!(
+            config,
+            Configs {
+                config: vec![Config {
+                    route: vec!["/api/users".into()]
+                }]
             }
         );
     }
