@@ -334,10 +334,6 @@ impl KdlEntry {
                             // It's already a v1 string
                             s
                         }
-                    } else if !s.starts_with("r#") {
-                        // `/` is an escaped char in v2
-                        let s = s.replace("\\/", "/"); // Maneuvering. Will fix in a sec.
-                        s.replace('/', "\\/")
                     } else {
                         // We're all good! Let's move on.
                         s.to_string()
