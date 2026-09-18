@@ -1839,10 +1839,10 @@ mod tests {
             ratio: f64,
         }
 
-        let config = Config { ratio: 3.14 };
+        let config = Config { ratio: 4.31 };
         let kdl = to_string(&config).unwrap();
         assert!(kdl.contains("ratio"));
-        assert!(kdl.contains("3.14"));
+        assert!(kdl.contains("4.31"));
     }
 
     #[test]

@@ -1536,6 +1536,8 @@ impl<'de, 'a> de::VariantAccess<'de> for PropertyVariantAccess<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::f32::consts::PI;
+
     use super::*;
     #[cfg(feature = "span")]
     use miette::SourceCode;
@@ -1730,9 +1732,12 @@ nothing #null
             ratio: f64,
         }
 
-        let kdl = r#"ratio 3.14"#;
-        let config: Config = from_str(kdl).unwrap();
-        assert!((config.ratio - 3.14).abs() < f64::EPSILON);
+        // Serialize PI to the 20th decimal place
+        let kdl = format!("ratio {PI:.20}");
+        let config: Config = from_str(&kdl).unwrap();
+
+        // Make sure we have less than `10^16` variance.
+        assert!((config.ratio - PI as f64).abs() < f64::EPSILON);
     }
 
     #[test]

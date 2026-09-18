@@ -271,6 +271,9 @@ impl KdlDocument {
 
     /// Formats the document according to `config`.
     pub fn autoformat_config(&mut self, config: &FormatConfig<'_>) {
+        if self.format.is_none() {
+            self.set_format(KdlDocumentFormat::default());
+        }
         if let Some(KdlDocumentFormat { leading, .. }) = (*self).format_mut() {
             crate::fmt::autoformat_leading(leading, config);
         }
@@ -958,10 +961,11 @@ foo 1 bar=0xdeadbeef {
             if let Some(ty) = entry.ty() {
                 check_span_for_ident(ty, source);
             }
-            if let Some(KdlEntryFormat { value_repr, .. }) = entry.format() {
-                if entry.name().is_none() && entry.ty().is_none() {
-                    check_span(value_repr, entry.span(), source);
-                }
+            if let Some(KdlEntryFormat { value_repr, .. }) = entry.format()
+                && entry.name().is_none()
+                && entry.ty().is_none()
+            {
+                check_span(value_repr, entry.span(), source);
             }
         }
         if let Some(children) = node.children() {
