@@ -940,29 +940,33 @@ foo 1 bar=0xdeadbeef {
 
     /// Parses `input`, runs autoformat with `preserve_multiline_strings(true)`
     /// and the given indent, and returns the formatted string.
-    fn autoformat_preserve(input: &str, indent: &str) -> miette::Result<String> {
+    fn autoformat(input: &str, indent: &str, preserve: bool) -> miette::Result<String> {
         let mut doc: KdlDocument = input.parse()?;
         KdlDocument::autoformat_config(
             &mut doc,
             &FormatConfig::builder()
                 .indent(indent)
-                .preserve_multiline_strings(true)
+                .preserve_multiline_strings(preserve)
                 .build(),
         );
         Ok(doc.to_string())
     }
 
     #[test]
-    fn autoformat_preserve_multiline_default_escapes() -> miette::Result<()> {
+    fn autoformat_preserve_multiline_default_preserves() -> miette::Result<()> {
         let input = indoc::indoc! {r##"
             node """
               hey
               world
               """
         "##};
-        let mut doc: KdlDocument = input.parse()?;
-        KdlDocument::autoformat(&mut doc);
-        pretty_assertions::assert_eq!(doc.to_string(), "node \"hey\\nworld\"\n");
+        let expected = indoc::indoc! {r#"
+            node """
+                hey
+                world
+                """
+        "#};
+        pretty_assertions::assert_eq!(autoformat(input, "    ", false)?, expected);
         Ok(())
     }
 
@@ -980,7 +984,7 @@ foo 1 bar=0xdeadbeef {
                 world
                 """
         "##};
-        pretty_assertions::assert_eq!(autoformat_preserve(input, "    ")?, expected);
+        pretty_assertions::assert_eq!(autoformat(input, "    ", true)?, expected);
         Ok(())
     }
 
@@ -1002,7 +1006,7 @@ foo 1 bar=0xdeadbeef {
                     """
             }
         "##};
-        pretty_assertions::assert_eq!(autoformat_preserve(input, "    ")?, expected);
+        pretty_assertions::assert_eq!(autoformat(input, "    ", true)?, expected);
         Ok(())
     }
 
@@ -1020,7 +1024,7 @@ foo 1 bar=0xdeadbeef {
               b
               """
         "##};
-        pretty_assertions::assert_eq!(autoformat_preserve(input, "  ")?, expected);
+        pretty_assertions::assert_eq!(autoformat_preserve(input, "  ", true)?, expected);
         Ok(())
     }
 
@@ -1042,7 +1046,7 @@ foo 1 bar=0xdeadbeef {
                 b
                 """
         "##};
-        let formatted = autoformat_preserve(input, "    ")?;
+        let formatted = autoformat(input, "    ", true)?;
         pretty_assertions::assert_eq!(formatted, expected);
         // And it must round-trip back to the same value.
         let reparsed: KdlDocument = formatted.parse()?;
@@ -1059,7 +1063,7 @@ foo 1 bar=0xdeadbeef {
         // multi-line even if its value contains newlines — preservation only
         // applies to values that were multi-line in the source.
         pretty_assertions::assert_eq!(
-            autoformat_preserve(r#"node "a\nb""#, "    ")?,
+            autoformat(r#"node "a\nb""#, "    ", true)?,
             "node \"a\\nb\"\n"
         );
         Ok(())
@@ -1079,7 +1083,7 @@ foo 1 bar=0xdeadbeef {
                 world
                 """#
         "###};
-        let formatted = autoformat_preserve(input, "    ")?;
+        let formatted = autoformat(input, "    ", true)?;
         pretty_assertions::assert_eq!(formatted, expected);
         let reparsed: KdlDocument = formatted.parse()?;
         assert_eq!(
@@ -1100,7 +1104,7 @@ foo 1 bar=0xdeadbeef {
               """# b
               """##
         "####};
-        let formatted = autoformat_preserve(input, "    ")?;
+        let formatted = autoformat(input, "    ", true)?;
         assert!(formatted.contains("##\"\"\""), "got: {formatted}");
         let reparsed: KdlDocument = formatted.parse()?;
         assert_eq!(
@@ -1124,7 +1128,7 @@ foo 1 bar=0xdeadbeef {
                 two
                 """
         "##};
-        pretty_assertions::assert_eq!(autoformat_preserve(input, "    ")?, expected);
+        pretty_assertions::assert_eq!(autoformat(input, "    ", true)?, expected);
         Ok(())
     }
 
@@ -1136,7 +1140,7 @@ foo 1 bar=0xdeadbeef {
               world
               """
         "##};
-        let formatted = autoformat_preserve(input, "    ")?;
+        let formatted = autoformat(input, "    ", true)?;
         let reparsed: KdlDocument = formatted.parse()?;
         assert_eq!(
             reparsed.nodes()[0].entries()[0].value().as_string(),
@@ -1151,7 +1155,7 @@ foo 1 bar=0xdeadbeef {
         // triple-quoted multi-line string, so it should fall back to the
         // escaped single-line form.
         pretty_assertions::assert_eq!(
-            autoformat_preserve(r#"node "a\n\"\"\"b""#, "    ")?,
+            autoformat(r#"node "a\n\"\"\"b""#, "    ", true)?,
             "node \"a\\n\\\"\\\"\\\"b\"\n"
         );
         Ok(())
