@@ -20,7 +20,7 @@ console = "0.16.4"
 ec4rs = "1.2.0"
 env_logger = "0.11.11"
 ignore = "0.4.33"
-kdl = { path = "../../", version = "6.7.1", features = ["v1"] }
+kdl = { workspace = true, features = ["v1"] }
 log = "0.4.33"
 miette = { workspace = true, features = ["fancy"] }
 
