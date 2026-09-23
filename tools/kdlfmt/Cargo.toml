@@ -4,10 +4,10 @@ version = "0.1.7"
 authors = ["Mads Hougesen <mads@mhouge.dk>"]
 edition = "2024"
 description = "A code formatter for kdl documents."
-documentation = "https://github.com/hougesen/kdlfmt#readme"
+documentation = "https://github.com/kdl-org/kdl-rs/tree/main/tools/kdlfmt#readme"
 readme = "README.md"
-homepage = "https://github.com/hougesen/kdlfmt?tab=readme-ov-file"
-repository = "https://github.com/hougesen/kdlfmt"
+homepage = "https://github.com/kdl-org/kdl-rs/tree/main/tools/kdlfmt#readme"
+repository = "https://github.com/kdl-org/kdl-rs"
 license = "MIT"
 keywords = ["code-formatter", "formatter", "kdl", "pretty-printing"]
 categories = ["command-line-utilities", "development-tools"]
