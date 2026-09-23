@@ -5,9 +5,10 @@ use std::{
 
 use miette::{Severity, SourceSpan};
 
-use num::CheckedMul;
+use num_traits::CheckedMul;
 use winnow::{
-    ascii::{digit1, hex_digit1, oct_digit1, Caseless},
+    LocatingSlice,
+    ascii::{Caseless, digit1, hex_digit1, oct_digit1},
     combinator::{
         alt, cut_err, empty, eof, fail, not, opt, peek, preceded, repeat, repeat_till, separated,
         terminated, trace,
@@ -16,7 +17,6 @@ use winnow::{
     prelude::*,
     stream::{AsChar, Location, Recover, Recoverable, Stream},
     token::{any, none_of, one_of, take_while},
-    LocatingSlice,
 };
 
 use crate::{
@@ -270,10 +270,10 @@ pub(crate) fn document(input: &mut Input<'_>) -> PResult<KdlDocument> {
     if badend {
         document.parse_next(input)?;
     }
-    if let Some(bom) = bom {
-        if let Some(fmt) = doc.format_mut() {
-            fmt.leading = format!("{bom}{}", fmt.leading);
-        }
+    if let Some(bom) = bom
+        && let Some(fmt) = doc.format_mut()
+    {
+        fmt.leading = format!("{bom}{}", fmt.leading);
     }
     Ok(doc)
 }
@@ -300,11 +300,11 @@ fn nodes(input: &mut Input<'_>) -> PResult<KdlDocument> {
 
     // If there is a node, let it have the leading format
     // This gives more consistent behavior
-    if let Some(first_node) = ns.get_mut(0) {
-        if let Some(first_node_format) = first_node.format_mut() {
-            first_node_format.leading = leading.into();
-            leading = "";
-        }
+    if let Some(first_node) = ns.get_mut(0)
+        && let Some(first_node_format) = first_node.format_mut()
+    {
+        first_node_format.leading = leading.into();
+        leading = "";
     }
 
     Ok(KdlDocument {
@@ -380,12 +380,12 @@ fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
     // _both_ the error message for a string/ident parser error _and_ the error
     // message for a node name being expected.
     if !name_is_valid {
-        resume_after_cut(|input: &mut Input<'_>| -> PResult<()> {
+        resume_after_cut((|input: &mut Input<'_>| -> PResult<()> {
                 Err(ErrMode::Cut(KdlParseError {
                    span: Some(span_from_checkpoint(input, &_before_ident)),
                    ..Default::default()
                 }))
-            }.context(cx().msg("Found invalid node name")
+            }).context(cx().msg("Found invalid node name")
                           .lbl("node name")
                           .hlp("This can be any string type, including a quoted, raw, or multiline string, as well as a plain identifier string.")),
         empty).parse_next(input)?;
@@ -555,11 +555,16 @@ fn node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
         None
     };
     let entry = if let Some(after_key) = after_key {
-        let (after_eq, value) = (
-            node_space0.take(),
-            cut_err(value.context(cx().lbl("property value"))),
-        )
-            .parse_next(input)?;
+        let after_eq = node_space0.take().parse_next(input)?;
+        let _span = input.checkpoint();
+        let value = cut_err(value.context(cx().lbl("property value")))
+            .parse_next(input)
+            .map_err(|e| {
+                e.map(|mut e: KdlParseError| {
+                    e.span = e.span.or_else(|| Some(span_from_checkpoint(input, &_span)));
+                    e
+                })
+            })?;
         value.map(|mut value| {
             value.name = maybe_ident;
             if let Some(fmt) = value.format_mut() {
@@ -1467,9 +1472,11 @@ mod string_tests {
             Some(KdlValue::String("\"\"\"".into()))
         );
 
-        assert!(string
-            .parse(new_input("\"\"\"\nfoo\n  bar\n  baz\n  \"\"\""))
-            .is_err());
+        assert!(
+            string
+                .parse(new_input("\"\"\"\nfoo\n  bar\n  baz\n  \"\"\""))
+                .is_err()
+        );
     }
 
     #[test]
@@ -1507,9 +1514,11 @@ mod string_tests {
                 .unwrap(),
             Some(KdlValue::String("foo\n  \\nbar\n baz".into()))
         );
-        assert!(string
-            .parse(new_input("#\"\"\"\nfoo\n  bar\n  baz\n  \"\"\"#"))
-            .is_err());
+        assert!(
+            string
+                .parse(new_input("#\"\"\"\nfoo\n  bar\n  baz\n  \"\"\"#"))
+                .is_err()
+        );
 
         assert!(string.parse(new_input("#\"\nfoo\nbar\nbaz\n\"#")).is_err());
         assert!(string.parse(new_input("\"\nfoo\nbar\nbaz\n\"")).is_err());
@@ -1699,9 +1708,11 @@ fn multi_line_comment_test() {
     assert!(multi_line_comment.parse(new_input("/*\nfoo*/")).is_ok());
     assert!(multi_line_comment.parse(new_input("/*foo\n*/")).is_ok());
     assert!(multi_line_comment.parse(new_input("/* foo\n*/")).is_ok());
-    assert!(multi_line_comment
-        .parse(new_input("/* /*bar*/ foo\n*/"))
-        .is_ok());
+    assert!(
+        multi_line_comment
+            .parse(new_input("/* /*bar*/ foo\n*/"))
+            .is_ok()
+    );
 }
 
 /// slashdash := '/-' (node-space | line-space)*
@@ -1724,15 +1735,18 @@ fn slashdash_tests() {
     assert!(node_entry.parse(new_input("/-commented tada")).is_ok());
     assert!(node.parse(new_input("foo /- { }")).is_ok());
     assert!(node.parse(new_input("foo /- { bar }")).is_ok());
-    assert!(node
-        .parse(new_input("/- foo bar\nnode /-1 2 { x }"))
-        .is_ok());
-    assert!(node
-        .parse(new_input("/- foo bar\nnode 2 /-3 { x }"))
-        .is_ok());
-    assert!(node
-        .parse(new_input("/- foo bar\nnode /-1 2 /-3 { x }"))
-        .is_ok());
+    assert!(
+        node.parse(new_input("/- foo bar\nnode /-1 2 { x }"))
+            .is_ok()
+    );
+    assert!(
+        node.parse(new_input("/- foo bar\nnode 2 /-3 { x }"))
+            .is_ok()
+    );
+    assert!(
+        node.parse(new_input("/- foo bar\nnode /-1 2 /-3 { x }"))
+            .is_ok()
+    );
 }
 
 /// `number := keyword-number | hex | octal | binary | decimal`
@@ -2031,7 +2045,9 @@ macro_rules! impl_from_str_radix {
     };
 }
 
-impl_from_str_radix!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
+impl_from_str_radix!(
+    i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize
+);
 
 trait MaybeNegatable: CheckedMul {
     fn negated(&self) -> Option<Self>;

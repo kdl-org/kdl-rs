@@ -1,4 +1,4 @@
-use kdl::{KdlDocument, KdlNode};
+use kdl::{FormatConfig, KdlDocument, KdlNode};
 
 #[test]
 fn build_and_format() {
@@ -18,6 +18,7 @@ fn build_and_format() {
         r#"a {
     b {
         c {
+
         }
     }
 }
@@ -54,4 +55,33 @@ fn ensure_v1_preserves_raw_string_with_backslash_slash() {
     let mut doc = KdlDocument::parse_v1(input).unwrap();
     doc.ensure_v1();
     assert_eq!(doc.to_string(), input);
+
+/// Make sure that indentation rules for nodes that are programatically created
+/// are applied correctly when using a custom config.
+#[test]
+fn format_fresh_nested_nodes_with_custom_indent() {
+    let mut doc = KdlDocument::new();
+    let mut parent = KdlNode::new("parent");
+    let mut child = KdlNode::new("child");
+
+    child
+        .ensure_children()
+        .nodes_mut()
+        .push(KdlNode::new("innermost"));
+    parent.ensure_children().nodes_mut().push(child);
+    doc.nodes_mut().push(parent);
+
+    // Create a custom indent config and make sure it's properly applied.
+    let config = FormatConfig::builder().indent("  ").build();
+    doc.autoformat_config(&config);
+    let once = doc.to_string();
+    assert_eq!(
+        once,
+        r#"parent {
+  child {
+    innermost
+  }
+}
+"#
+    );
 }

@@ -88,6 +88,26 @@ impl KdlDocument {
             .find(move |n| n.name().value() == name)
     }
 
+    /// Get the mutable reference to the first child node with a given `name`.
+    ///
+    /// If no such child exists, an empty node with said name is created.
+    ///
+    /// ```rust
+    /// # use kdl::{KdlDocument};
+    /// let mut doc = KdlDocument::new();
+    /// let _node = doc.ensure_child("foo");
+    /// assert!(doc.get("foo").is_some());
+    /// ```
+    pub fn ensure_child<'a>(&'a mut self, name: &str) -> &'a mut KdlNode {
+        // TODO: Replace this with a proper match block as soon as polonius landed on stable.
+        if let Some(idx) = self.nodes.iter().position(|n| n.name().value() == name) {
+            return &mut self.nodes[idx];
+        };
+
+        let node = KdlNode::new(name);
+        self.nodes_mut().push_mut(node)
+    }
+
     /// Gets the first argument (value) of the first child node with a
     /// matching name. This is a shorthand utility for cases where a document
     /// is being used as a key/value store.
@@ -251,6 +271,9 @@ impl KdlDocument {
 
     /// Formats the document according to `config`.
     pub fn autoformat_config(&mut self, config: &FormatConfig<'_>) {
+        if self.format.is_none() {
+            self.set_format(KdlDocumentFormat::default());
+        }
         if let Some(KdlDocumentFormat { leading, .. }) = (*self).format_mut() {
             crate::fmt::autoformat_leading(leading, config);
         }
@@ -557,6 +580,24 @@ impl IntoIterator for KdlDocument {
 
     fn into_iter(self) -> Self::IntoIter {
         self.nodes.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a KdlDocument {
+    type Item = &'a KdlNode;
+    type IntoIter = std::slice::Iter<'a, KdlNode>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.nodes.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut KdlDocument {
+    type Item = &'a mut KdlNode;
+    type IntoIter = std::slice::IterMut<'a, KdlNode>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.nodes.iter_mut()
     }
 }
 
@@ -920,10 +961,11 @@ foo 1 bar=0xdeadbeef {
             if let Some(ty) = entry.ty() {
                 check_span_for_ident(ty, source);
             }
-            if let Some(KdlEntryFormat { value_repr, .. }) = entry.format() {
-                if entry.name().is_none() && entry.ty().is_none() {
-                    check_span(value_repr, entry.span(), source);
-                }
+            if let Some(KdlEntryFormat { value_repr, .. }) = entry.format()
+                && entry.name().is_none()
+                && entry.ty().is_none()
+            {
+                check_span(value_repr, entry.span(), source);
             }
         }
         if let Some(children) = node.children() {
