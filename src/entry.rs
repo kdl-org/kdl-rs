@@ -2,7 +2,8 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{fmt::FormatConfig, v2_parser, KdlError, KdlIdentifier, KdlValue};
+use crate::{fmt::FormatConfig, KdlError, KdlIdentifier, KdlValue, v2_parser};
+
 
 /// KDL Entries are the "arguments" to KDL nodes: either a (positional)
 /// [`Argument`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#argument) or
@@ -250,7 +251,8 @@ impl KdlEntry {
                     let s = x.value_repr.trim();
                     // convert raw strings to new format
                     let s = s.strip_prefix('r').unwrap_or(s);
-                    let s = if crate::value::is_plain_ident(val) {
+
+                    if crate::value::is_plain_ident(val) {
                         val.into()
                     } else if s
                         .find(|c| v2_parser::NEWLINES.iter().any(|nl| nl.contains(c)))
@@ -278,8 +280,7 @@ impl KdlEntry {
                     } else {
                         // We're all good! Let's move on.
                         s.to_string()
-                    };
-                    s
+                    }
                 }
                 // These have `#` prefixes now. The regular Display impl will
                 // take care of that.
@@ -321,7 +322,8 @@ impl KdlEntry {
                     } else {
                         s.to_string()
                     };
-                    let s = if crate::value::is_plain_ident(val)
+
+                    if crate::value::is_plain_ident(val)
                         && !s.starts_with('\"')
                         && !s.starts_with("r#")
                     {
@@ -353,15 +355,10 @@ impl KdlEntry {
                             // It's already a v1 string
                             s
                         }
-                    } else if !s.starts_with("r#") {
-                        // `/` is an escaped char in v2
-                        let s = s.replace("\\/", "/"); // Maneuvering. Will fix in a sec.
-                        s.replace('/', "\\/")
                     } else {
                         // We're all good! Let's move on.
                         s.to_string()
-                    };
-                    s
+                    }
                 }
                 // No more # prefix for these
                 KdlValue::Bool(b) => b.to_string(),

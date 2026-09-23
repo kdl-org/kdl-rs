@@ -140,7 +140,7 @@
 //!
 //! ## Minimum Supported Rust Version (MSRV)
 //!
-//! You must be at least `1.82` tall to get on this ride.
+//! You must be at least `1.95` tall to get on this ride.
 //!
 //! ## License
 //!
@@ -183,7 +183,6 @@
 #![deny(missing_debug_implementations, nonstandard_style)]
 #![warn(missing_docs, rust_2018_idioms, unreachable_pub)]
 #![cfg_attr(test, deny(warnings))]
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![doc(html_favicon_url = "https://kdl.dev/favicon.ico")]
 #![doc(html_logo_url = "https://kdl.dev/logo.svg")]
 
@@ -209,3 +208,8 @@ mod node;
 mod value;
 
 mod v2_parser;
+
+#[cfg(feature = "serde")]
+pub mod de;
+#[cfg(feature = "serde")]
+pub mod se;

@@ -1,5 +1,46 @@
 # `kdl` Release Changelog
 
+<a name="6.7.1"></a>
+## 6.7.1 (2026-05-31)
+
+### Bug Fixes
+
+* **serde:** get flag bools/options and #rest working for `se` (#166) ([c7121536](https://github.com/kdl-org/kdl-rs/commit/c71215361addc7dd03efd16a1c4b0e799c17e259))
+
+<a name="6.7.0"></a>
+## 6.7.0 (2026-05-30)
+
+### Features
+
+* **serde:** add diagnostic info to error (#162) ([f824881c](https://github.com/kdl-org/kdl-rs/commit/f824881cabce33c2bbcfc1cd51862977c59dd8f4))
+* **serde:** Add support for flags and #rest (#163) ([e81b1482](https://github.com/kdl-org/kdl-rs/commit/e81b148201ad0f1fda58e2b327394c7ba0ca556b))
+
+<a name="6.6.1"></a>
+## 6.6.1 (2026-05-29)
+
+### Bug Fixes
+
+* **docs:** remove docsrs thing that was preventing doc build ([80db365d](https://github.com/kdl-org/kdl-rs/commit/80db365d7a43518a7fde2b88c6ffbbe4a45ae43f))
+
+<a name="6.6.0"></a>
+## 6.6.0 (2026-05-29)
+
+This is the long-awaited "SERDE SUPPORT? FINALLY" release.
+
+Go try it out and see how it goes! Consider it experimental. We might break it
+in the future (with a semver-major).
+
+### Features
+
+* **serde:** Add Serde support (#83) ([92998aac](https://github.com/kdl-org/kdl-rs/commit/92998aac93bfa18702434ad8c2b0369d9f2bdc49))
+
+### Bug Fixes
+
+* **deps:** update to winnow 0.7 (#143) ([dd44f5be](https://github.com/kdl-org/kdl-rs/commit/dd44f5be42dcafde3cf65a5606a096bb85b72459))
+* **parser:** allow trailing space after node (#151) ([68417342](https://github.com/kdl-org/kdl-rs/commit/68417342339912afe652b3235f59788ea36d9374))
+* **lsp:** clamp char index to rope length in char_to_position (#154) ([9f3c2154](https://github.com/kdl-org/kdl-rs/commit/9f3c2154fc8b3bc0c08bde43b96330ce752f50f4))
+* **deps:** switch to num-traits ([09177a1a](https://github.com/kdl-org/kdl-rs/commit/09177a1a0d413bd9b06939384df2ce1a2fd48864))
+
 <a name="6.5.0"></a>
 
 ## 6.5.0 (2025-09-11)

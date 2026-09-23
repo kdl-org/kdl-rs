@@ -10,8 +10,8 @@ use std::{
 use miette::SourceSpan;
 
 use crate::{
-    v2_parser, FormatConfig, KdlDocument, KdlDocumentFormat, KdlEntry, KdlError, KdlIdentifier,
-    KdlValue,
+    FormatConfig, KdlDocument, KdlDocumentFormat, KdlEntry, KdlError, KdlIdentifier, KdlValue,
+    v2_parser,
 };
 
 /// Represents an individual KDL
@@ -275,6 +275,9 @@ impl KdlNode {
 
     /// Auto-formats this node and its contents according to `config`.
     pub fn autoformat_config(&mut self, config: &FormatConfig<'_>) {
+        if self.format.is_none() {
+            self.set_format(KdlNodeFormat::default());
+        }
         if let Some(KdlNodeFormat {
             leading,
             before_terminator,
@@ -291,18 +294,13 @@ impl KdlNode {
             if !terminator.starts_with('\n') {
                 *terminator = "\n".into();
             }
-            if let Some(c) = trailing.chars().next() {
-                if !c.is_whitespace() {
-                    trailing.insert(0, ' ');
-                }
+            if let Some(c) = trailing.chars().next()
+                && !c.is_whitespace()
+            {
+                trailing.insert(0, ' ');
             }
 
             *before_children = " ".into();
-        } else {
-            self.set_format(KdlNodeFormat {
-                terminator: "\n".into(),
-                ..Default::default()
-            })
         }
         self.name.clear_format();
         if let Some(ty) = self.ty.as_mut() {

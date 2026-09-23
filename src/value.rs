@@ -158,9 +158,11 @@ pub(crate) fn is_plain_ident(ident: &str) -> bool {
     ident
         .find(crate::v2_parser::is_disallowed_ident_char)
         .is_none()
-        && ident_bytes.first().map(|c| c.is_ascii_digit()) != Some(true)
-        && !(ident.chars().next().map(|c| matches!(c, '.' | '-' | '+')) == Some(true)
-            && ident_bytes.get(1).map(|c| c.is_ascii_digit()) == Some(true))
+        && !matches!(ident_bytes, [c, ..]
+            | [b'+' | b'-', c, ..]
+            | [b'+' | b'-', b'.', c, ..]
+            | [b'.', c, ..]
+            if c.is_ascii_digit())
         && ident != "inf"
         && ident != "-inf"
         && ident != "nan"
