@@ -54,7 +54,7 @@ impl<'a> FormatConfigBuilder<'a> {
             indent: "    ",
             no_comments: false,
             entry_autoformate_keep: false,
-            preserve_multiline_strings: false,
+            preserve_multiline_strings: true,
         })
     }
 
