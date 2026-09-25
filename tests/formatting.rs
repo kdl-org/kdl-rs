@@ -55,6 +55,7 @@ fn ensure_v1_preserves_raw_string_with_backslash_slash() {
     let mut doc = KdlDocument::parse_v1(input).unwrap();
     doc.ensure_v1();
     assert_eq!(doc.to_string(), input);
+}
 
 /// Make sure that indentation rules for nodes that are programatically created
 /// are applied correctly when using a custom config.
