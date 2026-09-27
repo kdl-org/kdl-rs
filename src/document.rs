@@ -429,6 +429,16 @@ impl KdlDocument {
         for node in self.nodes_mut().iter_mut() {
             node.ensure_v2();
         }
+
+        // If there  is a semicolon terminator on the last node, remove it
+        if let Some(fmt) = self
+            .nodes_mut()
+            .last_mut()
+            .and_then(|last| last.format_mut())
+            .filter(|fmt| fmt.terminator == ";")
+        {
+            fmt.terminator = String::new();
+        }
     }
 
     /// Makes sure this document is in v1 format.
@@ -1214,20 +1224,20 @@ keybinds {
         // bind "Alt c" { Copy; }
     }
     locked {
-        bind "Ctrl g" { SwitchToMode Normal; }
+        bind "Ctrl g" { SwitchToMode Normal }
     }
     resize {
-        bind "Ctrl n" { SwitchToMode Normal; }
-        bind h Left { Resize "Increase Left"; }
-        bind j Down { Resize "Increase Down"; }
-        bind k Up { Resize "Increase Up"; }
-        bind l Right { Resize "Increase Right"; }
-        bind H { Resize "Decrease Left"; }
-        bind J { Resize "Decrease Down"; }
-        bind K { Resize "Decrease Up"; }
-        bind L { Resize "Decrease Right"; }
-        bind "=" + { Resize Increase; }
-        bind - { Resize Decrease; }
+        bind "Ctrl n" { SwitchToMode Normal }
+        bind h Left { Resize "Increase Left" }
+        bind j Down { Resize "Increase Down" }
+        bind k Up { Resize "Increase Up" }
+        bind l Right { Resize "Increase Right" }
+        bind H { Resize "Decrease Left" }
+        bind J { Resize "Decrease Down" }
+        bind K { Resize "Decrease Up" }
+        bind L { Resize "Decrease Right" }
+        bind "=" + { Resize Increase }
+        bind - { Resize Decrease }
     }
 }
 // Plugin aliases - can be used to change the implementation of Zellij
