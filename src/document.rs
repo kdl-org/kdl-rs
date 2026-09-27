@@ -444,12 +444,12 @@ impl KdlDocument {
         let penult = iter.next();
         if let Some(last) = last {
             if let Some(fmt) = last.format_mut() {
-                if !fmt.trailing.contains(';')
-                    && fmt
-                        .trailing
-                        .chars()
-                        .any(|c| crate::v2_parser::NEWLINES.iter().any(|nl| nl.contains(c)))
-                {
+                if fmt.terminator.is_empty() {
+                    // If a terminator was not parsed, what should be the trailing whitespace
+                    // is actually stored in `before_terminator`. This should maybe be
+                    // changed within the parser itself?
+                    fmt.trailing.insert_str(0, &fmt.before_terminator);
+                    fmt.before_terminator = String::new();
                     fmt.terminator = ";".into();
                 }
             } else {
