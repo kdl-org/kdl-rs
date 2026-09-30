@@ -284,12 +284,17 @@ impl KdlNode {
             terminator,
             trailing,
             before_children,
-            ..
+            before_ty_name,
+            after_ty_name,
+            after_ty,
         }) = self.format_mut()
         {
             crate::fmt::autoformat_leading(leading, config);
             crate::fmt::autoformat_trailing(before_terminator, config.no_comments);
             crate::fmt::autoformat_trailing(trailing, config.no_comments);
+            crate::fmt::autoformat_leading(before_ty_name, config);
+            crate::fmt::autoformat_trailing(after_ty_name, config.no_comments);
+            crate::fmt::autoformat_trailing(after_ty, config.no_comments);
             *trailing = trailing.trim().into();
             if !terminator.starts_with('\n') {
                 *terminator = "\n".into();
