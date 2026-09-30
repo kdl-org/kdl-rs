@@ -59,10 +59,7 @@ impl KdlNode {
             ty: None,
             entries: Vec::new(),
             children: None,
-            format: Some(KdlNodeFormat {
-                trailing: "\n".into(),
-                ..Default::default()
-            }),
+            format: None,
             #[cfg(feature = "span")]
             span: SourceSpan::from(0..0),
         }
@@ -870,7 +867,17 @@ impl KdlNode {
             ..
         }) = self.format()
         {
-            write!(f, "{before_terminator}{terminator}{trailing}")?;
+            let terminal = format!("{before_terminator}{terminator}{trailing}");
+            write!(f, "{terminal}")?;
+
+            fn is_node_terminator(c: char) -> bool {
+                matches!(c, '\n' | ';')
+            }
+            if !terminal.ends_with(is_node_terminator) {
+                writeln!(f)?;
+            }
+        } else {
+            writeln!(f)?;
         }
         Ok(())
     }
