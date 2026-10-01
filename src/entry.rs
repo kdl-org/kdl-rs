@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{KdlError, KdlIdentifier, KdlValue, v2_parser};
+use crate::{KdlError, KdlIdentifier, KdlValue, parser::kdl_v2};
 
 /// KDL Entries are the "arguments" to KDL nodes: either a (positional)
 /// [`Argument`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#argument) or
@@ -204,12 +204,11 @@ impl KdlEntry {
     pub fn parse(s: &str) -> Result<Self, KdlError> {
         #[cfg(not(feature = "v1-fallback"))]
         {
-            v2_parser::try_parse(v2_parser::padded_node_entry, s)
+            kdl_v2::parse(s, kdl_v2::padded_entry)
         }
         #[cfg(feature = "v1-fallback")]
         {
-            v2_parser::try_parse(v2_parser::padded_node_entry, s)
-                .or_else(|e| KdlEntry::parse_v1(s).map_err(|_| e))
+            kdl_v2::parse(s, kdl_v2::padded_entry).or_else(|e| KdlEntry::parse_v1(s).map_err(|_| e))
         }
     }
 
@@ -233,10 +232,7 @@ impl KdlEntry {
 
                     if crate::value::is_plain_ident(val) {
                         val.into()
-                    } else if s
-                        .find(|c| v2_parser::NEWLINES.iter().any(|nl| nl.contains(c)))
-                        .is_some()
-                    {
+                    } else if s.find(kdl_v2::in_charset!(newlines)).is_some() {
                         // Multiline string. Need triple quotes if they're not there already.
                         if s.contains("\"\"\"") {
                             // We're probably good. This could be more precise, but close enough.
@@ -307,29 +303,39 @@ impl KdlEntry {
                         && !s.starts_with("r#")
                     {
                         format!("\"{val}\"")
-                    } else if s
-                        .find(|c| v2_parser::NEWLINES.iter().any(|nl| nl.contains(c)))
-                        .is_some()
-                    {
+                    } else if let Some(last_newline) = s.rfind(kdl_v2::in_charset!(newlines)) {
                         // Multiline string. Let's make sure it's v1.
                         if s.contains("\"\"\"") {
-                            let prefix = s
-                                .chars()
-                                .rev()
-                                .skip_while(|c| c == &'"')
-                                .take_while(|c| {
-                                    v2_parser::NEWLINES.iter().any(|nl| nl.contains(*c))
-                                })
-                                .collect::<String>();
-                            let prefix = prefix.chars().rev().collect::<String>();
-                            // Sigh. Yeah. I didn't promise this would be _efficient_.
-                            let mut s = s;
-                            for nl in v2_parser::NEWLINES {
-                                s = s.replace(&format!("{nl}{prefix}"), nl);
+                            // The prefix is from the last newline to the first quote
+                            let prefix = {
+                                let with_newline = &s[last_newline..];
+                                let end = with_newline.find('"').unwrap_or(with_newline.len());
+                                if with_newline.starts_with("\r\n") {
+                                    &with_newline[2..end]
+                                } else {
+                                    let post_newline = with_newline.ceil_char_boundary(1);
+                                    &with_newline[post_newline..end]
+                                }
+                            };
+                            let mut out = String::new();
+                            let mut cursor = &*s;
+                            // Repeatedly find a newline, skip it
+                            while let Some(newline) = cursor.find(kdl_v2::in_charset!(newlines)) {
+                                let prefix_start = if cursor[newline..].starts_with("\r\n") {
+                                    newline + 2
+                                } else {
+                                    cursor.ceil_char_boundary(newline + 1)
+                                };
+                                out.push_str(&cursor[..prefix_start]);
+                                cursor = &cursor[prefix_start..];
+                                // Now skip the prefix if the line contains it
+                                cursor = cursor.strip_prefix(prefix).unwrap_or(cursor);
                             }
+                            // Push the rest of the
+                            out.push_str(cursor);
                             // And now we strips the beginning and ending newlines.
                             // Finally, replace `"""` with `"`.
-                            s
+                            out
                         } else {
                             // It's already a v1 string
                             s
