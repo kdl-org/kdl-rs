@@ -710,12 +710,12 @@ final;";
             doc.iter_dash_args("foo").collect::<Vec<&KdlValue>>(),
             vec![&1.into(), &2.into(), &"three".into()]
         );
-        assert_eq!(doc.format().map(|f| &f.leading[..]), Some(""));
+        assert_eq!(doc.format().map(|f| &f.leading[..]), Some("\n"));
 
         let foo = doc.get("foo").expect("expected a foo node");
         assert_eq!(
             foo.format().map(|f| &f.leading[..]),
-            Some("\n// This is the first node\n")
+            Some("// This is the first node\n")
         );
         assert_eq!(foo.format().map(|f| &f.terminator[..]), Some("\n"));
         assert_eq!(&foo[2], &"three".into());

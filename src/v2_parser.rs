@@ -280,10 +280,16 @@ pub(crate) fn document(input: &mut Input<'_>) -> PResult<KdlDocument> {
 
 /// `nodes := (line-space* node)* line-space*`
 fn nodes(input: &mut Input<'_>) -> PResult<KdlDocument> {
+    let upto_first_newline = opt((repeat(0.., node_space), newline))
+        .map(|_: Option<((), ())>| ())
+        .take()
+        .parse_next(input)?;
+
     let mut leading = repeat(0.., alt((line_space.void(), (slashdash, base_node).void())))
         .map(|()| ())
         .take()
-        .parse_next(input)?;
+        .parse_next(input)?
+        .to_string();
     let _start = input.checkpoint();
     let mut ns: Vec<KdlNode> = separated(
         0..,
@@ -303,14 +309,16 @@ fn nodes(input: &mut Input<'_>) -> PResult<KdlDocument> {
     if let Some(first_node) = ns.get_mut(0)
         && let Some(first_node_format) = first_node.format_mut()
     {
-        first_node_format.leading = leading.into();
-        leading = "";
+        first_node_format.leading = leading;
+        leading = upto_first_newline.to_string();
+    } else {
+        leading = format!("{upto_first_newline}{leading}");
     }
 
     Ok(KdlDocument {
         nodes: ns,
         format: Some(KdlDocumentFormat {
-            leading: leading.into(),
+            leading,
             trailing: trailing.into(),
         }),
         #[cfg(feature = "span")]
