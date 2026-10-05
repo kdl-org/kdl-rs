@@ -206,6 +206,8 @@ mod node;
 // mod query_parser;
 // mod v1_parser;
 mod value;
+#[cfg(feature = "schema")]
+pub mod schema;
 
 mod v2_parser;
 
