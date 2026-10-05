@@ -284,12 +284,17 @@ impl KdlNode {
             terminator,
             trailing,
             before_children,
-            ..
+            before_ty_name,
+            after_ty_name,
+            after_ty,
         }) = self.format_mut()
         {
             crate::fmt::autoformat_leading(leading, config);
             crate::fmt::autoformat_trailing(before_terminator, config.no_comments);
             crate::fmt::autoformat_trailing(trailing, config.no_comments);
+            crate::fmt::autoformat_leading(before_ty_name, config);
+            crate::fmt::autoformat_trailing(after_ty_name, config.no_comments);
+            crate::fmt::autoformat_trailing(after_ty, config.no_comments);
             *trailing = trailing.trim().into();
             if !terminator.starts_with('\n') {
                 *terminator = "\n".into();
@@ -833,7 +838,17 @@ impl KdlNode {
             write!(f, "{:indent$}", "", indent = indent)?;
         }
         if let Some(ty) = &self.ty {
-            write!(f, "({ty})")?;
+            if let Some(KdlNodeFormat {
+                before_ty_name,
+                after_ty_name,
+                after_ty,
+                ..
+            }) = self.format()
+            {
+                write!(f, "({before_ty_name}{ty}{after_ty_name}){after_ty}")?;
+            } else {
+                write!(f, "({ty})")?;
+            }
         }
         write!(f, "{}", self.name)?;
         let mut space_before_children = true;

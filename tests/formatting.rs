@@ -86,3 +86,11 @@ fn format_fresh_nested_nodes_with_custom_indent() {
 "#
     );
 }
+
+/// Preserve formatting around node types
+#[test]
+fn format_node_ty() {
+    let input = "( the-type ) the-node-name";
+    let doc = KdlDocument::parse(input).unwrap();
+    assert_eq!(input, &doc.to_string());
+}
