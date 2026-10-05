@@ -429,14 +429,24 @@ impl KdlDocument {
         for node in self.nodes_mut().iter_mut() {
             node.ensure_v2();
         }
+
+        // If there  is a semicolon terminator on the last node, remove it
+        if let Some(fmt) = self
+            .nodes_mut()
+            .last_mut()
+            .and_then(|last| last.format_mut())
+            .filter(|fmt| fmt.terminator == ";")
+        {
+            fmt.terminator = String::new();
+        }
     }
 
     /// Makes sure this document is in v1 format.
     #[cfg(feature = "v1")]
     pub fn ensure_v1(&mut self) {
-        // No need to touch KdlDocumentFormat, probably. In the longer term,
-        // we'll want to make sure to parse out whitespace and comments and make
-        // sure they're actually compliant, but this is good enough for now.
+        if let Some(fmt) = self.format_mut() {
+            fmt.ensure_v1();
+        }
 
         // the last node in v1 docs/children has to have a semicolon.
         let mut iter = self.nodes_mut().iter_mut().rev();
@@ -444,12 +454,12 @@ impl KdlDocument {
         let penult = iter.next();
         if let Some(last) = last {
             if let Some(fmt) = last.format_mut() {
-                if !fmt.trailing.contains(';')
-                    && fmt
-                        .trailing
-                        .chars()
-                        .any(|c| crate::v2_parser::NEWLINES.iter().any(|nl| nl.contains(c)))
-                {
+                if fmt.terminator.is_empty() {
+                    // If a terminator was not parsed, what should be the trailing whitespace
+                    // is actually stored in `before_terminator`. This should maybe be
+                    // changed within the parser itself?
+                    fmt.trailing.insert_str(0, &fmt.before_terminator);
+                    fmt.before_terminator = String::new();
                     fmt.terminator = ";".into();
                 }
             } else {
@@ -608,6 +618,38 @@ pub struct KdlDocumentFormat {
     pub leading: String,
     /// Whitespace and comments following the document's last node.
     pub trailing: String,
+}
+
+impl KdlDocumentFormat {
+    /// Makes sure the comments & whitespace is in the v1 format.
+    /// If any slashdashed syntax has errors, the format field it is part of
+    /// will stop being converted.
+    #[cfg(feature = "v1")]
+    pub fn ensure_v1(&mut self) {
+        crate::v2_parser::convert_slashdashes(
+            crate::v2_parser::base_node,
+            &mut self.leading,
+            |mut node| {
+                // The terminator is peeked, so the output needs to skip it
+                if let Some(fmt) = node.format_mut() {
+                    fmt.terminator = String::new();
+                }
+                node.ensure_v1();
+                Some(node.to_string())
+            },
+        );
+        crate::v2_parser::convert_slashdashes(
+            crate::v2_parser::base_node,
+            &mut self.trailing,
+            |mut node| {
+                if let Some(fmt) = node.format_mut() {
+                    fmt.terminator = String::new();
+                }
+                node.ensure_v1();
+                Some(node.to_string())
+            },
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1182,20 +1224,20 @@ keybinds {
         // bind "Alt c" { Copy; }
     }
     locked {
-        bind "Ctrl g" { SwitchToMode Normal; }
+        bind "Ctrl g" { SwitchToMode Normal }
     }
     resize {
-        bind "Ctrl n" { SwitchToMode Normal; }
-        bind h Left { Resize "Increase Left"; }
-        bind j Down { Resize "Increase Down"; }
-        bind k Up { Resize "Increase Up"; }
-        bind l Right { Resize "Increase Right"; }
-        bind H { Resize "Decrease Left"; }
-        bind J { Resize "Decrease Down"; }
-        bind K { Resize "Decrease Up"; }
-        bind L { Resize "Decrease Right"; }
-        bind "=" + { Resize Increase; }
-        bind - { Resize Decrease; }
+        bind "Ctrl n" { SwitchToMode Normal }
+        bind h Left { Resize "Increase Left" }
+        bind j Down { Resize "Increase Down" }
+        bind k Up { Resize "Increase Up" }
+        bind l Right { Resize "Increase Right" }
+        bind H { Resize "Decrease Left" }
+        bind J { Resize "Decrease Down" }
+        bind K { Resize "Decrease Up" }
+        bind L { Resize "Decrease Right" }
+        bind "=" + { Resize Increase }
+        bind - { Resize Decrease }
     }
 }
 // Plugin aliases - can be used to change the implementation of Zellij
@@ -1217,6 +1259,35 @@ mirror_session #true
         pretty_assertions::assert_eq!(KdlDocument::v2_to_v1(v2)?, v1, "Converting a v2 doc to v1");
         assert!(super::detect_v1(v1));
         assert!(super::detect_v2(v2));
+        Ok(())
+    }
+
+    #[cfg(feature = "v1")]
+    #[test]
+    fn v2_to_v1_slashdash() -> miette::Result<()> {
+        // Test a slashdash in a document's `leading` field
+        let v2 = "/-document-leading #true";
+        let v1 = "/-document-leading true";
+        let mut node = KdlDocument::parse(v2)?;
+        assert!(node.format().unwrap().leading.contains("/-"));
+        node.ensure_v1();
+        pretty_assertions::assert_eq!(
+            node.to_string(),
+            v1,
+            "Converting a v2 document to v1 with slashdashes in `fmt.leading`"
+        );
+        // Test a slashdash in a document's `trailing` field
+        let v2 = "node #true\n/-document-trailing #true";
+        let v1 = "node true\n/-document-trailing true";
+        let mut node = KdlDocument::parse(v2)?;
+        assert!(node.format().unwrap().trailing.contains("/-"));
+        node.ensure_v1();
+        pretty_assertions::assert_eq!(
+            node.to_string(),
+            v1,
+            "Converting a v2 document to v1 with slashdashes in `fmt.trailing`"
+        );
+
         Ok(())
     }
 }
