@@ -28,6 +28,7 @@ winnow = { version = "1.0.4", features = ["alloc", "unstable-recover"] }
 kdlv1 = { package = "kdl", version = "4.7.0", optional = true }
 
 [workspace.dependencies]
+kdl = { path = "./", version = "6.7.1", features = ["v1"] }
 miette = { version = "7.6.0", default-features = false }
 
 [dev-dependencies]
