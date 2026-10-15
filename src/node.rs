@@ -374,6 +374,10 @@ impl KdlNode {
     /// Makes sure this node is in v1 format.
     #[cfg(feature = "v1")]
     pub fn ensure_v1(&mut self) {
+        if let Some(format) = self.format_mut() {
+            format.ensure_v1();
+        }
+
         self.ty = self.ty.take().map(|ty| {
             let v1_name: kdlv1::KdlIdentifier = ty.value().into();
             v1_name.into()
@@ -912,6 +916,71 @@ pub struct KdlNodeFormat {
     pub trailing: String,
 }
 
+impl KdlNodeFormat {
+    /// Makes sure the comments & whitespace is in the v1 format.
+    /// If any slashdashed syntax has errors, the format field it is part of
+    /// will stop being converted.
+    #[cfg(feature = "v1")]
+    pub fn ensure_v1(&mut self) {
+        use crate::v2_parser::{
+            EntryOrChildren, base_node, convert_slashdashes, node_entry_or_children,
+        };
+
+        convert_slashdashes(base_node, &mut self.leading, |mut node| {
+            if let Some(fmt) = node.format_mut() {
+                fmt.terminator = String::new();
+            }
+            node.ensure_v1();
+            Some(node.to_string())
+        });
+        convert_slashdashes(node_entry_or_children, &mut self.before_children, |node| {
+            Some(match node {
+                EntryOrChildren::Entry(Some(mut entry)) => {
+                    entry.ensure_v1();
+                    entry.to_string()
+                }
+                EntryOrChildren::Children(mut children) => {
+                    children.ensure_v1();
+                    format!("{{{children}}}")
+                }
+                _ => return None,
+            })
+        });
+        // Should this accept entries? A parse can only result in this field
+        // containing children blocks, but a user may set `before_terminator`
+        // manually, and it *can* result in correct output. However,
+        // it is better to encourage them to place their entries in the
+        // `before_children` field in case they ever add a real child block.
+        convert_slashdashes(
+            node_entry_or_children,
+            &mut self.before_terminator,
+            |node| {
+                Some(match node {
+                    EntryOrChildren::Entry(Some(mut entry)) => {
+                        entry.ensure_v1();
+                        entry.to_string()
+                    }
+                    EntryOrChildren::Children(mut children) => {
+                        children.ensure_v1();
+                        format!("{{{children}}}")
+                    }
+                    _ => return None,
+                })
+            },
+        );
+        // Can't occur naturally during a parse, but potentially a user could
+        // set `trailing` manually to include a slashdashed node and this
+        // is something reasonable for them to do.
+        convert_slashdashes(base_node, &mut self.trailing, |mut node| {
+            if let Some(fmt) = node.format_mut() {
+                fmt.terminator = String::new();
+            }
+            node.ensure_v1();
+            Some(node.to_string())
+        });
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -1030,5 +1099,65 @@ mod test {
         node.remove(0);
         assert_eq!(node.entries().len(), 1, "key removal should succeed");
         node.remove(0); // should panic here
+    }
+
+    #[cfg(feature = "v1")]
+    #[test]
+    fn v2_to_v1_slashdash() -> miette::Result<()> {
+        // Test a slashdash in a node's `leading` field
+        let v2 = "/-node-leading #true\nnode #false";
+        let v1 = "/-node-leading true\nnode false";
+        let mut node = KdlNode::parse(v2)?;
+        assert!(node.format().unwrap().leading.contains("/-"));
+        node.ensure_v1();
+        pretty_assertions::assert_eq!(
+            node.to_string(),
+            v1,
+            "Converting a v2 node to v1 with slashdashes in `fmt.leading`"
+        );
+
+        // Test entry/children slashdases in a node's `before_children` field
+        let v2 = "node #false /-#true /-{\nnode #null\n} {}";
+        let v1 = "node false /-true /-{\nnode null\n} {}";
+        let mut node = KdlNode::parse(v2)?;
+        assert_eq!(
+            node.format().unwrap().before_children.matches("/-").count(),
+            2
+        );
+        node.ensure_v1();
+        pretty_assertions::assert_eq!(
+            node.to_string(),
+            v1,
+            "Converting a v2 node to v1 with slashdashes in `fmt.before_children`"
+        );
+
+        // Test a slashdash in a node's `before_terminator` field
+        let v2 = "node #false {} /-{\nnode #null\n}";
+        let v1 = "node false {} /-{\nnode null\n}";
+        let mut node = KdlNode::parse(v2)?;
+        assert!(node.format().unwrap().before_terminator.contains("/-"));
+        node.ensure_v1();
+        pretty_assertions::assert_eq!(
+            node.to_string(),
+            v1,
+            "Converting a v2 node to v1 with slashdashes in `fmt.before_terminator`"
+        );
+
+        // Test a slashdash in a node's `trailing` field
+        // note that trailing can never contain a slashdash during an
+        // actual parse (although maybe padded_node should accept this?)
+        // but a user may manually set it
+        let v2 = "node #false\n";
+        let v1 = "node false\n/-node-trailing true";
+        let mut node = KdlNode::parse(v2)?;
+        node.format_mut().unwrap().trailing = "/-node-trailing #true".into();
+        node.ensure_v1();
+        pretty_assertions::assert_eq!(
+            node.to_string(),
+            v1,
+            "Converting a v2 node to v1 with slashdashes in `fmt.trailing`"
+        );
+
+        Ok(())
     }
 }

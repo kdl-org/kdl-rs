@@ -289,6 +289,10 @@ impl KdlEntry {
     /// Makes sure this entry is in v1 format.
     #[cfg(feature = "v1")]
     pub fn ensure_v1(&mut self) {
+        if let Some(format) = self.format_mut() {
+            format.ensure_v1();
+        }
+
         let value_repr = self.format.as_ref().map(|x| {
             match &self.value {
                 KdlValue::String(val) => {
@@ -496,6 +500,27 @@ pub struct KdlEntryFormat {
     pub autoformat_keep: bool,
 }
 
+impl KdlEntryFormat {
+    /// Makes sure the comments & whitespace is in the v1 format.
+    /// If any slashdashed nodes have syntax errors, this function will
+    /// silently fail and stop converting.
+    #[cfg(feature = "v1")]
+    pub fn ensure_v1(&mut self) {
+        use crate::v2_parser::{convert_slashdashes, node_entry};
+
+        convert_slashdashes(node_entry, &mut self.leading, |entry| {
+            let mut entry = entry?;
+            entry.ensure_v1();
+            Some(entry.to_string())
+        });
+        convert_slashdashes(node_entry, &mut self.trailing, |entry| {
+            let mut entry = entry?;
+            entry.ensure_v1();
+            Some(entry.to_string())
+        });
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -687,6 +712,38 @@ mod test {
         entry.keep_format();
         entry.autoformat();
         assert_eq!(format!("{}", entry), " 1_234_567E-10");
+        Ok(())
+    }
+
+    #[cfg(feature = "v1")]
+    #[test]
+    fn v2_to_v1_slashdash() -> miette::Result<()> {
+        // Test a slashdash in an entry's `leading` field
+        let v2 = r#"/-entry-leading #true"#;
+        let v1 = r#"/-"entry-leading" true"#;
+        let mut entry = KdlEntry::parse(v2)?;
+        assert!(entry.format().unwrap().leading.contains("/-"));
+        entry.ensure_v1();
+        pretty_assertions::assert_eq!(
+            entry.to_string(),
+            v1,
+            "Converting a v2 entry to v1 with slashdashes in `fmt.leading`"
+        );
+        // Test a slashdash in an entry's `trailing` field
+        // Similar to KdlNode, trailing usually can't contain any
+        // slashdashes from a normal parse, but a user can add this
+        let v2 = r#"#true"#;
+        let v1 = r#"true /-"entry-trailing""#;
+        let mut entry = KdlEntry::parse(v2)?;
+        entry.format_mut().unwrap().trailing = r#" /-"entry-trailing""#.into();
+        assert!(entry.format().unwrap().trailing.contains("/-"));
+        entry.ensure_v1();
+        pretty_assertions::assert_eq!(
+            entry.to_string(),
+            v1,
+            "Converting a v2 entry to v1 with slashdashes in `fmt.trailing`"
+        );
+
         Ok(())
     }
 }

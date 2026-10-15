@@ -61,6 +61,57 @@ pub(crate) fn failure_from_errs(errs: Vec<ErrMode<KdlParseError>>, input: &str) 
     }
 }
 
+#[cfg(feature = "v1")]
+pub(crate) fn convert_slashdashes<P, T, F>(mut parser: P, input: &mut String, mut map: F)
+where
+    P: for<'a> ModalParser<Input<'a>, T, KdlParseError>,
+    F: FnMut(T) -> Option<String>,
+{
+    let mut search_idx = 0;
+    while let Some(slashdash_idx) = input[search_idx..].find("/-") {
+        let node_idx = search_idx + slashdash_idx;
+        let Some((node, span)) = (slashdash, parser.by_ref().with_span(), winnow::token::rest)
+            .parse(Recoverable::unrecoverable(LocatingSlice::new(
+                &input[node_idx..],
+            )))
+            .ok()
+            .map(|(_, (p, mut s), _)| {
+                s.start += node_idx;
+                s.end += node_idx;
+                (p, s)
+            })
+        else {
+            break;
+        };
+        // If the mapping function returns none, skip formatting this node and instead
+        // set the search cursor to the end of the parsed span. This needs to be done
+        // to skip any potential internal slashdashes
+        let Some(v1_node_text) = map(node) else {
+            search_idx = span.end;
+            continue;
+        };
+        input.replace_range(span, &v1_node_text);
+        // Start the next slashdash search from *after* the replaced text.
+        search_idx = node_idx + v1_node_text.len();
+    }
+}
+
+#[allow(clippy::large_enum_variant)]
+#[cfg(feature = "v1")]
+pub(crate) enum EntryOrChildren {
+    Entry(Option<KdlEntry>),
+    Children(KdlDocument),
+}
+
+#[cfg(feature = "v1")]
+pub(crate) fn node_entry_or_children(input: &mut Input<'_>) -> PResult<EntryOrChildren> {
+    alt((
+        node_entry.map(EntryOrChildren::Entry),
+        node_children.map(EntryOrChildren::Children),
+    ))
+    .parse_next(input)
+}
+
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 struct KdlParseContext {
     message: Option<String>,
@@ -338,7 +389,7 @@ fn node(input: &mut Input<'_>) -> PResult<KdlNode> {
     Ok(nd)
 }
 
-fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
+pub(crate) fn base_node(input: &mut Input<'_>) -> PResult<KdlNode> {
     trace("children closing check", not(alt(("}".void(), eof.void())))).parse_next(input)?;
     let _start = input.checkpoint();
     let open_curly = resume_after_cut(
@@ -540,7 +591,7 @@ pub(crate) fn padded_node_entry(input: &mut Input<'_>) -> PResult<KdlEntry> {
 
 /// `node-prop-or-arg := prop | value`
 /// `prop := string optional-node-space equals-sign optional-node-space value`
-fn node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
+pub(crate) fn node_entry(input: &mut Input<'_>) -> PResult<Option<KdlEntry>> {
     let leading = (node_space0, opt((slashdashed_entries, node_space1)))
         .take()
         .parse_next(input)?;
@@ -757,7 +808,7 @@ fn around_children_test() {
 }
 
 /// `node-children := '{' nodes final-node? '}'`
-fn node_children(input: &mut Input<'_>) -> PResult<KdlDocument> {
+pub(crate) fn node_children(input: &mut Input<'_>) -> PResult<KdlDocument> {
     let _before_open = input.checkpoint();
     let _before_open_loc = input.current_token_start();
     "{".parse_next(input)?;
