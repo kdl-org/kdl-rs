@@ -1490,9 +1490,21 @@ impl<'de> Deserializer<'de> for OmittedChildDeserializer {
         visitor.visit_none()
     }
 
+    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        // empty sequence
+        visitor.visit_seq(ArgSeqAccess::new(
+            Vec::new().into_iter(),
+            &Arc::new(String::new()),
+            None,
+        ))
+    }
+
     serde::forward_to_deserialize_any! {
         i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
-        bytes byte_buf unit unit_struct tuple newtype_struct seq
+        bytes byte_buf unit unit_struct tuple newtype_struct
         tuple_struct map struct enum identifier ignored_any
     }
 }
@@ -1756,6 +1768,9 @@ server {
                 values: vec![1, 2, 3]
             }
         );
+        let kdl = r#"values"#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(config, Config { values: vec![] });
     }
 
     #[test]
@@ -2082,6 +2097,23 @@ server host="localhost" port=8080 {
                 },
             }
         );
+
+        let kdl = r#"
+server host="localhost" port=8080 {
+    routes {}
+}
+"#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                server: Server {
+                    host: "localhost".into(),
+                    port: 8080,
+                    routes: Routes { path: vec![] },
+                },
+            }
+        );
     }
 
     #[test]
@@ -2380,6 +2412,55 @@ h 8
                 server: Server {
                     host: "localhost".into(),
                     active: false,
+                },
+            }
+        );
+    }
+
+    #[test]
+    fn node_seq_as_children() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Document {
+            node: Item,
+        }
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Item {
+            #[serde(rename = "#0")]
+            name: String,
+            #[serde(rename = "child")]
+            children: Vec<String>,
+        }
+        let kdl = r#"node "a" { child "x"; child "y" }"#;
+        let doc: Document = from_str(kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                node: Item {
+                    name: "a".into(),
+                    children: vec!["x".into(), "y".into()],
+                },
+            }
+        );
+        let kdl = r#"node "a""#;
+        let doc: Document = from_str(kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                node: Item {
+                    name: "a".into(),
+                    children: vec![],
+                },
+            }
+        );
+        let kdl = r#"node "a""#;
+        let doc: Document = from_str(kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                node: Item {
+                    name: "a".into(),
+                    children: vec![],
                 },
             }
         );
