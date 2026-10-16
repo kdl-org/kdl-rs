@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use crate::parser::kdl_v2;
+
 /// A specific [KDL Value](https://github.com/kdl-org/kdl/blob/main/SPEC.md#value).
 #[derive(Debug, Clone, PartialOrd)]
 pub enum KdlValue {
@@ -156,7 +158,7 @@ impl Display for KdlValue {
 pub(crate) fn is_plain_ident(ident: &str) -> bool {
     let ident_bytes = ident.as_bytes();
     ident
-        .find(crate::v2_parser::is_disallowed_ident_char)
+        .find(kdl_v2::in_charset!(invalid | non_ident))
         .is_none()
         && !matches!(ident_bytes, [c, ..]
             | [b'+' | b'-', c, ..]

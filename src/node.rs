@@ -11,7 +11,7 @@ use miette::SourceSpan;
 
 use crate::{
     FormatConfig, KdlDocument, KdlDocumentFormat, KdlEntry, KdlError, KdlIdentifier, KdlValue,
-    v2_parser,
+    parser::kdl_v2,
 };
 
 /// Represents an individual KDL
@@ -341,12 +341,11 @@ impl KdlNode {
     pub fn parse(s: &str) -> Result<Self, KdlError> {
         #[cfg(not(feature = "v1-fallback"))]
         {
-            v2_parser::try_parse(v2_parser::padded_node, s)
+            kdl_v2::parse(s, kdl_v2::padded_node)
         }
         #[cfg(feature = "v1-fallback")]
         {
-            v2_parser::try_parse(v2_parser::padded_node, s)
-                .or_else(|e| KdlNode::parse_v1(s).map_err(|_| e))
+            kdl_v2::parse(s, kdl_v2::padded_node).or_else(|e| KdlNode::parse_v1(s).map_err(|_| e))
         }
     }
 
@@ -405,7 +404,7 @@ impl From<kdlv1::KdlNode> for KdlNode {
                 let t = t
                     .chars()
                     .map(|c| {
-                        if v2_parser::NEWLINES.iter().any(|nl| nl.contains(c)) {
+                        if kdl_v2::in_charset!(newlines => c) {
                             '\n'
                         } else {
                             c
@@ -816,7 +815,7 @@ impl FromStr for KdlNode {
     type Err = KdlError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        v2_parser::try_parse(v2_parser::padded_node, input)
+        kdl_v2::parse(input, kdl_v2::padded_node)
     }
 }
 

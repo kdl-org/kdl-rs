@@ -2,7 +2,7 @@
 use miette::SourceSpan;
 use std::{fmt::Display, str::FromStr};
 
-use crate::{KdlError, KdlValue, v2_parser};
+use crate::{KdlError, KdlValue, parser::kdl_v2};
 
 /// Represents a KDL
 /// [Identifier](https://github.com/kdl-org/kdl/blob/main/SPEC.md#identifier).
@@ -97,11 +97,11 @@ impl KdlIdentifier {
     pub fn parse(s: &str) -> Result<Self, KdlError> {
         #[cfg(not(feature = "v1-fallback"))]
         {
-            v2_parser::try_parse(v2_parser::identifier, s)
+            kdl_v2::parse(s, kdl_v2::identifier)
         }
         #[cfg(feature = "v1-fallback")]
         {
-            v2_parser::try_parse(v2_parser::identifier, s)
+            kdl_v2::parse(s, kdl_v2::identifier)
                 .or_else(|e| KdlIdentifier::parse_v1(s).map_err(|_| e))
         }
     }

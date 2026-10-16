@@ -4,7 +4,7 @@ use std::fmt::Display;
 
 #[cfg(feature = "v1")]
 use crate::KdlNodeFormat;
-use crate::{FormatConfig, KdlError, KdlNode, KdlValue};
+use crate::{FormatConfig, KdlError, KdlNode, KdlValue, parser::kdl_v2};
 
 /// Represents a KDL
 /// [`Document`](https://github.com/kdl-org/kdl/blob/main/SPEC.md#document).
@@ -393,7 +393,7 @@ impl KdlDocument {
 
     /// Parses a KDL v2 string into a document.
     pub fn parse_v2(s: &str) -> Result<Self, KdlError> {
-        crate::v2_parser::try_parse(crate::v2_parser::document, s)
+        kdl_v2::parse_file(s)
     }
 
     /// Parses a KDL v1 string into a document.
@@ -448,7 +448,7 @@ impl KdlDocument {
                     && fmt
                         .trailing
                         .chars()
-                        .any(|c| crate::v2_parser::NEWLINES.iter().any(|nl| nl.contains(c)))
+                        .any(kdl_v2::in_charset!(newlines))
                 {
                     fmt.terminator = ";".into();
                 }
@@ -751,7 +751,7 @@ final;";
         assert_eq!(format!("{b}"), " b;".to_string());
 
         // Round-tripping works.
-        assert_eq!(format!("{doc}"), src);
+        pretty_assertions::assert_eq!(src, format!("{doc}"));
 
         // Programmatic manipulation works.
         let mut node: KdlNode = "new\n".parse()?;
@@ -1010,6 +1010,13 @@ inline { time; to; live "our" "dreams"; "y;all" }
 
 "####;
 
+        // N.B.
+        // During the parser rewrite, a few of these tests changed
+        // Specifically, a node's terminator is now treated as part of a node's
+        // span. This can be changed back fairly easily, but I think it makes
+        // more sense to do it this way, considering there is a `terminator`
+        // field inside the node's `fmt`
+
         let doc: KdlDocument = input.parse()?;
 
         // First check that all the identity-spans are correct
@@ -1018,8 +1025,8 @@ inline { time; to; live "our" "dreams"; "y;all" }
         // Now check some more interesting concrete spans
 
         // The whole document should be everything from the first node until the
-        // last before_terminator whitespace.
-        check_span(&input[1..(input.len() - 2)], doc.span(), &input);
+        // last node terminator
+        check_span(&input[1..(input.len() - 1)], doc.span(), &input);
 
         // This one-liner node should be the whole line without leading whitespace
         let is_node = doc
@@ -1030,7 +1037,8 @@ inline { time; to; live "our" "dreams"; "y;all" }
             .get("is")
             .unwrap();
         check_span(
-            r##"is (a)"cool" document="to" read=(int)5 10.1 (u32)0x45"##,
+            r##"is (a)"cool" document="to" read=(int)5 10.1 (u32)0x45
+"##,
             is_node.span(),
             &input,
         );
@@ -1060,7 +1068,8 @@ inline { time; to; live "our" "dreams"; "y;all" }
         "it" /*shh*/ "has"="💯" ##"the"##
         Best🎊est
         "syntax ever"
-    }"####,
+    }
+"####,
             and_node.span(),
             &input,
         );
@@ -1070,7 +1079,8 @@ inline { time; to; live "our" "dreams"; "y;all" }
         check_span(
             r####""it" /*shh*/ "has"="💯" ##"the"##
         Best🎊est
-        "syntax ever""####,
+        "syntax ever"
+"####,
             and_node.children().unwrap().span(),
             &input,
         );
@@ -1081,7 +1091,8 @@ inline { time; to; live "our" "dreams"; "y;all" }
         // Now the "it" node, more straightforward
         let it_node = and_node.children().unwrap().get("it").unwrap();
         check_span(
-            r####""it" /*shh*/ "has"="💯" ##"the"##"####,
+            r####""it" /*shh*/ "has"="💯" ##"the"##
+"####,
             it_node.span(),
             &input,
         );
@@ -1099,23 +1110,24 @@ inline { time; to; live "our" "dreams"; "y;all" }
         // Make sure inline nodes work ok
         let inline_node = doc.get("inline").unwrap();
         check_span(
-            r#"inline { time; to; live "our" "dreams"; "y;all" }"#,
+            r#"inline { time; to; live "our" "dreams"; "y;all" }
+"#,
             inline_node.span(),
             &input,
         );
 
         let inline_children = inline_node.children().unwrap();
         check_span(
-            r#"time; to; live "our" "dreams"; "y;all" "#,
+            r#"time; to; live "our" "dreams"; "y;all""#,
             inline_children.span(),
             &input,
         );
 
         let inline_nodes = inline_children.nodes();
-        check_span("time", inline_nodes[0].span(), &input);
-        check_span("to", inline_nodes[1].span(), &input);
-        check_span(r#"live "our" "dreams""#, inline_nodes[2].span(), &input);
-        check_span(r#""y;all" "#, inline_nodes[3].span(), &input);
+        check_span("time;", inline_nodes[0].span(), &input);
+        check_span("to;", inline_nodes[1].span(), &input);
+        check_span(r#"live "our" "dreams";"#, inline_nodes[2].span(), &input);
+        check_span(r#""y;all""#, inline_nodes[3].span(), &input);
 
         Ok(())
     }

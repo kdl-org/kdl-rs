@@ -49,12 +49,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "autocfg"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
-
-[[package]]
 name = "backtrace"
 version = "0.3.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -397,7 +391,6 @@ version = "6.7.1"
 dependencies = [
  "kdl 4.7.1",
  "miette 7.6.0",
- "num-traits",
  "pretty_assertions",
  "serde",
  "thiserror 2.0.17",
@@ -581,15 +574,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "num-traits"
-version = "0.2.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
-dependencies = [
- "autocfg",
 ]
 
 [[package]]
