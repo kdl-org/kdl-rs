@@ -590,7 +590,6 @@ impl<'de, 'a> de::Deserializer<'de> for DocumentDeserializer<'a> {
         visitor.visit_seq(NodeListSeqAccess {
             iter: self.doc.nodes().iter(),
             input: self.input,
-            first_node: None,
         })
     }
 
@@ -712,43 +711,20 @@ impl<'de, 'a> MapAccess<'de> for DocumentMapAccess<'a> {
         let key = self.keys[self.idx];
         self.idx += 1;
         let nodes = self.groups.get(key).unwrap();
-        if nodes.len() == 1 {
-            seed.deserialize(NodeDeserializer::new(nodes[0], self.input))
-        } else {
-            // Multiple nodes with same name → sequence
-            seed.deserialize(NodeGroupDeserializer {
-                nodes,
-                input: self.input,
-            })
-        }
+        // Multiple nodes with same name → sequence
+        seed.deserialize(NodeGroupDeserializer {
+            nodes,
+            input: self.input,
+        })
     }
 }
 
 struct NodeDeserializer<'a> {
     node: &'a KdlNode,
     input: &'a Arc<String>,
-    first_node: Option<&'a KdlNode>,
 }
 
 impl<'a> NodeDeserializer<'a> {
-    fn new(node: &'a KdlNode, input: &'a Arc<String>) -> Self {
-        NodeDeserializer {
-            node,
-            input,
-            first_node: None,
-        }
-    }
-
-    fn fallback_node(&self) -> &'a KdlNode {
-        if let Some(n) = self.first_node
-            && self.is_scalar()
-        {
-            n
-        } else {
-            self.node
-        }
-    }
-
     fn args(&self) -> Vec<&'a KdlEntry> {
         self.node
             .entries()
@@ -923,7 +899,6 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
             visitor.visit_seq(NodeListSeqAccess {
                 iter: children.nodes().iter(),
                 input: self.input,
-                first_node: (children.nodes().len() == 1).then_some(self.node),
             })
         } else {
             // Empty → empty sequence
@@ -949,7 +924,7 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
     }
 
     fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        visitor.visit_map(NodeMapAccess::new(self.fallback_node(), self.input, None))
+        visitor.visit_map(NodeMapAccess::new(self.node, self.input, None))
     }
 
     fn deserialize_struct<V: Visitor<'de>>(
@@ -958,11 +933,7 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
         fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        visitor.visit_map(NodeMapAccess::new(
-            self.fallback_node(),
-            self.input,
-            Some(fields),
-        ))
+        visitor.visit_map(NodeMapAccess::new(self.node, self.input, Some(fields)))
     }
 
     fn deserialize_enum<V: Visitor<'de>>(
@@ -1106,18 +1077,29 @@ impl<'de, 'a> de::Deserializer<'de> for ArgOrNodeDeserializer<'a, '_> {
         visitor: V,
     ) -> Result<V::Value, Error> {
         *self.has_yielded_node = true;
-        NodeDeserializer::new(self.parent_node, self.input)
-            .deserialize_struct(name, fields, visitor)
+        NodeDeserializer {
+            node: self.parent_node,
+            input: self.input,
+        }
+        .deserialize_struct(name, fields, visitor)
     }
 
     fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         *self.has_yielded_node = true;
-        NodeDeserializer::new(self.parent_node, self.input).deserialize_map(visitor)
+        NodeDeserializer {
+            node: self.parent_node,
+            input: self.input,
+        }
+        .deserialize_map(visitor)
     }
 
     fn deserialize_tuple<V: Visitor<'de>>(self, len: usize, visitor: V) -> Result<V::Value, Error> {
         *self.has_yielded_node = true;
-        NodeDeserializer::new(self.parent_node, self.input).deserialize_tuple(len, visitor)
+        NodeDeserializer {
+            node: self.parent_node,
+            input: self.input,
+        }
+        .deserialize_tuple(len, visitor)
     }
 
     fn deserialize_tuple_struct<V: Visitor<'de>>(
@@ -1127,8 +1109,11 @@ impl<'de, 'a> de::Deserializer<'de> for ArgOrNodeDeserializer<'a, '_> {
         visitor: V,
     ) -> Result<V::Value, Error> {
         *self.has_yielded_node = true;
-        NodeDeserializer::new(self.parent_node, self.input)
-            .deserialize_tuple_struct(name, len, visitor)
+        NodeDeserializer {
+            node: self.parent_node,
+            input: self.input,
+        }
+        .deserialize_tuple_struct(name, len, visitor)
     }
 
     // target wants a scalar → we yield this one argument
@@ -1180,7 +1165,6 @@ impl<'de, 'a> de::Deserializer<'de> for ArgOrNodeDeserializer<'a, '_> {
 struct NodeListSeqAccess<'a> {
     iter: std::slice::Iter<'a, KdlNode>,
     input: &'a Arc<String>,
-    first_node: Option<&'a KdlNode>,
 }
 
 impl<'de, 'a> SeqAccess<'de> for NodeListSeqAccess<'a> {
@@ -1196,7 +1180,6 @@ impl<'de, 'a> SeqAccess<'de> for NodeListSeqAccess<'a> {
                 seed.deserialize(NodeDeserializer {
                     node,
                     input: self.input,
-                    first_node: self.first_node,
                 })
             })
             .transpose()
@@ -1212,20 +1195,402 @@ impl<'de, 'a> de::Deserializer<'de> for NodeGroupDeserializer<'a> {
     type Error = Error;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        self.deserialize_seq(visitor)
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_any(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
     }
 
     fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            let node = NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            };
+
+            // If this is the only node and it is empty, visit an empty sequence
+            if node.is_empty() {
+                return visitor.visit_seq(ArgSeqAccess::new(
+                    Vec::new().into_iter(),
+                    node.input,
+                    Some(node.node),
+                ));
+            }
+
+            let args = node.args();
+            let props = node.props();
+            let has_children = node.node.children().is_some();
+
+            if !args.is_empty() && props.is_empty() && !has_children {
+                // Only positional args → sequence
+                return visitor.visit_seq(ArgSeqAccess::new(
+                    args.into_iter(),
+                    self.input,
+                    Some(node.node),
+                ));
+            }
+        }
+
         visitor.visit_seq(NodeGroupSeqAccess {
             iter: self.nodes.iter(),
             input: self.input,
         })
     }
 
-    serde::forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
-        bytes byte_buf option unit unit_struct newtype_struct tuple
-        tuple_struct map struct enum identifier ignored_any
+    fn deserialize_bool<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_bool(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_i8<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_i8(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_i16<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_i16(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_i32<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_i32(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_i64<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_i64(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_u8<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_u8(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_u16<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_u16(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_u32<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_u32(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_u64<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_u64(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_f32<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_f32(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_f64<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_f64(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_char<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_char(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_str<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_str(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_string<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_string(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_bytes<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_bytes(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_byte_buf<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_byte_buf(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_option(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_unit<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_unit(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_unit_struct<V: Visitor<'de>>(
+        self,
+        name: &'static str,
+        visitor: V,
+    ) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_unit_struct(name, visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_newtype_struct<V: Visitor<'de>>(
+        self,
+        name: &'static str,
+        visitor: V,
+    ) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_newtype_struct(name, visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_tuple<V: Visitor<'de>>(
+        self,
+        len: usize,
+        visitor: V,
+    ) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_tuple(len, visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_tuple_struct<V: Visitor<'de>>(
+        self,
+        name: &'static str,
+        len: usize,
+        visitor: V,
+    ) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_tuple_struct(name, len, visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_map(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_struct<V: Visitor<'de>>(
+        self,
+        name: &'static str,
+        fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_struct(name, fields, visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_enum<V: Visitor<'de>>(
+        self,
+        name: &'static str,
+        variants: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_enum(name, variants, visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_identifier<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_identifier(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
+    }
+
+    fn deserialize_ignored_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        if self.nodes.len() == 1 {
+            NodeDeserializer {
+                node: self.nodes[0],
+                input: self.input,
+            }
+            .deserialize_ignored_any(visitor)
+        } else {
+            self.deserialize_seq(visitor)
+        }
     }
 }
 
@@ -1243,7 +1608,12 @@ impl<'de, 'a> SeqAccess<'de> for NodeGroupSeqAccess<'a> {
     ) -> Result<Option<T::Value>, Self::Error> {
         self.iter
             .next()
-            .map(|node| seed.deserialize(NodeDeserializer::new(node, self.input)))
+            .map(|node| {
+                seed.deserialize(NodeDeserializer {
+                    node,
+                    input: self.input,
+                })
+            })
             .transpose()
     }
 }
@@ -1408,9 +1778,10 @@ impl<'de, 'a> MapAccess<'de> for NodeMapAccess<'a> {
                 entries: entries.clone(),
                 input: self.input,
             }),
-            NodeMapValue::SingleNode(node) => {
-                seed.deserialize(NodeDeserializer::new(node, self.input))
-            }
+            NodeMapValue::SingleNode(node) => seed.deserialize(NodeGroupDeserializer {
+                nodes: &[node],
+                input: self.input,
+            }),
             NodeMapValue::MultiNode(nodes) => seed.deserialize(NodeGroupDeserializer {
                 nodes,
                 input: self.input,
@@ -1558,7 +1929,10 @@ impl<'de, 'a> de::VariantAccess<'de> for NodeVariantAccess<'a> {
         self,
         seed: T,
     ) -> Result<T::Value, Self::Error> {
-        seed.deserialize(NodeDeserializer::new(self.node, self.input))
+        seed.deserialize(NodeDeserializer {
+            node: self.node,
+            input: self.input,
+        })
     }
 
     fn tuple_variant<V: Visitor<'de>>(
@@ -1566,7 +1940,13 @@ impl<'de, 'a> de::VariantAccess<'de> for NodeVariantAccess<'a> {
         _len: usize,
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        de::Deserializer::deserialize_seq(NodeDeserializer::new(self.node, self.input), visitor)
+        de::Deserializer::deserialize_seq(
+            NodeDeserializer {
+                node: self.node,
+                input: self.input,
+            },
+            visitor,
+        )
     }
 
     fn struct_variant<V: Visitor<'de>>(
@@ -1574,7 +1954,13 @@ impl<'de, 'a> de::VariantAccess<'de> for NodeVariantAccess<'a> {
         _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        de::Deserializer::deserialize_map(NodeDeserializer::new(self.node, self.input), visitor)
+        de::Deserializer::deserialize_map(
+            NodeDeserializer {
+                node: self.node,
+                input: self.input,
+            },
+            visitor,
+        )
     }
 }
 
@@ -1976,6 +2362,441 @@ items {
                 },
             }
         );
+    }
+
+    #[test]
+    fn nodes_with_children_as_seq() {
+        #[derive(Deserialize, Debug, Default, PartialEq)]
+        #[serde(default)]
+        struct Document {
+            #[serde(rename = "item")]
+            items: Vec<Item>,
+        }
+
+        #[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+        #[serde(default)]
+        struct Item {
+            #[serde(rename = "#0")]
+            arg1: Option<String>,
+            #[serde(rename = "#1")]
+            arg2: Option<u64>,
+
+            #[serde(rename = "#@string")]
+            prop: Option<String>,
+
+            val1: Option<String>,
+            val2: Option<u64>,
+
+            flag: bool,
+
+            #[serde(rename = "item")]
+            items: Vec<Item>,
+        }
+
+        let empty_kdl = "";
+        let doc: Document = from_str(empty_kdl).unwrap();
+        assert_eq!(doc, Document::default());
+
+//         let name_kdl = r#"
+// item
+// "#;
+//         let name_item = Item::default();
+
+        // fixme:
+        // let doc: Document = from_str(name_kdl).unwrap();
+        // assert_eq!(
+        //     doc,
+        //     Document {
+        //         items: vec![name_item.clone()]
+        //     }
+        // );
+
+        // let doc: Document = from_str(&format!("{name_kdl}{name_kdl}")).unwrap();
+        // assert_eq!(
+        //     doc,
+        //     Document {
+        //         items: vec![name_item.clone(), name_item.clone(),]
+        //     }
+        // );
+
+        let args_kdl = r#"
+item a 1
+"#;
+        let args_item = Item {
+            arg1: Some("a".to_owned()),
+            arg2: Some(1),
+            ..Default::default()
+        };
+
+        let doc: Document = from_str(args_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_item.clone(),]
+            }
+        );
+
+        let doc: Document = from_str(&format!("{args_kdl}{args_kdl}")).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_item.clone(), args_item.clone(),]
+            }
+        );
+
+        let args_props_kdl = r#"
+item a 1 string=b
+"#;
+        let args_props_item = Item {
+            arg1: Some("a".to_owned()),
+            arg2: Some(1),
+            prop: Some("b".to_owned()),
+            ..Default::default()
+        };
+
+        let doc: Document = from_str(args_props_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_props_item.clone()]
+            }
+        );
+
+        let doc: Document = from_str(&format!("{args_props_kdl}{args_props_kdl}")).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_props_item.clone(), args_props_item.clone(),]
+            }
+        );
+
+        let props_kdl = r#"
+item string=b
+"#;
+        let props_item = Item {
+            prop: Some("b".to_owned()),
+            ..Default::default()
+        };
+
+        let doc: Document = from_str(props_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![props_item.clone()]
+            }
+        );
+
+        let doc: Document = from_str(&format!("{props_kdl}{props_kdl}")).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![props_item.clone(), props_item.clone(),]
+            }
+        );
+
+        let args_props_children_kdl = r#"
+item a 1 string=b {
+    val1 c
+    val2 2
+    flag
+}
+"#;
+        let args_props_children_item = Item {
+            arg1: Some("a".to_owned()),
+            arg2: Some(1),
+            prop: Some("b".to_owned()),
+            val1: Some("c".to_owned()),
+            val2: Some(2),
+            flag: true,
+            items: vec![],
+        };
+
+        let doc: Document = from_str(args_props_children_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_props_children_item.clone()]
+            }
+        );
+
+        let doc: Document = from_str(&format!(
+            "{args_props_children_kdl}{args_props_children_kdl}"
+        ))
+        .unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![
+                    args_props_children_item.clone(),
+                    args_props_children_item.clone(),
+                ]
+            }
+        );
+
+        let props_children_kdl = r#"
+item string=b {
+    val1 c
+    val2 2
+    flag
+}
+"#;
+        let props_children_item = Item {
+            prop: Some("b".to_owned()),
+            val1: Some("c".to_owned()),
+            val2: Some(2),
+            flag: true,
+            ..Default::default()
+        };
+
+        let doc: Document = from_str(props_children_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![props_children_item.clone()]
+            }
+        );
+
+        let doc: Document = from_str(&format!("{props_children_kdl}{props_children_kdl}")).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![props_children_item.clone(), props_children_item.clone(),]
+            }
+        );
+
+        let pairs = [
+            // (name_kdl, name_item),
+            (args_kdl, args_item),
+            (args_props_kdl, args_props_item),
+            (props_kdl, props_item),
+            (args_props_children_kdl, args_props_children_item),
+            (props_children_kdl, props_children_item),
+        ];
+
+        let nested_kdl = |inner: &str| {
+            format!(
+                r#"
+item {{
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_kdl(inner_kdl);
+
+            let item = Item {
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_args_kdl = |inner: &str| {
+            format!(
+                r#"
+item a 1 {{
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_args_kdl(inner_kdl);
+
+            let item = Item {
+                arg1: Some("a".to_owned()),
+                arg2: Some(1),
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_args_props_kdl = |inner: &str| {
+            format!(
+                r#"
+item a 1 string=b {{
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_args_props_kdl(inner_kdl);
+
+            let item = Item {
+                arg1: Some("a".to_owned()),
+                arg2: Some(1),
+                prop: Some("b".to_owned()),
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_props_kdl = |inner: &str| {
+            format!(
+                r#"
+item string=b {{
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_props_kdl(inner_kdl);
+
+            let item = Item {
+                prop: Some("b".to_owned()),
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_args_props_children_kdl = |inner: &str| {
+            format!(
+                r#"
+item a 1 string=b {{
+    val1 c
+    val2 2
+    flag
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_args_props_children_kdl(inner_kdl);
+
+            let item = Item {
+                arg1: Some("a".to_owned()),
+                arg2: Some(1),
+                prop: Some("b".to_owned()),
+                val1: Some("c".to_owned()),
+                val2: Some(2),
+                flag: true,
+                items: vec![inner_item.clone()],
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_props_children_kdl = |inner: &str| {
+            format!(
+                r#"
+item string=b {{
+    val1 c
+    val2 2
+    flag
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_props_children_kdl(inner_kdl);
+
+            let item = Item {
+                prop: Some("b".to_owned()),
+                val1: Some("c".to_owned()),
+                val2: Some(2),
+                flag: true,
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
     }
 
     #[test]
