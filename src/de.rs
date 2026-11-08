@@ -893,24 +893,30 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
     }
 
     fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        // A sequence was requested, but we only have a single node. We have to decide whether to
+        // yield the arguments as the sequence, or to yield the node itself as a one-element sequence.
         let args = self.args();
-
-        if !args.is_empty() && self.node.children().is_none() {
-            // Arguments → either sequence or a single node
+        if args.is_empty() {
+            // If the node has no arguments, we have to make some guesses about what was intended.
+            if self.node.children().is_some() {
+                // If the node has children, we're guessing that it's the node itself that is the
+                // sequence element.
+                visitor.visit_seq(NodeListSeqAccess {
+                    iter: std::slice::from_ref(self.node).iter(),
+                    input: self.input,
+                })
+            } else {
+                // If the node has nothing, we just decide here to treat it as an empty sequence.
+                visitor.visit_seq(ArgSeqAccess::new(Vec::new().into_iter(), self.input, None))
+            }
+        } else {
+            // If the node has arguments, we wait until we know more about the type of the
+            // sequence elements, before we make the decision.
             visitor.visit_seq(ArgSeqAccess::new(
                 args.into_iter(),
                 self.input,
                 Some(self.node),
             ))
-        } else if let Some(children) = self.node.children() {
-            // Children → sequence of nodes
-            visitor.visit_seq(NodeListSeqAccess {
-                iter: children.nodes().iter(),
-                input: self.input,
-            })
-        } else {
-            // Empty → empty sequence
-            visitor.visit_seq(ArgSeqAccess::new(Vec::new().into_iter(), self.input, None))
         }
     }
 
@@ -1052,8 +1058,8 @@ impl<'de, 'a> SeqAccess<'de> for ArgSeqAccess<'a> {
             return Ok(None);
         };
         let value = if let Some(parent) = self.parent_node.take() {
-            // let `ArgOrNodeDeserializer` decide whether to treat this as a single argument or the
-            // parent node
+            // let `ArgOrNodeDeserializer` decide whether to start yielding arguments or the
+            // node itself
             seed.deserialize(ArgOrNodeDeserializer {
                 entry: e,
                 parent_node: parent,
@@ -1067,6 +1073,7 @@ impl<'de, 'a> SeqAccess<'de> for ArgSeqAccess<'a> {
     }
 }
 
+/// Yields the argument (`entry`) if the target type wants a scalar, otherwise yields the node.
 struct ArgOrNodeDeserializer<'a, 'b> {
     entry: &'a KdlEntry,
     parent_node: &'a KdlNode,
@@ -1077,7 +1084,7 @@ struct ArgOrNodeDeserializer<'a, 'b> {
 impl<'de, 'a> de::Deserializer<'de> for ArgOrNodeDeserializer<'a, '_> {
     type Error = Error;
 
-    // target wants a struct → we yield the node
+    // target does not want a scalar → we yield the node
     fn deserialize_struct<V: Visitor<'de>>(
         self,
         name: &'static str,
@@ -1110,7 +1117,29 @@ impl<'de, 'a> de::Deserializer<'de> for ArgOrNodeDeserializer<'a, '_> {
             .deserialize_tuple_struct(name, len, visitor)
     }
 
-    // target wants a scalar → we yield this one argument
+    fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
+        *self.has_yielded_node = true;
+        NodeDeserializer::new(self.parent_node, self.input).deserialize_seq(visitor)
+    }
+
+    // target wants to unpack something
+    fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
+        if matches!(self.entry.value(), KdlValue::Null) {
+            visitor.visit_none()
+        } else {
+            visitor.visit_some(self)
+        }
+    }
+
+    fn deserialize_newtype_struct<V: Visitor<'de>>(
+        self,
+        _n: &'static str,
+        visitor: V,
+    ) -> Result<V::Value, Error> {
+        visitor.visit_newtype_struct(self)
+    }
+
+    // target wants a scalar → we start yielding arguments
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         ValueDeserializer::new(self.entry, self.input).deserialize_any(visitor)
     }
@@ -1132,27 +1161,9 @@ impl<'de, 'a> de::Deserializer<'de> for ArgOrNodeDeserializer<'a, '_> {
         ValueDeserializer::new(self.entry, self.input).deserialize_str(visitor)
     }
 
-    // target wants to unpack something
-    fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        if matches!(self.entry.value(), KdlValue::Null) {
-            visitor.visit_none()
-        } else {
-            visitor.visit_some(self)
-        }
-    }
-
-    fn deserialize_newtype_struct<V: Visitor<'de>>(
-        self,
-        _n: &'static str,
-        visitor: V,
-    ) -> Result<V::Value, Error> {
-        visitor.visit_newtype_struct(self)
-    }
-
     serde::forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char
         bytes byte_buf unit unit_struct identifier ignored_any
-        seq
     }
 }
 
