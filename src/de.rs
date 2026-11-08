@@ -1826,6 +1826,39 @@ config { route "/api/users"; }
                 }]
             }
         );
+
+        let kdl = r#"
+config {
+    route "/api/users"
+    route "/api/comments"
+}
+        "#;
+
+        let config: Configs = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Configs {
+                config: vec![Config {
+                    route: vec!["/api/users".into(), "/api/comments".into()]
+                }]
+            }
+        );
+
+        let kdl = r#"
+config {
+    route "/api/users" "/api/comments"
+}
+        "#;
+
+        let config: Configs = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Configs {
+                config: vec![Config {
+                    route: vec!["/api/users".into(), "/api/comments".into()]
+                }]
+            }
+        );
     }
 
     #[test]
@@ -2033,6 +2066,13 @@ item "x" "y"
                 ],
             }
         );
+        let kdl = r#"
+item {
+    foo "a" "b"
+    bar "x" "y"
+}
+"#;
+        let _ = from_str::<Config>(kdl).unwrap_err();
     }
 
     #[test]
@@ -2114,6 +2154,44 @@ server host="localhost" port=8080 {
                 },
             }
         );
+    }
+
+    #[test]
+    fn children_with_list_of_args() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            #[serde(rename = "vector")]
+            vectors: Vec<Vec<i32>>,
+        }
+
+        let kdl = r#"
+        vector 1 2 3
+        "#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                vectors: vec![vec![1, 2, 3]],
+            }
+        );
+
+        let kdl = r#"
+        vector 1 2 3
+        vector 4 5 6
+        "#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                vectors: vec![vec![1, 2, 3], vec![4, 5, 6]],
+            }
+        );
+
+        let kdl = r#"
+        vector
+        "#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(config, Config { vectors: vec![] });
     }
 
     #[test]
