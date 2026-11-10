@@ -2000,6 +2000,441 @@ items {
     }
 
     #[test]
+    fn nodes_with_children_as_seq() {
+        #[derive(Deserialize, Debug, Default, PartialEq)]
+        #[serde(default)]
+        struct Document {
+            #[serde(rename = "item")]
+            items: Vec<Item>,
+        }
+
+        #[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+        #[serde(default)]
+        struct Item {
+            #[serde(rename = "#0")]
+            arg1: Option<String>,
+            #[serde(rename = "#1")]
+            arg2: Option<u64>,
+
+            #[serde(rename = "#@string")]
+            prop: Option<String>,
+
+            val1: Option<String>,
+            val2: Option<u64>,
+
+            flag: bool,
+
+            #[serde(rename = "item")]
+            items: Vec<Item>,
+        }
+
+        let empty_kdl = "";
+        let doc: Document = from_str(empty_kdl).unwrap();
+        assert_eq!(doc, Document::default());
+
+        //         let name_kdl = r#"
+        // item
+        // "#;
+        //         let name_item = Item::default();
+
+        // fixme:
+        // let doc: Document = from_str(name_kdl).unwrap();
+        // assert_eq!(
+        //     doc,
+        //     Document {
+        //         items: vec![name_item.clone()]
+        //     }
+        // );
+
+        // let doc: Document = from_str(&format!("{name_kdl}{name_kdl}")).unwrap();
+        // assert_eq!(
+        //     doc,
+        //     Document {
+        //         items: vec![name_item.clone(), name_item.clone(),]
+        //     }
+        // );
+
+        let args_kdl = r#"
+item a 1
+"#;
+        let args_item = Item {
+            arg1: Some("a".to_owned()),
+            arg2: Some(1),
+            ..Default::default()
+        };
+
+        let doc: Document = from_str(args_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_item.clone(),]
+            }
+        );
+
+        let doc: Document = from_str(&format!("{args_kdl}{args_kdl}")).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_item.clone(), args_item.clone(),]
+            }
+        );
+
+        let args_props_kdl = r#"
+item a 1 string=b
+"#;
+        let args_props_item = Item {
+            arg1: Some("a".to_owned()),
+            arg2: Some(1),
+            prop: Some("b".to_owned()),
+            ..Default::default()
+        };
+
+        let doc: Document = from_str(args_props_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_props_item.clone()]
+            }
+        );
+
+        let doc: Document = from_str(&format!("{args_props_kdl}{args_props_kdl}")).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_props_item.clone(), args_props_item.clone(),]
+            }
+        );
+
+        let props_kdl = r#"
+item string=b
+"#;
+        let props_item = Item {
+            prop: Some("b".to_owned()),
+            ..Default::default()
+        };
+
+        let doc: Document = from_str(props_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![props_item.clone()]
+            }
+        );
+
+        let doc: Document = from_str(&format!("{props_kdl}{props_kdl}")).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![props_item.clone(), props_item.clone(),]
+            }
+        );
+
+        let args_props_children_kdl = r#"
+item a 1 string=b {
+    val1 c
+    val2 2
+    flag
+}
+"#;
+        let args_props_children_item = Item {
+            arg1: Some("a".to_owned()),
+            arg2: Some(1),
+            prop: Some("b".to_owned()),
+            val1: Some("c".to_owned()),
+            val2: Some(2),
+            flag: true,
+            items: vec![],
+        };
+
+        let doc: Document = from_str(args_props_children_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_props_children_item.clone()]
+            }
+        );
+
+        let doc: Document = from_str(&format!(
+            "{args_props_children_kdl}{args_props_children_kdl}"
+        ))
+        .unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![
+                    args_props_children_item.clone(),
+                    args_props_children_item.clone(),
+                ]
+            }
+        );
+
+        let props_children_kdl = r#"
+item string=b {
+    val1 c
+    val2 2
+    flag
+}
+"#;
+        let props_children_item = Item {
+            prop: Some("b".to_owned()),
+            val1: Some("c".to_owned()),
+            val2: Some(2),
+            flag: true,
+            ..Default::default()
+        };
+
+        let doc: Document = from_str(props_children_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![props_children_item.clone()]
+            }
+        );
+
+        let doc: Document = from_str(&format!("{props_children_kdl}{props_children_kdl}")).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![props_children_item.clone(), props_children_item.clone(),]
+            }
+        );
+
+        let pairs = [
+            // (name_kdl, name_item),
+            (args_kdl, args_item),
+            (args_props_kdl, args_props_item),
+            (props_kdl, props_item),
+            (args_props_children_kdl, args_props_children_item),
+            (props_children_kdl, props_children_item),
+        ];
+
+        let nested_kdl = |inner: &str| {
+            format!(
+                r#"
+item {{
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_kdl(inner_kdl);
+
+            let item = Item {
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_args_kdl = |inner: &str| {
+            format!(
+                r#"
+item a 1 {{
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_args_kdl(inner_kdl);
+
+            let item = Item {
+                arg1: Some("a".to_owned()),
+                arg2: Some(1),
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_args_props_kdl = |inner: &str| {
+            format!(
+                r#"
+item a 1 string=b {{
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_args_props_kdl(inner_kdl);
+
+            let item = Item {
+                arg1: Some("a".to_owned()),
+                arg2: Some(1),
+                prop: Some("b".to_owned()),
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_props_kdl = |inner: &str| {
+            format!(
+                r#"
+item string=b {{
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_props_kdl(inner_kdl);
+
+            let item = Item {
+                prop: Some("b".to_owned()),
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_args_props_children_kdl = |inner: &str| {
+            format!(
+                r#"
+item a 1 string=b {{
+    val1 c
+    val2 2
+    flag
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_args_props_children_kdl(inner_kdl);
+
+            let item = Item {
+                arg1: Some("a".to_owned()),
+                arg2: Some(1),
+                prop: Some("b".to_owned()),
+                val1: Some("c".to_owned()),
+                val2: Some(2),
+                flag: true,
+                items: vec![inner_item.clone()],
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_props_children_kdl = |inner: &str| {
+            format!(
+                r#"
+item string=b {{
+    val1 c
+    val2 2
+    flag
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_props_children_kdl(inner_kdl);
+
+            let item = Item {
+                prop: Some("b".to_owned()),
+                val1: Some("c".to_owned()),
+                val2: Some(2),
+                flag: true,
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+    }
+
+    #[test]
     fn nodes_with_args_as_seq() {
         #[derive(Deserialize, Debug, PartialEq)]
         struct Item {
