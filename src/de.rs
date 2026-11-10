@@ -898,9 +898,9 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
         let args = self.args();
         if args.is_empty() {
             // If the node has no arguments, we have to make some guesses about what was intended.
-            if self.node.children().is_some() {
-                // If the node has children, we're guessing that it's the node itself that is the
-                // sequence element.
+            if self.node.children().is_some() || !self.props().is_empty() {
+                // If the node has children or has props, we're guessing that it's the node itself
+                // that is the sequence element.
                 visitor.visit_seq(NodeListSeqAccess {
                     iter: std::slice::from_ref(self.node).iter(),
                     input: self.input,
