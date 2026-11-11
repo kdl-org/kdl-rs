@@ -590,7 +590,6 @@ impl<'de, 'a> de::Deserializer<'de> for DocumentDeserializer<'a> {
         visitor.visit_seq(NodeListSeqAccess {
             iter: self.doc.nodes().iter(),
             input: self.input,
-            first_node: None,
         })
     }
 
@@ -727,26 +726,11 @@ impl<'de, 'a> MapAccess<'de> for DocumentMapAccess<'a> {
 struct NodeDeserializer<'a> {
     node: &'a KdlNode,
     input: &'a Arc<String>,
-    first_node: Option<&'a KdlNode>,
 }
 
 impl<'a> NodeDeserializer<'a> {
     fn new(node: &'a KdlNode, input: &'a Arc<String>) -> Self {
-        NodeDeserializer {
-            node,
-            input,
-            first_node: None,
-        }
-    }
-
-    fn fallback_node(&self) -> &'a KdlNode {
-        if let Some(n) = self.first_node
-            && self.is_scalar()
-        {
-            n
-        } else {
-            self.node
-        }
+        NodeDeserializer { node, input }
     }
 
     fn args(&self) -> Vec<&'a KdlEntry> {
@@ -909,25 +893,30 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
     }
 
     fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        // A sequence was requested, but we only have a single node. We have to decide whether to
+        // yield the arguments as the sequence, or to yield the node itself as a one-element sequence.
         let args = self.args();
-
-        if !args.is_empty() && self.node.children().is_none() {
-            // Arguments → either sequence or a single node
+        if args.is_empty() {
+            // If the node has no arguments, we have to make some guesses about what was intended.
+            if self.node.children().is_some() || !self.props().is_empty() {
+                // If the node has children or has props, we're guessing that it's the node itself
+                // that is the sequence element.
+                visitor.visit_seq(NodeListSeqAccess {
+                    iter: std::slice::from_ref(self.node).iter(),
+                    input: self.input,
+                })
+            } else {
+                // If the node has nothing, we just decide here to treat it as an empty sequence.
+                visitor.visit_seq(ArgSeqAccess::new(Vec::new().into_iter(), self.input, None))
+            }
+        } else {
+            // If the node has arguments, we wait until we know more about the type of the
+            // sequence elements, before we make the decision.
             visitor.visit_seq(ArgSeqAccess::new(
                 args.into_iter(),
                 self.input,
                 Some(self.node),
             ))
-        } else if let Some(children) = self.node.children() {
-            // Children → sequence of nodes
-            visitor.visit_seq(NodeListSeqAccess {
-                iter: children.nodes().iter(),
-                input: self.input,
-                first_node: (children.nodes().len() == 1).then_some(self.node),
-            })
-        } else {
-            // Empty → empty sequence
-            visitor.visit_seq(ArgSeqAccess::new(Vec::new().into_iter(), self.input, None))
         }
     }
 
@@ -949,7 +938,7 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
     }
 
     fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        visitor.visit_map(NodeMapAccess::new(self.fallback_node(), self.input, None))
+        visitor.visit_map(NodeMapAccess::new(self.node, self.input, None))
     }
 
     fn deserialize_struct<V: Visitor<'de>>(
@@ -958,11 +947,7 @@ impl<'de, 'a> de::Deserializer<'de> for NodeDeserializer<'a> {
         fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        visitor.visit_map(NodeMapAccess::new(
-            self.fallback_node(),
-            self.input,
-            Some(fields),
-        ))
+        visitor.visit_map(NodeMapAccess::new(self.node, self.input, Some(fields)))
     }
 
     fn deserialize_enum<V: Visitor<'de>>(
@@ -1073,8 +1058,8 @@ impl<'de, 'a> SeqAccess<'de> for ArgSeqAccess<'a> {
             return Ok(None);
         };
         let value = if let Some(parent) = self.parent_node.take() {
-            // let `ArgOrNodeDeserializer` decide whether to treat this as a single argument or the
-            // parent node
+            // let `ArgOrNodeDeserializer` decide whether to start yielding arguments or the
+            // node itself
             seed.deserialize(ArgOrNodeDeserializer {
                 entry: e,
                 parent_node: parent,
@@ -1088,6 +1073,7 @@ impl<'de, 'a> SeqAccess<'de> for ArgSeqAccess<'a> {
     }
 }
 
+/// Yields the argument (`entry`) if the target type wants a scalar, otherwise yields the node.
 struct ArgOrNodeDeserializer<'a, 'b> {
     entry: &'a KdlEntry,
     parent_node: &'a KdlNode,
@@ -1098,7 +1084,7 @@ struct ArgOrNodeDeserializer<'a, 'b> {
 impl<'de, 'a> de::Deserializer<'de> for ArgOrNodeDeserializer<'a, '_> {
     type Error = Error;
 
-    // target wants a struct → we yield the node
+    // target does not want a scalar → we yield the node
     fn deserialize_struct<V: Visitor<'de>>(
         self,
         name: &'static str,
@@ -1131,7 +1117,29 @@ impl<'de, 'a> de::Deserializer<'de> for ArgOrNodeDeserializer<'a, '_> {
             .deserialize_tuple_struct(name, len, visitor)
     }
 
-    // target wants a scalar → we yield this one argument
+    fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
+        *self.has_yielded_node = true;
+        NodeDeserializer::new(self.parent_node, self.input).deserialize_seq(visitor)
+    }
+
+    // target wants to unpack something
+    fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
+        if matches!(self.entry.value(), KdlValue::Null) {
+            visitor.visit_none()
+        } else {
+            visitor.visit_some(self)
+        }
+    }
+
+    fn deserialize_newtype_struct<V: Visitor<'de>>(
+        self,
+        _n: &'static str,
+        visitor: V,
+    ) -> Result<V::Value, Error> {
+        visitor.visit_newtype_struct(self)
+    }
+
+    // target wants a scalar → we start yielding arguments
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
         ValueDeserializer::new(self.entry, self.input).deserialize_any(visitor)
     }
@@ -1153,34 +1161,15 @@ impl<'de, 'a> de::Deserializer<'de> for ArgOrNodeDeserializer<'a, '_> {
         ValueDeserializer::new(self.entry, self.input).deserialize_str(visitor)
     }
 
-    // target wants to unpack something
-    fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Error> {
-        if matches!(self.entry.value(), KdlValue::Null) {
-            visitor.visit_none()
-        } else {
-            visitor.visit_some(self)
-        }
-    }
-
-    fn deserialize_newtype_struct<V: Visitor<'de>>(
-        self,
-        _n: &'static str,
-        visitor: V,
-    ) -> Result<V::Value, Error> {
-        visitor.visit_newtype_struct(self)
-    }
-
     serde::forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char
         bytes byte_buf unit unit_struct identifier ignored_any
-        seq
     }
 }
 
 struct NodeListSeqAccess<'a> {
     iter: std::slice::Iter<'a, KdlNode>,
     input: &'a Arc<String>,
-    first_node: Option<&'a KdlNode>,
 }
 
 impl<'de, 'a> SeqAccess<'de> for NodeListSeqAccess<'a> {
@@ -1196,7 +1185,6 @@ impl<'de, 'a> SeqAccess<'de> for NodeListSeqAccess<'a> {
                 seed.deserialize(NodeDeserializer {
                     node,
                     input: self.input,
-                    first_node: self.first_node,
                 })
             })
             .transpose()
@@ -1826,6 +1814,39 @@ config { route "/api/users"; }
                 }]
             }
         );
+
+        let kdl = r#"
+config {
+    route "/api/users"
+    route "/api/comments"
+}
+        "#;
+
+        let config: Configs = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Configs {
+                config: vec![Config {
+                    route: vec!["/api/users".into(), "/api/comments".into()]
+                }]
+            }
+        );
+
+        let kdl = r#"
+config {
+    route "/api/users" "/api/comments"
+}
+        "#;
+
+        let config: Configs = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Configs {
+                config: vec![Config {
+                    route: vec!["/api/users".into(), "/api/comments".into()]
+                }]
+            }
+        );
     }
 
     #[test]
@@ -1979,6 +2000,441 @@ items {
     }
 
     #[test]
+    fn nodes_with_children_as_seq() {
+        #[derive(Deserialize, Debug, Default, PartialEq)]
+        #[serde(default)]
+        struct Document {
+            #[serde(rename = "item")]
+            items: Vec<Item>,
+        }
+
+        #[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+        #[serde(default)]
+        struct Item {
+            #[serde(rename = "#0")]
+            arg1: Option<String>,
+            #[serde(rename = "#1")]
+            arg2: Option<u64>,
+
+            #[serde(rename = "#@string")]
+            prop: Option<String>,
+
+            val1: Option<String>,
+            val2: Option<u64>,
+
+            flag: bool,
+
+            #[serde(rename = "item")]
+            items: Vec<Item>,
+        }
+
+        let empty_kdl = "";
+        let doc: Document = from_str(empty_kdl).unwrap();
+        assert_eq!(doc, Document::default());
+
+        //         let name_kdl = r#"
+        // item
+        // "#;
+        //         let name_item = Item::default();
+
+        // fixme:
+        // let doc: Document = from_str(name_kdl).unwrap();
+        // assert_eq!(
+        //     doc,
+        //     Document {
+        //         items: vec![name_item.clone()]
+        //     }
+        // );
+
+        // let doc: Document = from_str(&format!("{name_kdl}{name_kdl}")).unwrap();
+        // assert_eq!(
+        //     doc,
+        //     Document {
+        //         items: vec![name_item.clone(), name_item.clone(),]
+        //     }
+        // );
+
+        let args_kdl = r#"
+item a 1
+"#;
+        let args_item = Item {
+            arg1: Some("a".to_owned()),
+            arg2: Some(1),
+            ..Default::default()
+        };
+
+        let doc: Document = from_str(args_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_item.clone(),]
+            }
+        );
+
+        let doc: Document = from_str(&format!("{args_kdl}{args_kdl}")).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_item.clone(), args_item.clone(),]
+            }
+        );
+
+        let args_props_kdl = r#"
+item a 1 string=b
+"#;
+        let args_props_item = Item {
+            arg1: Some("a".to_owned()),
+            arg2: Some(1),
+            prop: Some("b".to_owned()),
+            ..Default::default()
+        };
+
+        let doc: Document = from_str(args_props_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_props_item.clone()]
+            }
+        );
+
+        let doc: Document = from_str(&format!("{args_props_kdl}{args_props_kdl}")).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_props_item.clone(), args_props_item.clone(),]
+            }
+        );
+
+        let props_kdl = r#"
+item string=b
+"#;
+        let props_item = Item {
+            prop: Some("b".to_owned()),
+            ..Default::default()
+        };
+
+        let doc: Document = from_str(props_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![props_item.clone()]
+            }
+        );
+
+        let doc: Document = from_str(&format!("{props_kdl}{props_kdl}")).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![props_item.clone(), props_item.clone(),]
+            }
+        );
+
+        let args_props_children_kdl = r#"
+item a 1 string=b {
+    val1 c
+    val2 2
+    flag
+}
+"#;
+        let args_props_children_item = Item {
+            arg1: Some("a".to_owned()),
+            arg2: Some(1),
+            prop: Some("b".to_owned()),
+            val1: Some("c".to_owned()),
+            val2: Some(2),
+            flag: true,
+            items: vec![],
+        };
+
+        let doc: Document = from_str(args_props_children_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![args_props_children_item.clone()]
+            }
+        );
+
+        let doc: Document = from_str(&format!(
+            "{args_props_children_kdl}{args_props_children_kdl}"
+        ))
+        .unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![
+                    args_props_children_item.clone(),
+                    args_props_children_item.clone(),
+                ]
+            }
+        );
+
+        let props_children_kdl = r#"
+item string=b {
+    val1 c
+    val2 2
+    flag
+}
+"#;
+        let props_children_item = Item {
+            prop: Some("b".to_owned()),
+            val1: Some("c".to_owned()),
+            val2: Some(2),
+            flag: true,
+            ..Default::default()
+        };
+
+        let doc: Document = from_str(props_children_kdl).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![props_children_item.clone()]
+            }
+        );
+
+        let doc: Document = from_str(&format!("{props_children_kdl}{props_children_kdl}")).unwrap();
+        assert_eq!(
+            doc,
+            Document {
+                items: vec![props_children_item.clone(), props_children_item.clone(),]
+            }
+        );
+
+        let pairs = [
+            // (name_kdl, name_item),
+            (args_kdl, args_item),
+            (args_props_kdl, args_props_item),
+            (props_kdl, props_item),
+            (args_props_children_kdl, args_props_children_item),
+            (props_children_kdl, props_children_item),
+        ];
+
+        let nested_kdl = |inner: &str| {
+            format!(
+                r#"
+item {{
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_kdl(inner_kdl);
+
+            let item = Item {
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_args_kdl = |inner: &str| {
+            format!(
+                r#"
+item a 1 {{
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_args_kdl(inner_kdl);
+
+            let item = Item {
+                arg1: Some("a".to_owned()),
+                arg2: Some(1),
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_args_props_kdl = |inner: &str| {
+            format!(
+                r#"
+item a 1 string=b {{
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_args_props_kdl(inner_kdl);
+
+            let item = Item {
+                arg1: Some("a".to_owned()),
+                arg2: Some(1),
+                prop: Some("b".to_owned()),
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_props_kdl = |inner: &str| {
+            format!(
+                r#"
+item string=b {{
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_props_kdl(inner_kdl);
+
+            let item = Item {
+                prop: Some("b".to_owned()),
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_args_props_children_kdl = |inner: &str| {
+            format!(
+                r#"
+item a 1 string=b {{
+    val1 c
+    val2 2
+    flag
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_args_props_children_kdl(inner_kdl);
+
+            let item = Item {
+                arg1: Some("a".to_owned()),
+                arg2: Some(1),
+                prop: Some("b".to_owned()),
+                val1: Some("c".to_owned()),
+                val2: Some(2),
+                flag: true,
+                items: vec![inner_item.clone()],
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+
+        let nested_props_children_kdl = |inner: &str| {
+            format!(
+                r#"
+item string=b {{
+    val1 c
+    val2 2
+    flag
+    {inner}
+}}
+"#
+            )
+        };
+        for (inner_kdl, inner_item) in pairs.iter() {
+            let kdl = nested_props_children_kdl(inner_kdl);
+
+            let item = Item {
+                prop: Some("b".to_owned()),
+                val1: Some("c".to_owned()),
+                val2: Some(2),
+                flag: true,
+                items: vec![inner_item.clone()],
+                ..Default::default()
+            };
+
+            let doc: Document = from_str(&kdl).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone()]
+                }
+            );
+
+            let doc: Document = from_str(&format!("{kdl}{kdl}")).unwrap();
+            assert_eq!(
+                doc,
+                Document {
+                    items: vec![item.clone(), item.clone(),]
+                }
+            );
+        }
+    }
+
+    #[test]
     fn nodes_with_args_as_seq() {
         #[derive(Deserialize, Debug, PartialEq)]
         struct Item {
@@ -2033,6 +2489,13 @@ item "x" "y"
                 ],
             }
         );
+        let kdl = r#"
+item {
+    foo "a" "b"
+    bar "x" "y"
+}
+"#;
+        let _ = from_str::<Config>(kdl).unwrap_err();
     }
 
     #[test]
@@ -2114,6 +2577,44 @@ server host="localhost" port=8080 {
                 },
             }
         );
+    }
+
+    #[test]
+    fn children_with_list_of_args() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            #[serde(rename = "vector")]
+            vectors: Vec<Vec<i32>>,
+        }
+
+        let kdl = r#"
+        vector 1 2 3
+        "#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                vectors: vec![vec![1, 2, 3]],
+            }
+        );
+
+        let kdl = r#"
+        vector 1 2 3
+        vector 4 5 6
+        "#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(
+            config,
+            Config {
+                vectors: vec![vec![1, 2, 3], vec![4, 5, 6]],
+            }
+        );
+
+        let kdl = r#"
+        vector
+        "#;
+        let config: Config = from_str(kdl).unwrap();
+        assert_eq!(config, Config { vectors: vec![] });
     }
 
     #[test]
